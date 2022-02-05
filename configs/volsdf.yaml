@@ -64,4 +64,4 @@ training:
   i_backup: 50000   # unit: itertation steps
 
   i_val: 500
-  i_val_mesh: 10000
+  i_val_mesh: 500

@@ -33,7 +33,7 @@ def main_function(args):
     i_backup = int(args.training.i_backup // world_size) if args.training.i_backup > 0 else -1
     i_val = int(args.training.i_val // world_size) if args.training.i_val > 0 else -1
     i_val_mesh = int(args.training.i_val_mesh // world_size) if args.training.i_val_mesh > 0 else -1
-    special_i_val_mesh = [int(i // world_size) for i in [3000, 5000, 7000]]
+    special_i_val_mesh = [int(i // world_size) for i in [1, 100, 1000, 3000, 5000, 7000]]
     exp_dir = args.training.exp_dir
     mesh_dir = os.path.join(exp_dir, 'meshes')
     
