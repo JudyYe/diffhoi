@@ -61,7 +61,11 @@ def slurm_initialize(backend='nccl', port: Optional[int] = None):
     os.environ['WORLD_SIZE'] = str(ntasks)
     os.environ['RANK'] = str(proc_id)
     if backend == 'nccl':
-        dist.init_process_group(backend='nccl')
+        dist.init_process_group(backend='nccl',
+        init_method="tcp://{}:{}".format("localhost", "10001"),
+        world_size=ntasks,
+        rank=proc_id,
+)
     else:
         dist.init_process_group(backend='gloo', rank=proc_id, world_size=ntasks)
     rank = dist.get_rank()
