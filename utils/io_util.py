@@ -208,7 +208,8 @@ def figure_to_image(figures, close=True):
 #-----------------------------
 class ForceKeyErrorDict(addict.Dict):
     def __missing__(self, name):
-        raise KeyError(name)
+        super().__missing__(name)
+        # raise KeyError(name)
 
 
 def load_yaml(path, default_path=None):
