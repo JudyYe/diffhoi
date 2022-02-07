@@ -7,11 +7,13 @@ from utils.logger import Logger
 from utils.checkpoints import CheckpointIO
 from dataio import get_data
 
+from nnutils import web_utils, slurm_utils
 import os
 import sys
 import time
 import functools
 from tqdm import tqdm
+from glob import glob
 
 import torch
 import torch.nn.functional as F
@@ -295,6 +297,17 @@ def main_function(args):
     if is_master():
         checkpoint_io.save(filename='final_{:08d}.pt'.format(it), global_step=it, epoch_idx=epoch_idx)
         logger.save_stats('stats.p')
+        # save web 
+        last = lambda x: sorted(glob(os.path.join(logger.log_dir, x)))[-1]
+        web_utils.run(logger.log_dir + '/web/', 
+            [['gt_rgb', 'predicted_rgb', 'predicted mask', 'meshes']
+                [last('imgs/val/gt_rgb/*.png'), 
+                last('imgs/val/predicted_rgb/*.png'),
+                last('imgs/val/pred_mask_volume/*.png'),
+                last('meshes/*.ply'),
+            ]],
+            width=400
+        ) 
         log.info("Everything done.")
 
 if __name__ == "__main__":
@@ -302,6 +315,10 @@ if __name__ == "__main__":
     parser = io_util.create_args_parser()
     parser.add_argument("--ddp", action='store_true', help='whether to use DDP to train.')
     parser.add_argument("--port", type=int, default=None, help='master port for multi processing. (if used)')
+    slurm_utils.add_slurm_args(parser)
+
     args, unknown = parser.parse_known_args()
     config = io_util.load_config(args, unknown)
-    main_function(config)
+
+    slurm_utils.slurm_wrapper(args, config.training.exp_dir, main_function, {'args':config})
+    # main_function(config)

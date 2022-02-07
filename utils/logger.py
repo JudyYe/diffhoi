@@ -139,7 +139,7 @@ class Logger(object):
             return default
         else:
             return self.stats[category][k][-1][1]
-
+    
     def save_stats(self, filename):
         filename = os.path.join(self.log_dir, filename + '_{}'.format(self.rank))
         with open(filename, 'wb') as f:

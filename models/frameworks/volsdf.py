@@ -372,7 +372,6 @@ def volume_render_flow(depth_1, lin_inds, intrinsics1, intrinsics2, c2w_1, c2w_2
     # intrinsics
     pixel_points_cam2 = pixel_points_cam2.transpose(-1, -2)[..., :3]
     ij_2 = rend_util.project(pixel_points_cam2, intrinsics2)
-    print('i, j', i.size(), ij_2.size())
     flow = ij_2 - torch.stack([i, j], -1)  # (B, N_ray, 2)
     return flow
 
@@ -640,6 +639,8 @@ class Trainer(nn.Module):
 
         if "mask_ignore" in model_input:
             mask_ignore = torch.gather(model_input["mask_ignore"].to(device), 1, select_inds)
+        elif args.training.fg == 1:
+            mask_ignore = target_mask
         else:
             mask_ignore = None
         
@@ -671,8 +672,7 @@ class Trainer(nn.Module):
         losses['loss_eikonal'] = args.training.w_eikonal * F.mse_loss(nablas_norm, nablas_norm.new_ones(nablas_norm.shape), reduction='mean')
 
         losses['loss_mask'] = args.training.w_mask * F.l1_loss(extras['mask_volume'], target_mask, reduction='mean')
-        losses['loss_fl_fw'] = args.training.w_flow * F.mse_loss(flow_12, target_flow_fw, reduction='mean')
-        mask_ignore = target_mask
+        losses['loss_fl_fw'] = args.training.w_flow * F.mse_loss(flow_12, target_flow_fw, reduction='none')
         if mask_ignore is not None:
             losses['loss_img'] = (losses['loss_img'] * mask_ignore[..., None].float()).sum() / (mask_ignore.sum() + 1e-10)
             losses['loss_fl_fw'] = (losses['loss_fl_fw'] * mask_ignore[..., None].float()).sum() / (mask_ignore.sum() + 1e-10) 
