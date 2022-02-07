@@ -4,6 +4,8 @@ expname: volsdf_65
 # device_ids: [1, 0]  # DP                   ; run on specified GPU
 device_ids: -1        # single GPU / DP / DDP; run on all available GPUs; 
 
+test_train: 0
+
 data:
   batch_size: 1       # one batch, one image
   data_dir: ./data/DTU/scan65
@@ -44,10 +46,11 @@ training:
 
   lr: 5.0e-4
   w_eikonal: 0.1
+  w_mask: 0. 
 
   log_root_dir: "logs"
 
-  num_iters: 100000
+  num_iters: 5000
 
   # lr decay
   scheduler:

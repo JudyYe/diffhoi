@@ -92,6 +92,38 @@ def quat_to_rot(q):
     R[..., 2, 2] = 1-2 * (qi**2 + qj**2)
     return R
 
+def unravel_index(index, shape):
+    out = []
+    for dim in reversed(shape):
+        out.append(index % dim)
+        index = index // dim
+    return tuple(reversed(out))
+
+# x = torch.arange(30).view(10, 3)
+# for i in range(x.numel()):
+#     assert i == x[unravel_index(i, x.shape)]
+
+
+def project(xyz, intrinsics):
+    """
+
+    Args:
+        xyz (B, R, 3): [description]
+        intrinsics (B, 4, 4??): [description]
+    """
+    print('intrincs size', intrinsics.shape)
+    K = intrinsics[..., 0:3, 0:3]
+    camP = xyz.transpose(-1, -2)
+    prefix = xyz.shape[:-2]
+    if len(prefix) > 0:
+        screenP = torch.bmm(K, camP)
+    else:
+        screenP = torch.mm(K, camP)
+    screenP = screenP.transpose(-1, -2)  # (B, R, 3)
+    pixels = screenP[...,:2] / screenP[..., 2:]
+    return pixels
+
+
 def lift(x, y, z, intrinsics):
     device = x.device
     # parse intrinsics
@@ -108,6 +140,30 @@ def lift(x, y, z, intrinsics):
     # homogeneous
     return torch.stack((x_lift, y_lift, z, torch.ones_like(z).to(device)), dim=-1)
 
+
+def get_proj_mat(c2w, transpose=False):
+    device = c2w.device
+    if c2w.shape[-1] == 7: #In case of quaternion vector representation
+        cam_loc = c2w[..., 4:]
+        R = quat_to_rot(c2w[...,:4])
+        p = torch.eye(4).repeat([*c2w.shape[0:-1],1,1]).to(device).float()
+        p[..., :3, :3] = R
+        p[..., :3, 3] = cam_loc
+    else: # In case of pose matrix representation
+        p = c2w
+
+    if transpose:
+        left, right = torch.split(p, [3, 1], -1)
+        R, zeros = torch.split(left, [3, 1], -2)
+        t, ones = torch.split(right, [3, 1], -2)
+        R = R.transpose(-1, -2)  # R^t
+        t = -R @ t
+        p = torch.cat([
+                torch.cat([R, t], -1),
+                torch.cat([zeros, ones], -1),
+            ], -2)
+
+    return p
 
 def get_rays(c2w, intrinsics, H, W, N_rays=-1):
     device = c2w.device
@@ -325,3 +381,31 @@ def sample_cdf(bins, cdf, N_importance, det=False, eps=1e-5):
     samples = bins_g[..., 0] + t * (bins_g[..., 1] - bins_g[..., 0])
 
     return samples
+
+
+if __name__ == '__main__':
+    # test ravel, unravel
+    H, W = 8, 10
+    prefix = (4, )
+    N_rays = 10
+    device = 'cuda:0'
+
+    select_hs = torch.randint(0, H, size=[N_rays]).to(device)
+    select_ws = torch.randint(0, W, size=[N_rays]).to(device)
+    select_inds = select_hs * W + select_ws
+    i, j = unravel_index(select_inds, [H, W])
+    assert torch.all(select_hs == i)
+    assert torch.all(select_ws == j)
+
+    # test get_proj_mat
+    from nnutils import geom_utils
+    from pytorch3d.transforms import random_rotations
+    N = 1
+    rot = random_rotations(N, device=device)
+    trans = torch.rand([N, 3], device=device)
+    mat = geom_utils.rt_to_homo(rot, trans)
+    aTb = get_proj_mat(mat, transpose=False)
+    bTa = get_proj_mat(mat, transpose=True)
+
+    print(aTb @ bTa)
+    print(aTb, bTa)

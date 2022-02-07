@@ -46,6 +46,21 @@ def load_rgb(path, downscale=1):
     img = img.transpose(2, 0, 1)
     return img
 
+def load_flow(path, downscale=1):
+    """[summary]
+
+    Args:
+        path ([type]): [description]
+        downscale (int, optional): [description]. Defaults to 1.
+    Returns:
+        (H, W, 2)
+    """
+    flow = np.load(path)['flow']
+    if downscale != 1:
+        flow = rescale(flow, 1./downscale, anti_aliasing=False, multichannel=True)
+        flow = flow / downscale
+    return flow
+
 def load_mask(path, downscale=1):
     alpha = imageio.imread(path, as_gray=True)
     alpha = skimage.img_as_float32(alpha)

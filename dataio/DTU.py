@@ -2,8 +2,9 @@ import os
 import torch
 import numpy as np
 from tqdm import tqdm
+from glob import glob
 
-from utils.io_util import load_mask, load_rgb, glob_imgs
+from utils.io_util import load_flow, load_mask, load_rgb, glob_imgs
 from utils.rend_util import rot_to_quat, load_K_Rt_from_P
 
 class SceneDataset(torch.utils.data.Dataset):
@@ -26,6 +27,10 @@ class SceneDataset(torch.utils.data.Dataset):
         image_paths = sorted(glob_imgs(image_dir))
         mask_dir = '{0}/mask'.format(self.instance_dir)
         mask_paths = sorted(glob_imgs(mask_dir))
+        fw_dir = '{0}/FlowFW'.format(self.instance_dir)
+        fw_paths = sorted(glob(os.path.join(fw_dir, '*.npz')))
+        bw_dir = '{0}/FlowBW'.format(self.instance_dir)
+        bw_paths = sorted(glob(os.path.join(bw_dir, '*.npz')))
 
         self.n_images = len(image_paths)
         
@@ -78,8 +83,17 @@ class SceneDataset(torch.utils.data.Dataset):
             object_mask = object_mask.reshape(-1)
             self.object_masks.append(torch.from_numpy(object_mask).to(dtype=torch.bool))
 
+        self.flow_fw = []
+        for path in tqdm(fw_paths):
+            flow = load_flow(path, downscale)
+            flow = flow.reshape(-1, 2)
+            self.flow_fw.append(torch.from_numpy(flow).float())
+            
+        self.flow_bw = []
+
+
     def __len__(self):
-        return self.n_images
+        return self.n_images - 1
 
     def __getitem__(self, idx):
         # uv = np.mgrid[0:self.img_res[0], 0:self.img_res[1]].astype(np.int32)
@@ -98,9 +112,11 @@ class SceneDataset(torch.utils.data.Dataset):
         ground_truth["rgb"] = self.rgb_images[idx]
         sample["object_mask"] = self.object_masks[idx]
 
+        sample['flow_fw'] = self.flow_fw[idx]
+        
         if not self.train_cameras:
             sample["c2w"] = self.c2w_all[idx]
-
+            sample['c2w_n'] = self.c2w_all[idx + 1]
         return idx, sample, ground_truth
 
     def collate_fn(self, batch_list):
@@ -164,5 +180,13 @@ if __name__ == "__main__":
     c2w = dataset.get_gt_pose(scaled=True).data.cpu().numpy()
     extrinsics = np.linalg.inv(c2w)  # camera extrinsics are w2c matrix
     camera_matrix = next(iter(dataset))[1]['intrinsics'].data.cpu().numpy()
+    print('intrinsic??', camera_matrix, camera_matrix.shape)
+    print('extrinsic', extrinsics, extrinsics.shape)
+    print(dataset.H, dataset.W)
+    # print(next(iter(dataset))[-1]['rgb'].size())
     from tools.vis_camera import visualize
     visualize(camera_matrix, extrinsics)
+
+    cam_loc = c2w[..., :3, 3]
+    dist = np.sqrt((cam_loc**2).sum(-1))
+    print(dist)

@@ -1,3 +1,4 @@
+from __future__ import print_function
 '''
 camera extrinsics visualization tools
 modified from https://github.com/opencv/opencv/blob/master/samples/python/camera_calibration_show_extrinsics.py
@@ -5,7 +6,6 @@ modified from https://github.com/opencv/opencv/blob/master/samples/python/camera
 
 from utils.print_fn import log
 # Python 2/3 compatibility
-from __future__ import print_function
 
 import numpy as np
 import cv2 as cv
@@ -174,6 +174,8 @@ def visualize(camera_matrix, extrinsics):
     scale_focal = 40        # Value to scale the focal length.
 
     ########################    original code    ########################
+    import matplotlib
+    matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D  # pylint: disable=unused-variable
 
@@ -207,6 +209,7 @@ def visualize(camera_matrix, extrinsics):
 
     plt.show()
     log.info('Done')
+    plt.savefig('logs/camera.png')
 
 
 if __name__ == '__main__':
@@ -228,7 +231,6 @@ if __name__ == '__main__':
     c2w = torch.stack(train_dataset.c2w_all).data.cpu().numpy()
     extrinsics = np.linalg.inv(c2w)  # camera extrinsics are w2c matrix
     camera_matrix = next(iter(train_dataset))[1]['intrinsics'].data.cpu().numpy()
-
 
     # import pickle
     # data = pickle.load(open('./dev_test/london/london_siren_si20_cam.pt', 'rb'))

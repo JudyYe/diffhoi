@@ -1,6 +1,6 @@
 from models.frameworks import get_model
 from models.base import get_optimizer, get_scheduler
-from utils import rend_util, train_util, mesh_util, io_util
+from utils import flow_util, rend_util, train_util, mesh_util, io_util
 from utils.dist_util import get_local_rank, init_env, is_master, get_rank, get_world_size
 from utils.print_fn import log
 from utils.logger import Logger
@@ -74,7 +74,7 @@ def main_function(args):
             shuffle=True)
     
     # Create model
-    model, trainer, render_kwargs_train, render_kwargs_test, volume_render_fn = get_model(args)
+    model, trainer, render_kwargs_train, render_kwargs_test, volume_render_fn, flow_render_fn = get_model(args)
     model.to(device)
     log.info(model)
     log.info("=> Nerf params: " + str(train_util.count_trainable_parameters(model)))
@@ -127,11 +127,12 @@ def main_function(args):
     scheduler = get_scheduler(args, optimizer, last_epoch=it-1)
     t0 = time.time()
     log.info('=> Start training..., it={}, lr={}, in {}'.format(it, optimizer.param_groups[0]['lr'], exp_dir))
-    end = (it >= args.training.num_iters)
+    end = (it >= args.training.num_iters) and (not args.test_train)
+    test_train = args.test_train
     with tqdm(range(args.training.num_iters), disable=not is_master()) as pbar:
         if is_master():
             pbar.update(it)
-        while it <= args.training.num_iters and not end:
+        while it <= args.training.num_iters and not end or test_train:
             try:
                 if args.ddp:
                     train_sampler.set_epoch(epoch_idx)
@@ -140,18 +141,23 @@ def main_function(args):
                     #-------------------
                     # validate
                     #-------------------
-                    if i_val > 0 and int_it % i_val == 0:
+                    if i_val > 0 and int_it % i_val == 0 or test_train:
+                        test_train = 0
                         with torch.no_grad():
                             (val_ind, val_in, val_gt) = next(iter(valloader))
                             
                             intrinsics = val_in["intrinsics"].to(device)
                             c2w = val_in['c2w'].to(device)
+                            c2w_n = val_in['c2w_n'].to(device)
                             
                             # N_rays=-1 for rendering full image
                             rays_o, rays_d, select_inds = rend_util.get_rays(
                                 c2w, intrinsics, render_kwargs_test['H'], render_kwargs_test['W'], N_rays=-1)
-                            target_rgb = val_gt['rgb'].to(device)                      
+                            target_rgb = val_gt['rgb'].to(device)    
+                            target_mask = val_in['object_mask'].to(device)
+                            target_flow = val_in['flow_fw'].to(device)
                             rgb, depth_v, ret = volume_render_fn(rays_o, rays_d, calc_normal=True, detailed_output=True, **render_kwargs_test)
+                            flow = flow_render_fn(depth_v, select_inds, intrinsics, intrinsics, c2w, c2w_n, **render_kwargs_test)
 
                             to_img = functools.partial(
                                 rend_util.lin2img, 
@@ -160,7 +166,12 @@ def main_function(args):
                             logger.add_imgs(to_img(target_rgb), 'val/gt_rgb', it)
                             logger.add_imgs(to_img(rgb), 'val/predicted_rgb', it)
                             logger.add_imgs(to_img((depth_v/(depth_v.max()+1e-10)).unsqueeze(-1)), 'val/pred_depth_volume', it)
+                            logger.add_imgs(to_img(target_mask.unsqueeze(-1).float()), 'val/gt_mask', it)
                             logger.add_imgs(to_img(ret['mask_volume'].unsqueeze(-1)), 'val/pred_mask_volume', it)
+
+                            print('rgb', rgb.size(), 'flow', flow.size())
+                            logger.add_imgs(to_img(flow_util.batch_flow_to_image(flow)), 'val/predicted_flo_fw', it)
+                            logger.add_imgs(to_img(flow_util.batch_flow_to_image(target_flow)), 'val/gt_flo_fw', it)
                             if 'depth_surface' in ret:
                                 logger.add_imgs(to_img((ret['depth_surface']/ret['depth_surface'].max()).unsqueeze(-1)), 'val/pred_depth_surface', it)
                             if 'mask_surface' in ret:
@@ -243,7 +254,9 @@ def main_function(args):
                     # log losses
                     for k, v in losses.items():
                         logger.add('losses', k, v.data.cpu().numpy().item(), it)
-                    
+                        # print losses
+                        print(k, v.item())
+
                     #-------------------
                     # log extras
                     names = ["radiance", "alpha", "implicit_surface", "implicit_nablas_norm", "sigma_out", "radiance_out"]

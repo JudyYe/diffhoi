@@ -330,6 +330,52 @@ class VolSDF(nn.Module):
         radiances = self.radiance_net.forward(x, view_dirs, nablas, geometry_feature)
         return radiances, sdf, nablas
 
+def volume_render_flow(depth_1, lin_inds, intrinsics1, intrinsics2, c2w_1, c2w_2, 
+    H, W,
+    N_samples = 128,
+    rayschunk = 65536,
+    netchunk = 1048576,
+    **dummy_kwargs):
+    """ render a flow from 1 to 2. 
+    Args:
+        depth (B, N_ray): 
+        lin_inds (B, N_ray): ij in linspace
+        intrinsics1 ([type]): [description]
+        intrinsics2 ([type]): [description]
+        proj1 (B, 4, 4?): c2w_1
+        proj2 ([type]): c2w_2
+    Return:
+        flow (B, N_ray, 2) in pixel space 
+    """
+    wTc1 = rend_util.get_proj_mat(c2w_1, transpose=False)
+    c2Tw = rend_util.get_proj_mat(c2w_2, transpose=True)
+
+    i, j = rend_util.unravel_index(lin_inds, [H, W])  # (B, N_ray, 2)
+    # (B, R, 4)
+    pixel_points_cam1 = rend_util.lift(i, j, depth_1, intrinsics1)  # ??? is z = depth_1??
+    prefix = pixel_points_cam1.shape[:-2]
+    pixel_points_cam1 = pixel_points_cam1.transpose(-1, -2)
+    
+    # c2w_1 * points_cam  --> pts_world
+    print(wTc1.size(), pixel_points_cam1.size())
+    if len(prefix) > 0:
+        world_coords = torch.bmm(wTc1, pixel_points_cam1)
+    else:
+        world_coords = torch.mm(wTc1, pixel_points_cam1)
+
+    # c2W_2^T * pts_world --> pts_cam2
+    if len(prefix) > 0:
+        pixel_points_cam2 = torch.bmm(c2Tw, world_coords)
+    else:
+        pixel_points_cam2 = torch.mm(c2Tw, world_coords)
+
+    # intrinsics
+    pixel_points_cam2 = pixel_points_cam2.transpose(-1, -2)[..., :3]
+    ij_2 = rend_util.project(pixel_points_cam2, intrinsics2)
+    print('i, j', i.size(), ij_2.size())
+    flow = ij_2 - torch.stack([i, j], -1)  # (B, N_ray, 2)
+    return flow
+
 
 def volume_render(
     rays_o, 
@@ -526,6 +572,7 @@ def volume_render(
             # [(B), N_rays, ]
             ret_i['beta_map'] = beta_map
             ret_i['iter_usage'] = iter_usage
+            # [B, ray, ]
             if use_nerfplusplus:
                 ret_i['sigma_out'] = sigma_out
                 ret_i['radiance_out'] = radiance_out
@@ -579,6 +626,7 @@ class Trainer(nn.Module):
         device = self.device
         intrinsics = model_input["intrinsics"].to(device)
         c2w = model_input['c2w'].to(device)
+        c2w_n = model_input['c2w_n'].to(device)
         H = render_kwargs_train['H']
         W = render_kwargs_train['W']
         rays_o, rays_d, select_inds = rend_util.get_rays(
@@ -586,7 +634,9 @@ class Trainer(nn.Module):
         # [B, N_rays, 3]
         target_rgb = torch.gather(ground_truth['rgb'].to(device), 1, torch.stack(3*[select_inds],-1))
         # [B, N_rays]
-        # target_mask = torch.gather(model_input["object_mask"].to(device), 1, select_inds)
+        target_mask = torch.gather(model_input["object_mask"].to(device), 1, select_inds).float()
+        # [B, N_rays, 2]
+        target_flow_fw = torch.gather(model_input['flow_fw'].to(device), 1, torch.stack(2*[select_inds], -1))
 
         if "mask_ignore" in model_input:
             mask_ignore = torch.gather(model_input["mask_ignore"].to(device), 1, select_inds)
@@ -594,7 +644,7 @@ class Trainer(nn.Module):
             mask_ignore = None
         
         rgb, depth_v, extras = self.renderer(rays_o, rays_d, detailed_output=True, **render_kwargs_train)
-
+        flow_12 = volume_render_flow(depth_v, select_inds, intrinsics, intrinsics, c2w, c2w_n, **render_kwargs_train)
         # [B, N_rays, N_pts, 3]
         nablas: torch.Tensor = extras['implicit_nablas']
         
@@ -620,11 +670,16 @@ class Trainer(nn.Module):
         losses['loss_img'] = F.l1_loss(rgb, target_rgb, reduction='none')
         losses['loss_eikonal'] = args.training.w_eikonal * F.mse_loss(nablas_norm, nablas_norm.new_ones(nablas_norm.shape), reduction='mean')
 
+        losses['loss_mask'] = args.training.w_mask * F.l1_loss(extras['mask_volume'], target_mask, reduction='mean')
+        losses['loss_fl_fw'] = args.training.w_flow * F.mse_loss(flow_12, target_flow_fw, reduction='mean')
+        mask_ignore = target_mask
         if mask_ignore is not None:
             losses['loss_img'] = (losses['loss_img'] * mask_ignore[..., None].float()).sum() / (mask_ignore.sum() + 1e-10)
+            losses['loss_fl_fw'] = (losses['loss_fl_fw'] * mask_ignore[..., None].float()).sum() / (mask_ignore.sum() + 1e-10) 
         else:
             losses['loss_img'] = losses['loss_img'].mean()
-
+            losses['loss_fl_fw'] = losses['loss_fl_fw'].mean()
+        
         loss = 0
         for k, v in losses.items():
             loss += losses[k]
@@ -733,4 +788,4 @@ def get_model(args):
     
     trainer = Trainer(model, args.device_ids, batched=render_kwargs_train['batched'])
     
-    return model, trainer, render_kwargs_train, render_kwargs_test, trainer.renderer
+    return model, trainer, render_kwargs_train, render_kwargs_test, trainer.renderer, volume_render_flow
