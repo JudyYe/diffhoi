@@ -113,6 +113,7 @@ class SceneDataset(torch.utils.data.Dataset):
         sample["object_mask"] = self.object_masks[idx]
 
         sample['flow_fw'] = self.flow_fw[idx]
+        sample['inds_n'] = idx + 1
         
         if not self.train_cameras:
             sample["c2w"] = self.c2w_all[idx]

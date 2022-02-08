@@ -111,7 +111,6 @@ def project(xyz, intrinsics):
         xyz (B, R, 3): [description]
         intrinsics (B, 4, 4??): [description]
     """
-    print('intrincs size', intrinsics.shape)
     K = intrinsics[..., 0:3, 0:3]
     camP = xyz.transpose(-1, -2)
     prefix = xyz.shape[:-2]

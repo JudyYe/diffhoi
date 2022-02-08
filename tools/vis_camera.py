@@ -9,11 +9,11 @@ from utils.print_fn import log
 
 import numpy as np
 import cv2 as cv
-
+import os
 from numpy import linspace
 import matplotlib
 
-matplotlib.use('TkAgg')
+matplotlib.use('Agg')
 
 def inverse_homogeneoux_matrix(M):
     R = M[0:3, 0:3]
@@ -166,7 +166,7 @@ def draw_camera(ax, camera_matrix, cam_width, cam_height, scale_focal,
     return min_values, max_values
 
 
-def visualize(camera_matrix, extrinsics):
+def visualize(camera_matrix, extrinsics, fname='logs/camera.png'):
 
     ########################    plot params     ########################
     cam_width = 0.064/2     # Width/2 of the displayed camera.
@@ -194,6 +194,7 @@ def visualize(camera_matrix, extrinsics):
     Z_min = min_values[2]
     Z_max = max_values[2]
     max_range = np.array([X_max-X_min, Y_max-Y_min, Z_max-Z_min]).max() / 2.0
+    max_range = max(max_range, 2)
 
     mid_x = (X_max+X_min) * 0.5
     mid_y = (Y_max+Y_min) * 0.5
@@ -209,7 +210,9 @@ def visualize(camera_matrix, extrinsics):
 
     plt.show()
     log.info('Done')
-    plt.savefig('logs/camera.png')
+    os.makedirs(os.path.dirname(fname), exist_ok=True)
+    log.info('save to %s' % fname)
+    plt.savefig(fname)
 
 
 if __name__ == '__main__':

@@ -19,7 +19,9 @@ def init_env(args):
             slurm_initialize('nccl', port=args.port)
         else:
             #--------- for torch.distributed.launch
-            dist.init_process_group(backend='nccl')
+            dist.init_process_group(backend='nccl', 
+            init_method="tcp://{}:{}".format("localhost", "10001"),
+            rank=local_rank,        world_size = 1)
 
         rank = int(os.environ['RANK'])
         local_rank = int(os.environ['LOCAL_RANK'])

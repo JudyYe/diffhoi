@@ -483,41 +483,48 @@ class ScalarField(nn.Module):
         return out
 
 
-def get_optimizer(args, model):    
-    if isinstance(args.training.lr, numbers.Number):
-        optimizer = optim.Adam(model.parameters(), lr=args.training.lr)
-    elif isinstance(args.training.lr, dict):
-        lr_dict = args.training.lr
-        default_lr = lr_dict.pop('default')
-        
-        param_groups = []
-        select_params_names = []
-        for name, lr in lr_dict.items():
-            if name in model._parameters.keys():
-                select_params_names.append(name)
-                param_groups.append({
-                    'params': getattr(model, name),
-                    'lr': lr
-                })
-            elif name in model._modules.keys():
-                select_params_names.extend(["{}.{}".format(name, param_name) for param_name, _ in getattr(model, name).named_parameters()])
-                param_groups.append({
-                    'params': getattr(model, name).parameters(),
-                    'lr': lr
-                })
-            else:
-                raise RuntimeError('wrong lr key:', name)
+def get_optimizer(args, model, posenet, focalnet):    
+    # if isinstance(args.training.lr, numbers.Number):
+    #     optimizer = optim.AdamW(model.parameters(), lr=args.training.lr)
+    # elif isinstance(args.training.lr, dict):
 
-        # NOTE: parameters() is just calling named_parameters without returning name.
-        other_params = [param for name, param in model.named_parameters() if name not in select_params_names]
-        param_groups.insert(0, {
-            'params': other_params,
-            'lr': default_lr
-        })
+    #     lr_dict = args.training.lr
+    #     default_lr = lr_dict.pop('default')
         
-        optimizer = optim.Adam(params=param_groups, lr=default_lr)
-    else:
-        raise NotImplementedError
+    #     param_groups = []
+    #     select_params_names = []
+    #     for name, lr in lr_dict.items():
+    #         if name in model._parameters.keys():
+    #             select_params_names.append(name)
+    #             param_groups.append({
+    #                 'params': getattr(model, name),
+    #                 'lr': lr
+    #             })
+    #         elif name in model._modules.keys():
+    #             select_params_names.extend(["{}.{}".format(name, param_name) for param_name, _ in getattr(model, name).named_parameters()])
+    #             param_groups.append({
+    #                 'params': getattr(model, name).parameters(),
+    #                 'lr': lr
+    #             })
+    #         else:
+    #             raise RuntimeError('wrong lr key:', name)
+
+    #     # NOTE: parameters() is just calling named_parameters without returning name.
+    #     other_params = [param for name, param in model.named_parameters() if name not in select_params_names]
+    #     param_groups.insert(0, {
+    #         'params': other_params,
+    #         'lr': default_lr
+    #     })
+    # else:
+        # raise NotImplementedError
+    lr_dict = args.training.lr
+    param_groups = [
+        {'params': model.parameters(), 'lr': lr_dict['model']},
+        {'params': posenet.parameters(), 'lr': lr_dict['pose']},
+        {'params': focalnet.parameters(), 'lr': lr_dict['focal']}            
+    ]
+    
+    optimizer = optim.AdamW(params=param_groups)
     return optimizer
 
 

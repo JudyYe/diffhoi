@@ -1,5 +1,7 @@
 from models.frameworks import get_model
+from models.cameras import get_camera
 from models.base import get_optimizer, get_scheduler
+from tools import vis_camera
 from utils import flow_util, rend_util, train_util, mesh_util, io_util
 from utils.dist_util import get_local_rank, init_env, is_master, get_rank, get_world_size
 from utils.print_fn import log
@@ -14,6 +16,8 @@ import time
 import functools
 from tqdm import tqdm
 from glob import glob
+import numpy as np
+
 
 import torch
 import torch.nn.functional as F
@@ -76,18 +80,25 @@ def main_function(args):
             shuffle=True)
     
     # Create model
+    posenet, focal_net = get_camera(args, datasize=len(dataset)+1, H=dataset.H, W=dataset.W)
     model, trainer, render_kwargs_train, render_kwargs_test, volume_render_fn, flow_render_fn = get_model(args)
     model.to(device)
+    posenet.to(device)
+    focal_net.to(device)
+    trainer.init_camera(posenet, focal_net)
+
     log.info(model)
     log.info("=> Nerf params: " + str(train_util.count_trainable_parameters(model)))
+    log.info("=> Camera params: " + str(train_util.count_trainable_parameters(posenet) + train_util.count_trainable_parameters(focal_net)))
 
     render_kwargs_train['H'] = dataset.H
     render_kwargs_train['W'] = dataset.W
     render_kwargs_test['H'] = val_dataset.H
     render_kwargs_test['W'] = val_dataset.W
+    valH, valW = render_kwargs_test['H'], render_kwargs_test['W']
 
     # build optimizer
-    optimizer = get_optimizer(args, model)
+    optimizer = get_optimizer(args, model, posenet, focal_net)
 
     # checkpoints
     checkpoint_io = CheckpointIO(checkpoint_dir=os.path.join(exp_dir, 'ckpts'), allow_mkdir=is_master())
@@ -95,6 +106,8 @@ def main_function(args):
         dist.barrier()
     # Register modules to checkpoint
     checkpoint_io.register_modules(
+        posenet=posenet,
+        focalnet=focal_net,
         model=model,
         optimizer=optimizer,
     )
@@ -148,9 +161,15 @@ def main_function(args):
                         with torch.no_grad():
                             (val_ind, val_in, val_gt) = next(iter(valloader))
                             
-                            intrinsics = val_in["intrinsics"].to(device)
-                            c2w = val_in['c2w'].to(device)
-                            c2w_n = val_in['c2w_n'].to(device)
+                            # val_in = train_util.to_device(val_in, device)
+                            # val_gt = train_util.to_device(val_gt, device)
+                            val_ind = val_ind.to(device)
+
+                            c2w = posenet(val_ind, val_in, val_gt)
+                            c2w_n = posenet(val_in['inds_n'].to(device), val_in, val_gt)
+
+                            intrinsics = focal_net(val_ind, val_in, val_gt, H=valH,W=valW)
+                            intrinsics_n = focal_net(val_in['inds_n'].to(device), val_in, val_gt,H=valH,W=valW)
                             
                             # N_rays=-1 for rendering full image
                             rays_o, rays_d, select_inds = rend_util.get_rays(
@@ -159,7 +178,7 @@ def main_function(args):
                             target_mask = val_in['object_mask'].to(device)
                             target_flow = val_in['flow_fw'].to(device)
                             rgb, depth_v, ret = volume_render_fn(rays_o, rays_d, calc_normal=True, detailed_output=True, **render_kwargs_test)
-                            flow = flow_render_fn(depth_v, select_inds, intrinsics, intrinsics, c2w, c2w_n, **render_kwargs_test)
+                            flow = flow_render_fn(depth_v, select_inds, intrinsics, intrinsics_n, c2w, c2w_n, **render_kwargs_test)
 
                             to_img = functools.partial(
                                 rend_util.lin2img, 
@@ -171,7 +190,6 @@ def main_function(args):
                             logger.add_imgs(to_img(target_mask.unsqueeze(-1).float()), 'val/gt_mask', it)
                             logger.add_imgs(to_img(ret['mask_volume'].unsqueeze(-1)), 'val/pred_mask_volume', it)
 
-                            print('rgb', rgb.size(), 'flow', flow.size())
                             logger.add_imgs(to_img(flow_util.batch_flow_to_image(flow)), 'val/predicted_flo_fw', it)
                             logger.add_imgs(to_img(flow_util.batch_flow_to_image(target_flow)), 'val/gt_flo_fw', it)
                             if 'depth_surface' in ret:
@@ -182,6 +200,23 @@ def main_function(args):
                                 trainer.val(logger, ret, to_img, it, render_kwargs_test)
                             
                             logger.add_imgs(to_img(ret['normals_volume']/2.+0.5), 'val/predicted_normals', it)
+                    #-------------------
+                    # validate camera pose 
+                    #-------------------
+                    if is_master():
+                        if i_val_mesh > 0 and (int_it % i_val_mesh == 0 or int_it in special_i_val_mesh) and it != 0:
+                            with torch.no_grad():
+                                extrinsics_list = []
+                                intrinsics_list = []
+                                for val_ind, val_in, val_gt in valloader:
+                                    val_ind = val_ind.to(device)
+                                    c2w = posenet(val_ind, val_in, val_gt).cpu().detach().numpy()
+                                    intrinsics = focal_net(val_ind, val_in, val_gt, H=valH, W=valW).cpu().detach().numpy()
+                                    extrinsics_list.append(np.linalg.inv(c2w))  # camera extrinsics are w2c matrix
+                                    intrinsics_list.append(intrinsics)
+                            extrinsics = np.concatenate(extrinsics_list, 0)
+                            vis_camera.visualize(intrinsics_list[0][0], extrinsics, 
+                                os.path.join(logger.log_dir, 'cams', '%08d' % it))
                     
                     #-------------------
                     # validate mesh
@@ -193,6 +228,7 @@ def main_function(args):
                                 io_util.cond_mkdir(mesh_dir)
                                 mesh_util.extract_mesh(
                                     model.implicit_surface, 
+                                    N=64,
                                     filepath=os.path.join(mesh_dir, '{:08d}.ply'.format(it)),
                                     volume_size=args.data.get('volume_size', 2.0),
                                     show_progress=is_master())
@@ -300,7 +336,7 @@ def main_function(args):
         # save web 
         last = lambda x: sorted(glob(os.path.join(logger.log_dir, x)))[-1]
         web_utils.run(logger.log_dir + '/web/', 
-            [['gt_rgb', 'predicted_rgb', 'predicted mask', 'meshes']
+            [['gt_rgb', 'predicted_rgb', 'predicted mask', 'meshes'],
                 [last('imgs/val/gt_rgb/*.png'), 
                 last('imgs/val/predicted_rgb/*.png'),
                 last('imgs/val/pred_mask_volume/*.png'),

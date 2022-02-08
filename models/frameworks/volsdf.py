@@ -1,3 +1,4 @@
+from sys import prefix
 from models.base import ImplicitSurface, NeRF, RadianceNet
 from utils import io_util, train_util, rend_util
 from utils.logger import Logger
@@ -357,7 +358,6 @@ def volume_render_flow(depth_1, lin_inds, intrinsics1, intrinsics2, c2w_1, c2w_2
     pixel_points_cam1 = pixel_points_cam1.transpose(-1, -2)
     
     # c2w_1 * points_cam  --> pts_world
-    print(wTc1.size(), pixel_points_cam1.size())
     if len(prefix) > 0:
         world_coords = torch.bmm(wTc1, pixel_points_cam1)
     else:
@@ -443,7 +443,6 @@ def volume_render(
         
         prefix_batch = [B] if batched else []
         N_rays = rays_o.shape[-2]
-        
         nears = near * torch.ones([*prefix_batch, N_rays, 1]).to(device)
         if use_nerfplusplus:
             _, fars, mask_intersect = rend_util.get_sphere_intersection(rays_o, rays_d, r=obj_bounding_radius)
@@ -614,7 +613,14 @@ class Trainer(nn.Module):
         if len(device_ids) > 1:
             self.renderer = nn.DataParallel(self.renderer, device_ids=device_ids, dim=1 if batched else 0)
         self.device = device_ids[0]
-    
+
+        self.posenet: nn.Module = None
+        self.focalnet: nn.Module = None
+
+    def init_camera(self, posenet, focalnet):
+        self.posenet = posenet
+        self.focalnet = focalnet
+
     def forward(self, 
              args,
              indices,
@@ -623,11 +629,15 @@ class Trainer(nn.Module):
              render_kwargs_train: dict,
              it: int):
         device = self.device
-        intrinsics = model_input["intrinsics"].to(device)
-        c2w = model_input['c2w'].to(device)
-        c2w_n = model_input['c2w_n'].to(device)
+        indices = indices.to(device)
+        c2w = self.posenet(indices, model_input, ground_truth)
+        c2w_n = self.posenet(model_input['inds_n'].to(device), model_input, ground_truth)
+        
         H = render_kwargs_train['H']
         W = render_kwargs_train['W']
+        intrinsics = self.focalnet(indices, model_input, ground_truth, H=H, W=W)
+        intrinsics_n = self.focalnet(model_input['inds_n'].to(device), model_input, ground_truth, H=H,W=W)
+
         rays_o, rays_d, select_inds = rend_util.get_rays(
             c2w, intrinsics, H, W, N_rays=args.data.N_rays)
         # [B, N_rays, 3]
@@ -645,7 +655,7 @@ class Trainer(nn.Module):
             mask_ignore = None
         
         rgb, depth_v, extras = self.renderer(rays_o, rays_d, detailed_output=True, **render_kwargs_train)
-        flow_12 = volume_render_flow(depth_v, select_inds, intrinsics, intrinsics, c2w, c2w_n, **render_kwargs_train)
+        flow_12 = volume_render_flow(depth_v, select_inds, intrinsics, intrinsics_n, c2w, c2w_n, **render_kwargs_train)
         # [B, N_rays, N_pts, 3]
         nablas: torch.Tensor = extras['implicit_nablas']
         
@@ -737,7 +747,7 @@ class Trainer(nn.Module):
         cbar.ax.set_yticklabels(tick_labels)
         logger.add_figure(fig, 'val/upsample_iters', it)
 
-def get_model(args):
+def get_model(args, data_size=-1):
     model_config = {
         'use_nerfplusplus': args.model.setdefault('outside_scene', 'builtin') == 'nerf++',
         'obj_bounding_radius': args.model.obj_bounding_radius,

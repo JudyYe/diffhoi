@@ -2,6 +2,13 @@ import torch
 import numpy as np
 from typing import Iterable
 
+def to_device(batch, device):
+    for k,v in batch.items():
+        if torch.is_tensor(v):
+            batch[k] = v.to(device)
+    return batch
+
+
 def calc_grad_norm(norm_type=2.0, **named_models):
     gradient_norms = {'total': 0.0}
     for name, model in named_models.items():
