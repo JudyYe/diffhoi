@@ -1,6 +1,7 @@
 from sys import prefix
 from models.base import ImplicitSurface, NeRF, RadianceNet
 from utils import io_util, train_util, rend_util
+from utils.dist_util import is_master
 from utils.logger import Logger
 
 import copy
@@ -291,7 +292,9 @@ class VolSDF(nn.Module):
         self.ln_beta = nn.Parameter(data=torch.Tensor([ln_beta_init]), requires_grad=True)
         # self.beta = nn.Parameter(data=torch.Tensor([beta_init]), requires_grad=True)
 
-        self.use_sphere_bg = not use_nerfplusplus
+        # NOTE: Judy changes it from not nerf++ to nerf++
+        # self.use_sphere_bg = not use_nerfplusplus
+        self.use_sphere_bg = use_nerfplusplus
         self.obj_bounding_radius = obj_bounding_radius
         self.implicit_surface = ImplicitSurface(
             W_geo_feat=W_geo_feat, input_ch=input_ch, obj_bounding_size=obj_bounding_radius, **surface_cfg)
@@ -567,6 +570,9 @@ def volume_render(
             ret_i['visibility_weights'] = tau_i
             ret_i['d_vals'] = d_all
             ret_i['sigma'] = sigma
+            ret_i['tau'] = tau_i
+            ret_i['sdf'] = sdf
+            ret_i['pts'] = pts
             # [(B), N_rays, ]
             ret_i['beta_map'] = beta_map
             ret_i['iter_usage'] = iter_usage
@@ -682,7 +688,10 @@ class Trainer(nn.Module):
         losses['loss_eikonal'] = args.training.w_eikonal * F.mse_loss(nablas_norm, nablas_norm.new_ones(nablas_norm.shape), reduction='mean')
 
         losses['loss_mask'] = args.training.w_mask * F.l1_loss(extras['mask_volume'], target_mask, reduction='mean')
-        losses['loss_fl_fw'] = args.training.w_flow * F.mse_loss(flow_12, target_flow_fw, reduction='none')
+        # convert mask from screen space to NDC space -- better bound the flow?? 
+        # [0, H] -1, 1
+        max_H = max(render_kwargs_train['H'], render_kwargs_train['W'])
+        losses['loss_fl_fw'] = (2/max_H)**2 * args.training.w_flow * F.mse_loss(flow_12, target_flow_fw.detach(), reduction='none')
         if mask_ignore is not None:
             losses['loss_img'] = (losses['loss_img'] * mask_ignore[..., None].float()).sum() / (mask_ignore.sum() + 1e-10)
             losses['loss_fl_fw'] = (losses['loss_fl_fw'] * mask_ignore[..., None].float()).sum() / (mask_ignore.sum() + 1e-10) 

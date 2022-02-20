@@ -10,17 +10,27 @@ rank = 0        # process id, for IPC
 local_rank = 0  # local GPU device id
 world_size = 1  # number of processes
 
+def is_port_in_use(port: int) -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('localhost', port)) == 0
+
 def init_env(args):
     global rank, local_rank, world_size
+    while True:
+        port = random.randint(10000, 20000)    
+        if not is_port_in_use(port):
+            print('use port', port)
+            break
     if args.ddp:
         #------------- multi process running, using DDP
         if 'SLURM_PROCID' in os.environ:
             #--------- for SLURM
-            slurm_initialize('nccl', port=args.port)
+            slurm_initialize('nccl', port=port)
         else:
             #--------- for torch.distributed.launch
             dist.init_process_group(backend='nccl', 
-            init_method="tcp://{}:{}".format("localhost", "10001"),
+            init_method="tcp://{}:{}".format("localhost", str(port)),
             rank=local_rank,        world_size = 1)
 
         rank = int(os.environ['RANK'])
@@ -64,7 +74,7 @@ def slurm_initialize(backend='nccl', port: Optional[int] = None):
     os.environ['RANK'] = str(proc_id)
     if backend == 'nccl':
         dist.init_process_group(backend='nccl',
-        init_method="tcp://{}:{}".format("localhost", "10001"),
+        init_method="tcp://{}:{}".format("localhost", port),
         world_size=ntasks,
         rank=proc_id,
 )

@@ -9,7 +9,7 @@ from utils.logger import Logger
 from utils.checkpoints import CheckpointIO
 from dataio import get_data
 
-from nnutils import web_utils, slurm_utils
+from jutils import web_utils, slurm_utils
 import os
 import sys
 import time
@@ -226,12 +226,16 @@ def main_function(args):
                         if i_val_mesh > 0 and (int_it % i_val_mesh == 0 or int_it in special_i_val_mesh) and it != 0:
                             with torch.no_grad():
                                 io_util.cond_mkdir(mesh_dir)
-                                mesh_util.extract_mesh(
-                                    model.implicit_surface, 
-                                    N=64,
-                                    filepath=os.path.join(mesh_dir, '{:08d}.ply'.format(it)),
-                                    volume_size=args.data.get('volume_size', 2.0),
-                                    show_progress=is_master())
+                                try:
+                                    mesh_util.extract_mesh(
+                                        model.implicit_surface, 
+                                        N=64,
+                                        filepath=os.path.join(mesh_dir, '{:08d}.ply'.format(it)),
+                                        volume_size=args.data.get('volume_size', 2.0),
+                                        show_progress=is_master())
+                                except ValueError:
+                                    print('fail to extract mesh')
+                                    pass
 
                     if it >= args.training.num_iters:
                         end = True
@@ -242,7 +246,7 @@ def main_function(args):
                     #-------------------
                     start_time = time.time()
                     ret = trainer.forward(args, indices, model_input, ground_truth, render_kwargs_train, it)
-                    
+
                     losses = ret['losses']
                     extras = ret['extras']
 

@@ -5,7 +5,6 @@ from glob import glob
 import sys
 from nnutils import web_utils, slurm_utils
 
-from utils import io_util
 
 # compare
 
@@ -13,7 +12,10 @@ def main(args):
     out_dir = args.out
     log_dir = args.log
 
-    exp_list = args.exp.split(',')
+    if args.exp is None:
+        exp_list = [e.split('/')[-2] for e in glob(osp.join(log_dir, '*/ckpts'))]
+    else:
+        exp_list = args.exp.split(',')
     title_list = [
         'imgs/val/gt_rgb/*.png', 
         'imgs/val/predicted_rgb/*.png',
@@ -21,7 +23,8 @@ def main(args):
         'imgs/val/predicted_flo_fw/*.png', 
         'imgs/val/pred_mask_volume/*.png',
         'imgs/val/pred_depth_volume/*.png',
-        # 'meshes/*.ply'
+        'meshes/*.ply',
+        'cams/*.png',
     ]
     cell_list = [[' '] + [osp.basename(e.split('/*')[0]) for e in title_list], ]
     for exp in exp_list:
@@ -39,11 +42,10 @@ def main(args):
         cell_list, width=400) 
 
 if __name__ == '__main__':
-
-    parser = io_util.create_args_parser()
+    parser = argparse.ArgumentParser()
     parser.add_argument("--exp", type=str, default=None, help='master port for multi processing. (if used)')
-    parser.add_argument("--log", type=str, default='logs/', help='master port for multi processing. (if used)')
-    parser.add_argument("--out", type=str, default='logs/cmp_vis', help='')
+    parser.add_argument("--log", type=str, default='../output/neurecon_out/', help='master port for multi processing. (if used)')
+    parser.add_argument("--out", type=str, default='../output/neurecon_out/cmp_vis', help='')
     args, unknown = parser.parse_known_args()
     
     main(args)

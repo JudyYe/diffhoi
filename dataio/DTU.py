@@ -99,10 +99,12 @@ class SceneDataset(torch.utils.data.Dataset):
         # uv = np.mgrid[0:self.img_res[0], 0:self.img_res[1]].astype(np.int32)
         # uv = torch.from_numpy(np.flip(uv, axis=0).copy()).float()
         # uv = uv.reshape(2, -1).transpose(1, 0)
-
+        
+        idx_n = idx + 1
         sample = {
             "object_mask": self.object_masks[idx],
             "intrinsics": self.intrinsics_all[idx],
+            "intrinsics_n": self.intrinsics_all[idx_n],
         }
 
         ground_truth = {
@@ -113,11 +115,11 @@ class SceneDataset(torch.utils.data.Dataset):
         sample["object_mask"] = self.object_masks[idx]
 
         sample['flow_fw'] = self.flow_fw[idx]
-        sample['inds_n'] = idx + 1
+        sample['inds_n'] = idx_n
         
         if not self.train_cameras:
             sample["c2w"] = self.c2w_all[idx]
-            sample['c2w_n'] = self.c2w_all[idx + 1]
+            sample['c2w_n'] = self.c2w_all[idx_n]
         return idx, sample, ground_truth
 
     def collate_fn(self, batch_list):

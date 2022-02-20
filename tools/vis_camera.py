@@ -166,7 +166,7 @@ def draw_camera(ax, camera_matrix, cam_width, cam_height, scale_focal,
     return min_values, max_values
 
 
-def visualize(camera_matrix, extrinsics, fname='logs/camera.png'):
+def visualize(camera_matrix, extrinsics, fname='../output/neurecon_out/camera.png'):
 
     ########################    plot params     ########################
     cam_width = 0.064/2     # Width/2 of the displayed camera.

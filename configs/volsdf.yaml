@@ -67,7 +67,7 @@ training:
   w_flow: 0. 
   fg: 1
 
-  log_root_dir: "logs"
+  log_root_dir: "../output/neurecon_out/"
 
   num_iters: 50000
 

@@ -162,7 +162,7 @@ if __name__ == '__main__':
     extrinsics = np.linalg.inv(c2w)  # camera extrinsics are w2c matrix
     camera_matrix = model_input['intrinsics'].data.cpu().numpy()[0]
 
-    visualize(camera_matrix, extrinsics, 'logs/debug_cam/all.png')
+    visualize(camera_matrix, extrinsics, '../output/neurecon_out/debug_cam/all.png')
 
     for mode in ['para', 'gt']:
         config.camera.mode = mode
@@ -174,7 +174,7 @@ if __name__ == '__main__':
             H=train_dataset.H,W=train_dataset.W).cpu().detach().numpy()[0]
     
         extrinsics = np.linalg.inv(c2w)  # camera extrinsics are w2c matrix
-        visualize(camera_matrix, extrinsics, 'logs/debug_cam/%s.png' % mode)
+        visualize(camera_matrix, extrinsics, '../output/neurecon_out/debug_cam/%s.png' % mode)
 
         print(mode, camera_matrix, extrinsics)
 
