@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from nnutils import geom_utils, mesh_utils
+from jutils import geom_utils, mesh_utils
 
 
 """from nerfmm: https://github.com/JudyYe/nerfmm/tree/dfa552bf4c2967d11dcd2ea8462fda2cbc96c4df/models"""

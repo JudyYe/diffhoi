@@ -1,5 +1,21 @@
 
 python -m train --config configs/volsdf.yaml  \
+    --expname right_mask/mask_rgb_cam  --training:w_mask 1.0 --training:w_flow 0.0 \
+    --camera:mode para --training:num_iters 500000 \
+    --training:i_val 2000 --training:i_val_mesh 2000 --training:i_save 2000 \
+    --slurm --ddp
+
+python -m train --config configs/volsdf.yaml  \
+    --expname right_mask/mask_flow_cam  --training:w_mask 1.0 --training:w_flow 1.0 \
+    --camera:mode para --training:num_iters 500000 \
+    --training:i_val 2000 --training:i_val_mesh 2000 --training:i_save 2000 \
+    --slurm --ddp        
+
+
+
+
+--
+python -m train --config configs/volsdf.yaml  \
     --expname right_mask/mask_rgb_bg  --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 0 \
     --slurm --ddp
 

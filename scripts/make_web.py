@@ -3,7 +3,7 @@ import os
 import os.path as osp
 from glob import glob
 import sys
-from nnutils import web_utils, slurm_utils
+from jutils import web_utils, slurm_utils
 
 
 # compare
@@ -37,6 +37,7 @@ def main(args):
                 print(os.path.join(log_dir, exp, x))
             return y
         line = [exp] + [last(e) for e in title_list]
+        print(line)
         cell_list.append(line)
     web_utils.run(out_dir,
         cell_list, width=400) 
