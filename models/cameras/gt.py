@@ -8,6 +8,8 @@ class PoseNet(nn.Module):
         super().__init__()
 
     def forward(self, inds, model_input, gt):
+        """returns extrinsic stored in model_input: c2w_n or c2w, 
+        depending on if inds == model_input['inds_n']"""
         device = inds.device
         N = len(inds)
         # return  model_input['c2w'].to(device)
@@ -24,6 +26,7 @@ class FocalNet(nn.Module):
         super().__init__()
     
     def forward(self, inds, model_input, gt, **kwargs):
+        """Returns intrinsics in pixel / screen space"""
         device = inds.device
         N = len(inds)
         intr = model_input["intrinsics"].to(device)

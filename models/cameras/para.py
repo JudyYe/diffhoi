@@ -9,6 +9,7 @@ from jutils import geom_utils, mesh_utils
 """from nerfmm: https://github.com/JudyYe/nerfmm/tree/dfa552bf4c2967d11dcd2ea8462fda2cbc96c4df/models"""
 
 class PoseNet(nn.Module):
+    """returns extrinsics from learnable r, t per frame"""
     def __init__(self, num_cams, learn_R, learn_t, init_c2w=None, init_dist=2):
         """
         :param num_cams:
@@ -32,6 +33,8 @@ class PoseNet(nn.Module):
         self.t = nn.Parameter(torch.zeros(size=(num_cams, 3), dtype=torch.float32), requires_grad=learn_t)  # (N, 3)
 
     def forward(self, cam_id, model_input, gt):        
+        """returns extrinsic stored in model_input: c2w_n or c2w, 
+        depending on if inds == model_input['inds_n']"""
         r = torch.gather(self.r, 0, torch.stack(3*[cam_id], -1))  # (3, ) axis-angle
         t = torch.gather(self.t, 0, torch.stack(3*[cam_id], -1))  # (3, )
         
@@ -44,6 +47,7 @@ class PoseNet(nn.Module):
 
 
 class FocalNet(nn.Module):
+    """returns intrinsics f, p from learnable f, p per scene"""
     def __init__(self, num_cams, H, W, learn_f, learn_pp, fx_only, order=2, init_focal=None, init_px=0, init_py=0):
         super().__init__()
         self.num_cams = num_cams
@@ -73,13 +77,14 @@ class FocalNet(nn.Module):
         # final focal length = H/W * init_f_ndc * coe_x**2
         init_fx, init_fy = self.init_f_ndc[i].split(1, -1)
 
+        max_H = max(H, W)
         if self.fx_only:
             if self.order == 2:
-                fxfy = torch.cat([self.fx[i] ** 2 * W * init_fx, 
-                                    self.fx[i] ** 2 * H * init_fy], -1)
+                fxfy = torch.cat([self.fx[i] ** 2 * max_H * init_fx, 
+                                    self.fx[i] ** 2 * max_H * init_fy], -1)
             else:
-                fxfy = torch.cat([self.fx[i] * W * init_fx, 
-                                    self.fx[i] * H * init_fy], -1)
+                fxfy = torch.cat([self.fx[i] * max_H * init_fx, 
+                                    self.fx[i] * max_H * init_fy], -1)
         else:
             if self.order == 2:
                 fxfy = torch.cat([self.fx[i]**2 * W * init_fx, 
@@ -99,8 +104,7 @@ class FocalNet(nn.Module):
         return pxpy
         
     def forward(self, i=None, model_input=None, gt=None, H=1, W=1, **kwargs):  # the i=None is just to enable multi-gpu training
-        """[summary]
-
+        """ Returns intrinsics in pixel / screen space
         Args:
             i ([type], optional): [description]. Defaults to None.
         Return:
@@ -161,6 +165,7 @@ if __name__ == '__main__':
 
     extrinsics = np.linalg.inv(c2w)  # camera extrinsics are w2c matrix
     camera_matrix = model_input['intrinsics'].data.cpu().numpy()[0]
+    print('camera_matrix')
 
     visualize(camera_matrix, extrinsics, '../output/neurecon_out/debug_cam/all.png')
 
@@ -176,6 +181,6 @@ if __name__ == '__main__':
         extrinsics = np.linalg.inv(c2w)  # camera extrinsics are w2c matrix
         visualize(camera_matrix, extrinsics, '../output/neurecon_out/debug_cam/%s.png' % mode)
 
-        print(mode, camera_matrix, extrinsics)
+        print(mode, 'intr:',  camera_matrix, 'extr:', extrinsics)
 
     
