@@ -1,3 +1,12 @@
+python -m train --config configs/volsdf.yaml  --data:data_dir /checkpoint/yufeiy2/vhoi_out/syn_data/00006755 \
+    --expname syn/rgb  --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 \
+    --slurm --ddp
+
+python -m train --config configs/volsdf.yaml  --data:data_dir /checkpoint/yufeiy2/vhoi_out/syn_data/00006755 \
+    --expname syn/flow  --training:w_mask 1.0 --training:w_flow 1.0 --training:fg 1 \
+    --slurm --ddp
+
+---
 
 python -m train --config configs/volsdf.yaml  \
     --expname right_mask/mask_rgb_cam  --training:w_mask 1.0 --training:w_flow 0.0 \
