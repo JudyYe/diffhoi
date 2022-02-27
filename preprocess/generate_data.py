@@ -23,7 +23,7 @@ shapenet_dir = '/checkpoint/yufeiy2/datasets/ShapeNetCore.v2.mirror/'
 data_dir = '/checkpoint/yufeiy2/datasets/obman/obman'
 save_dir = '/checkpoint/yufeiy2/vhoi_out/syn_data/'
 device = 'cuda:0'
-time_len = 5
+time_len = 30
 H = W = 512
 def convert_to_DTU():
     return 
@@ -34,14 +34,19 @@ def render_all(wHoi, cTw_list, focal, save_dir):
 
     os.makedirs(osp.join(save_dir, 'FlowFW'), exist_ok=True)
     os.makedirs(osp.join(save_dir, 'FlowBW'), exist_ok=True)
+    image_list = []
     for t in range(len(cTw_list)):
+        print(t, len(cTw_list))
         c1Tw = geom_utils.homo_to_rt(cTw_list[t:t+1])
         cam = PerspectiveCameras(focal, R=c1Tw[0], T=c1Tw[1], device=device)
 
         # cHoi = mesh_utils.apply_transform(wHoi, cTw)
         image = mesh_utils.render_mesh(wHoi, cam, out_size=H)
-        image_utils.save_images(image['image'], osp.join(save_dir, 'image/%05d' % t))
+        img_np = image_utils.save_images(image['image'], osp.join(save_dir, 'image/%05d' % t))
         image_utils.save_images(image['mask'], osp.join(save_dir, 'mask/%05d' % t))
+        image_list.append(img_np)
+    imageio.mimsave(osp.join(save_dir, 'image.gif'), image_list)
+    print('save to', osp.join(save_dir, 'image.gif'))
 
     for t in range(len(cTw_list) -1):
         c1Tw = geom_utils.homo_to_rt(cTw_list[t:t+1])
@@ -76,16 +81,30 @@ def render_all(wHoi, cTw_list, focal, save_dir):
 def render(index, split='test'):
     hand_wrapper = ManopthWrapper().to(device)
     hObj, hHand = meta_to_mesh(hand_wrapper, index, split)
-    hObj.textures = mesh_utils.pad_texture(hObj, 'random')
+    hObj.textures = mesh_utils.pad_texture(hObj, 'blue')
     hHand.textures = mesh_utils.pad_texture(hHand, 'yellow')
     hHoi = mesh_utils.join_scene([hObj, hHand]).to(device)
 
     wHoi = mesh_utils.center_norm_geom(hHoi, 0)
+    mesh_utils.dump_meshes([osp.join(save_dir, index, 'gt')], wHoi)
+
     azel = mesh_utils.get_view_list('az', device, time_len)  # (T, 2)
     focal = 3.75
     cTw_rot, cTw_trans = look_at_view_transform(2*focal, azel[..., 1], azel[..., 0], False, )
     cTw_list = geom_utils.rt_to_homo(cTw_rot, cTw_trans)
- 
+    print(cTw_list[0])
+    rad = 2 * focal
+    mat = geom_utils.inverse_rt(mat=cTw_list, return_mat=True)[0]
+    c2w_tracks = render_view.c2w_track_spiral(
+        mat.cpu().detach().numpy(),
+        np.array([0., 1., 0.]),
+        rads=np.array([0.5* rad,  rad, 0. * rad]), 
+        focus=rad, zrate=0.1, rots=3, N=time_len,
+    )
+    c2w_tracks = torch.FloatTensor(c2w_tracks)
+    print(c2w_tracks)
+    c2w_tracks = geom_utils.inverse_rt(mat=c2w_tracks,return_mat=True)
+    # render_all(wHoi, c2w_tracks, focal, osp.join(save_dir, index))
     render_all(wHoi, cTw_list, focal, osp.join(save_dir, index))
 
     # save camera

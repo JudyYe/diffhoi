@@ -1,9 +1,23 @@
+
+--
+python -m train --config configs/volsdf.yaml \
+    --expname syn/rgb_dtu  --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 \
+    --slurm --ddp
+
+python -m train --config configs/volsdf.yaml \
+    --expname syn/flow_dtu  --training:w_mask 1.0 --training:w_flow 1.0 --training:fg 1 \
+    --slurm --ddp
+
+
+
+
+
 python -m train --config configs/volsdf.yaml  --data:data_dir /checkpoint/yufeiy2/vhoi_out/syn_data/00006755 \
-    --expname syn/rgb  --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 \
+    --expname syn/rgb_blue  --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 \
     --slurm --ddp
 
 python -m train --config configs/volsdf.yaml  --data:data_dir /checkpoint/yufeiy2/vhoi_out/syn_data/00006755 \
-    --expname syn/flow  --training:w_mask 1.0 --training:w_flow 1.0 --training:fg 1 \
+    --expname syn/flow_blue  --training:w_mask 1.0 --training:w_flow 1.0 --training:fg 1 \
     --slurm --ddp
 
 ---
