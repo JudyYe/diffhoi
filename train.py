@@ -84,6 +84,7 @@ def main_function(args):
     # Create model
     posenet, focal_net = get_camera(args, datasize=len(dataset)+1, H=dataset.H, W=dataset.W)
     model, trainer, render_kwargs_train, render_kwargs_test, volume_render_fn, flow_render_fn = get_model(args, data_size=len(dataset)+1)
+    trainer.to(device)
     model.to(device)
     posenet.to(device)
     focal_net.to(device)
@@ -166,8 +167,8 @@ def main_function(args):
                             # val_in = train_util.to_device(val_in, device)
                             # val_gt = train_util.to_device(val_gt, device)
                             trainer.eval()
-                            loss_extras = trainer(args, val_ind, val_in, val_gt, render_kwargs_test, 0)
                             val_ind = val_ind.to(device)
+                            loss_extras = trainer(args, val_ind, val_in, val_gt, render_kwargs_test, 0)
 
                             # c2w = posenet(val_ind, val_in, val_gt)
                             # c2w_n = posenet(val_in['inds_n'].to(device), val_in, val_gt)

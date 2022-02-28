@@ -1,3 +1,7 @@
+python -m train --config configs/volsdf_hoi.yaml \
+    --expname dev/rgb_blue  --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 \
+    --slurm --ddp
+
 
 --
 python -m train --config configs/volsdf.yaml \

@@ -10,6 +10,9 @@ def get_data(args, return_val=False, val_downscale=4.0, **overwrite_cfgs):
     if dataset_type == 'DTU':
         from .DTU import SceneDataset
         cfgs['cam_file'] = args.data.get('cam_file', None)
+    elif dataset_type == 'HOI':
+        from .hoi import SceneDataset
+        cfgs['cam_file'] = args.data.get('cam_file', None)
     elif dataset_type == 'custom':
         from .custom import SceneDataset
     elif dataset_type == 'BlendedMVS':

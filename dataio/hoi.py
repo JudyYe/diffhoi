@@ -1,16 +1,16 @@
-import os
+import os.path as osp
 import torch
 import numpy as np
 from tqdm import tqdm
 from glob import glob
 
-from .DTU import SceneDataset
+from . import DTU 
 from utils.io_util import load_flow, load_mask, load_rgb, glob_imgs
 from utils.rend_util import rot_to_quat, load_K_Rt_from_P
 from jutils import mesh_utils
 
 
-class HoiDataset(SceneDataset):
+class SceneDataset(DTU.SceneDataset):
     # NOTE: jianfei: modified from IDR.   https://github.com/lioryariv/idr/blob/main/code/datasets/scene_dataset.py
     """Dataset for a class of objects, where each datapoint is a SceneInstanceDataset."""
 
@@ -21,7 +21,7 @@ class HoiDataset(SceneDataset):
                  cam_file=None,
                  scale_radius=-1):
         super().__init__(train_cameras, data_dir, downscale, cam_file, scale_radius)
-        self.hand = mesh_utils.load_mesh(data_dir, 'hand.obj')
+        self.hand = mesh_utils.load_mesh(osp.join(data_dir, 'hand.obj'))
 
     def __len__(self):
         return self.n_images - 1
@@ -32,6 +32,7 @@ class HoiDataset(SceneDataset):
         # uv = torch.from_numpy(np.flip(uv, axis=0).copy()).float()
         # uv = uv.reshape(2, -1).transpose(1, 0)
         sample['hand'] = self.hand
+        return idx, sample, ground_truth
 
 if __name__ == "__main__":
     dataset = SceneDataset(False, './data/DTU/scan40')

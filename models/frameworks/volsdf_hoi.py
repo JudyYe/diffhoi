@@ -13,6 +13,7 @@ import torch.nn.functional as F
 
 from pytorch3d.structures import Meshes
 from pytorch3d.renderer import PerspectiveCameras
+import pytorch3d.transforms.rotation_conversions as rot_cvt
 
 from models.base import ImplicitSurface, NeRF, RadianceNet
 from models.frameworks.volsdf import SingleRenderer, VolSDF, volume_render_flow
@@ -42,12 +43,12 @@ class RelPoseNet(nn.Module):
         """
         super().__init__()
         if init_pose is None:
-            init_pose = torch.eye(4)
+            init_pose = torch.eye(4).unsqueeze(0)
         base_r, base_t, base_s = geom_utils.homo_to_rt(init_pose)
         # use axisang
         self.base_r = nn.Parameter(geom_utils.matrix_to_axis_angle(base_r), learn_base_R)
-        self.base_s = nn.Parameter(geom_utils.matrix_to_axis_angle(base_s), learn_base_s)
-        self.base_t = nn.Parameter(geom_utils.matrix_to_axis_angle(base_t), learn_base_t)
+        self.base_s = nn.Parameter(base_s, learn_base_s)
+        self.base_t = nn.Parameter(base_t, learn_base_t)
 
         self.r = nn.Parameter(torch.zeros(size=(num_frames, 3), dtype=torch.float32), requires_grad=learn_R)  # (N, 3)
         self.t = nn.Parameter(torch.zeros(size=(num_frames, 3), dtype=torch.float32), requires_grad=learn_t)  # (N, 3)
@@ -59,7 +60,8 @@ class RelPoseNet(nn.Module):
 
         N = len(r)
 
-        base = geom_utils.rt_to_homo(self.base_r, self.base_t, self.base_s)
+        base = geom_utils.rt_to_homo(
+            rot_cvt.axis_angle_to_matrix(self.base_r), self.base_t, self.base_s)
         base = base.repeat(N, 1, 1)
 
         frame_pose = frameTbase @ base
@@ -82,8 +84,9 @@ class VolSDFHoi(VolSDF):
         super().__init__(beta_init, speed_factor, 
             input_ch, W_geo_feat, obj_bounding_radius, use_nerfplusplus, 
             surface_cfg, radiance_cfg)
-        self.oTh = RelPoseNet(data_size, learn_R=True, learn_T=True, 
-            init_pose=sRt, learn_base_s=True, learn_base_R=True, learn_base_t=True)
+        # TODO: initialize pose
+        self.oTh = RelPoseNet(data_size, learn_R=True, learn_t=True, 
+            init_pose=None, learn_base_s=True, learn_base_R=True, learn_base_t=True)
 
 class MeshRenderer(nn.Module):
     def __init__(self):
@@ -132,7 +135,7 @@ class Trainer(nn.Module):
         
         # apply object to hand pose, include scale!, R, t
         oTh = self.model.oTh(indices)
-        oTh_n = self.model.oTh(model_input['inds_n'])
+        oTh_n = self.model.oTh(model_input['inds_n'].to(device))
         oTc = oTh @ hTc
         oTc_n = oTh_n @ hTc_n
         
@@ -331,6 +334,7 @@ def get_model(args, data_size=-1):
     render_kwargs_test = copy.deepcopy(render_kwargs_train)
     render_kwargs_test['rayschunk'] = args.data.val_rayschunk
     render_kwargs_test['perturb'] = False
+    render_kwargs_test['calc_normal'] = True
     
     trainer = Trainer(model, args.device_ids, batched=render_kwargs_train['batched'])
     
