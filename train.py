@@ -9,7 +9,7 @@ from utils.logger import Logger
 from utils.checkpoints import CheckpointIO
 from dataio import get_data
 
-from jutils import web_utils, slurm_utils
+from jutils import web_utils, slurm_utils, mesh_utils
 import os
 import sys
 import time
@@ -67,21 +67,23 @@ def main_function(args):
     bs = args.data.get('batch_size', None)
     if args.ddp:
         train_sampler = DistributedSampler(dataset)
-        dataloader = torch.utils.data.DataLoader(dataset, sampler=train_sampler, batch_size=bs)
+        dataloader = DataLoader(dataset, sampler=train_sampler, batch_size=bs, collate_fn=mesh_utils.collate_meshes)
         val_sampler = DistributedSampler(val_dataset)
-        valloader = torch.utils.data.DataLoader(val_dataset, sampler=val_sampler, batch_size=bs)
+        valloader = DataLoader(val_dataset, sampler=val_sampler, batch_size=bs, collate_fn=mesh_utils.collate_meshes)
     else:
         dataloader = DataLoader(dataset,
             batch_size=bs,
             shuffle=True,
-            pin_memory=args.data.get('pin_memory', False))
+            pin_memory=args.data.get('pin_memory', False),
+            collate_fn=mesh_utils.collate_meshes)
         valloader = DataLoader(val_dataset,
             batch_size=1,
-            shuffle=True)
+            shuffle=True,
+            collate_fn=mesh_utils.collate_meshes)
     
     # Create model
     posenet, focal_net = get_camera(args, datasize=len(dataset)+1, H=dataset.H, W=dataset.W)
-    model, trainer, render_kwargs_train, render_kwargs_test, volume_render_fn, flow_render_fn = get_model(args)
+    model, trainer, render_kwargs_train, render_kwargs_test, volume_render_fn, flow_render_fn = get_model(args, data_size=len(dataset)+1)
     model.to(device)
     posenet.to(device)
     focal_net.to(device)
@@ -163,22 +165,29 @@ def main_function(args):
                             
                             # val_in = train_util.to_device(val_in, device)
                             # val_gt = train_util.to_device(val_gt, device)
+                            trainer.eval()
+                            loss_extras = trainer(args, val_ind, val_in, val_gt, render_kwargs_test, 0)
                             val_ind = val_ind.to(device)
 
-                            c2w = posenet(val_ind, val_in, val_gt)
-                            c2w_n = posenet(val_in['inds_n'].to(device), val_in, val_gt)
+                            # c2w = posenet(val_ind, val_in, val_gt)
+                            # c2w_n = posenet(val_in['inds_n'].to(device), val_in, val_gt)
 
-                            intrinsics = focal_net(val_ind, val_in, val_gt, H=valH,W=valW)
-                            intrinsics_n = focal_net(val_in['inds_n'].to(device), val_in, val_gt,H=valH,W=valW)
+                            # intrinsics = focal_net(val_ind, val_in, val_gt, H=valH,W=valW)
+                            # intrinsics_n = focal_net(val_in['inds_n'].to(device), val_in, val_gt,H=valH,W=valW)
                             
-                            # N_rays=-1 for rendering full image
-                            rays_o, rays_d, select_inds = rend_util.get_rays(
-                                c2w, intrinsics, render_kwargs_test['H'], render_kwargs_test['W'], N_rays=-1)
+                            # # N_rays=-1 for rendering full image
+                            # rays_o, rays_d, select_inds = rend_util.get_rays(
+                            #     c2w, intrinsics, render_kwargs_test['H'], render_kwargs_test['W'], N_rays=-1)
                             target_rgb = val_gt['rgb'].to(device)    
                             target_mask = val_in['object_mask'].to(device)
                             target_flow = val_in['flow_fw'].to(device)
-                            rgb, depth_v, ret = volume_render_fn(rays_o, rays_d, calc_normal=True, detailed_output=True, **render_kwargs_test)
-                            flow = flow_render_fn(depth_v, select_inds, intrinsics, intrinsics_n, c2w, c2w_n, **render_kwargs_test)
+                            # rgb, depth_v, ret = volume_render_fn(rays_o, rays_d, calc_normal=True, detailed_output=True, **render_kwargs_test)
+                            # flow = flow_render_fn(depth_v, select_inds, intrinsics, intrinsics_n, c2w, c2w_n, **render_kwargs_test)
+                            ret = loss_extras['extras']
+                            rgb = ret['rgb']
+                            depth_v = ret['depth_volume']
+                            flow = ret['flow']
+                            print(rgb.shape)
 
                             to_img = functools.partial(
                                 rend_util.lin2img, 
@@ -245,6 +254,7 @@ def main_function(args):
                     # train
                     #-------------------
                     start_time = time.time()
+                    trainer.train()
                     ret = trainer.forward(args, indices, model_input, ground_truth, render_kwargs_train, it)
 
                     losses = ret['losses']

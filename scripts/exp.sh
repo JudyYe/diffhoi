@@ -9,7 +9,7 @@ python -m train --config configs/volsdf.yaml \
     --slurm --ddp
 
 
-
+-
 
 
 python -m train --config configs/volsdf.yaml  --data:data_dir /checkpoint/yufeiy2/vhoi_out/syn_data/00006755 \

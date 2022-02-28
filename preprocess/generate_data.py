@@ -11,6 +11,7 @@ import pytorch3d
 from pytorch3d.renderer.cameras import look_at_view_transform, PerspectiveCameras
 from pytorch3d.structures import Pointclouds
 from torchmetrics import ScaleInvariantSignalNoiseRatio
+from preprocess.inspect_dtu_cam import draw, proj
 from tools import render_view
 from jutils import image_utils, mesh_utils, geom_utils
 from utils.hand_utils import ManopthWrapper
@@ -38,7 +39,7 @@ def render_all(wHoi, cTw_list, focal, save_dir):
     for t in range(len(cTw_list)):
         print(t, len(cTw_list))
         c1Tw = geom_utils.homo_to_rt(cTw_list[t:t+1])
-        cam = PerspectiveCameras(focal, R=c1Tw[0], T=c1Tw[1], device=device)
+        cam = PerspectiveCameras(focal, R=c1Tw[0].transpose(-1, -2), T=c1Tw[1], device=device)
 
         # cHoi = mesh_utils.apply_transform(wHoi, cTw)
         image = mesh_utils.render_mesh(wHoi, cam, out_size=H)
@@ -51,8 +52,8 @@ def render_all(wHoi, cTw_list, focal, save_dir):
     for t in range(len(cTw_list) -1):
         c1Tw = geom_utils.homo_to_rt(cTw_list[t:t+1])
         c2Tw = geom_utils.homo_to_rt(cTw_list[t+1:t+2])
-        cam1 = PerspectiveCameras(focal, R=c1Tw[0], T=c1Tw[1], device=device)
-        cam2 = PerspectiveCameras(focal, R=c2Tw[0], T=c2Tw[1], device=device)
+        cam1 = PerspectiveCameras(focal, R=c1Tw[0].transpose(-1, -2), T=c1Tw[1], device=device)
+        cam2 = PerspectiveCameras(focal, R=c2Tw[0].transpose(-1, -2), T=c2Tw[1], device=device)
 
         flow = mesh_utils.render_mesh_flow(wHoi, cam1, cam2, return_ndc=False, out_size=H)
 
@@ -62,12 +63,11 @@ def render_all(wHoi, cTw_list, focal, save_dir):
         imageio.imwrite(osp.join(save_dir, 'FlowFW/%05d.png' % t), flow_image)
         np.savez_compressed(osp.join(save_dir, 'FlowFW/%05d.npz' % t), flow=flow12)
 
-
     for t in range(1, len(cTw_list)):
         c1Tw = geom_utils.homo_to_rt(cTw_list[t:t+1])
         c2Tw = geom_utils.homo_to_rt(cTw_list[t-1:t])
-        cam1 = PerspectiveCameras(focal, R=c1Tw[0], T=c1Tw[1], device=device)
-        cam2 = PerspectiveCameras(focal, R=c2Tw[0], T=c2Tw[1], device=device)
+        cam1 = PerspectiveCameras(focal, R=c1Tw[0].transpose(-1, -2), T=c1Tw[1], device=device)
+        cam2 = PerspectiveCameras(focal, R=c2Tw[0].transpose(-1, -2), T=c2Tw[1], device=device)
 
         flow = mesh_utils.render_mesh_flow(wHoi, cam1, cam2, return_ndc=False, out_size=H)
 
@@ -85,8 +85,10 @@ def render(index, split='test'):
     hHand.textures = mesh_utils.pad_texture(hHand, 'yellow')
     hHoi = mesh_utils.join_scene([hObj, hHand]).to(device)
 
-    wHoi = mesh_utils.center_norm_geom(hHoi, 0)
+    wHoi, wTh = mesh_utils.center_norm_geom(hHoi, 0)
+    wHand = mesh_utils.apply_transform(hHand.to(device), wTh)
     mesh_utils.dump_meshes([osp.join(save_dir, index, 'gt')], wHoi)
+    mesh_utils.dump_meshes([osp.join(save_dir, index, 'hand')], wHand)
 
     azel = mesh_utils.get_view_list('az', device, time_len)  # (T, 2)
     focal = 3.75
@@ -111,29 +113,16 @@ def render(index, split='test'):
     proj_mat = get_proj_intr_mat(cTw_list, H, W, focal)   # T, 4, 4
     camera_dict = {}
     for t in range(time_len): 
+        # verts = wHoi.verts_packed().cpu().detach().numpy()  #  P, 3
+        # uv = proj(verts, proj_mat[t].cpu().detach().numpy())
+        # image = cv2.imread(osp.join(save_dir, index, 'image/%05d.png' % t))
+
+        # draw(uv, image)
+        # os.makedirs(osp.join(save_dir, index, 'vis'), exist_ok=True)
+        # plt.savefig(osp.join(save_dir, index, 'vis/%d.png' %  t) )
+
         camera_dict['scale_mat_%d' % t] = np.eye(4)
         camera_dict['world_mat_%d' % t] = proj_mat[t].cpu().detach().numpy()
-
-        P = proj_mat[t].cpu().detach().numpy()
-        P = P[:3, :4]
-        intr, pose = load_K_Rt_from_P(P)
-
-        # verts = wHoi.verts_packed().cpu().detach().numpy()  #  P, 3
-        # ones = np.ones([len(verts), 1])
-        # vp = np.concatenate([verts, ones], -1) @ P.T
-        # vp = (vp[..., :2] / vp[..., 2:]).astype(int)        
-
-        # os.makedirs(osp.join(save_dir, index, 'vis'), exist_ok=True)
-
-        # image = cv2.imread(osp.join(save_dir, index, 'image/%05d.png' % t))
-        # image = cv2_scatter(vp, image, (0, 255, 0))
-
-        # ones = np.ones([len(verts), 1])
-        # vp = np.concatenate([verts, ones], -1) @ (intr @ pose).T
-        # vp = (vp[..., :2] / vp[..., 2:3]).astype(int)
-        # image = cv2_scatter(vp, image, (255, 0, 0))
-
-        # cv2.imwrite(osp.join(save_dir, index, 'vis/%05d.png' % t), image)
     np.savez_compressed(osp.join(save_dir, index, 'cameras.npz'), **camera_dict)
     return 
 
@@ -144,6 +133,7 @@ def cv2_scatter(vp, image, color):
 
 def get_proj_intr_mat(cTw, H, W, focal, px=0, py=0):
     cali = torch.eye(4)
+    # cali[0, 0] = -1
     # cali[1, 1] = -1
     # cali[2, 2] = -1
     cali = cali[None]

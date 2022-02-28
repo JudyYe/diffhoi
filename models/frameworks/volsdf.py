@@ -644,8 +644,13 @@ class Trainer(nn.Module):
         intrinsics = self.focalnet(indices, model_input, ground_truth, H=H, W=W)
         intrinsics_n = self.focalnet(model_input['inds_n'].to(device), model_input, ground_truth, H=H,W=W)
 
-        rays_o, rays_d, select_inds = rend_util.get_rays(
-            c2w, intrinsics, H, W, N_rays=args.data.N_rays)
+        if self.training:
+            rays_o, rays_d, select_inds = rend_util.get_rays(
+                c2w, intrinsics, H, W, N_rays=args.data.N_rays)
+        else:
+            rays_o, rays_d, select_inds = rend_util.get_rays(
+                c2w, intrinsics, H, W, N_rays=-1)
+
         # [B, N_rays, 3]
         target_rgb = torch.gather(ground_truth['rgb'].to(device), 1, torch.stack(3*[select_inds],-1))
         # [B, N_rays]
@@ -712,6 +717,8 @@ class Trainer(nn.Module):
         beta = beta.data
         extras['scalars'] = {'beta': beta, 'alpha': alpha}
         extras['select_inds'] = select_inds
+
+        extras['flow'] = flow_12
 
         return OrderedDict(
             [('losses', losses),
@@ -804,6 +811,7 @@ def get_model(args, data_size=-1):
     render_kwargs_test = copy.deepcopy(render_kwargs_train)
     render_kwargs_test['rayschunk'] = args.data.val_rayschunk
     render_kwargs_test['perturb'] = False
+    render_kwargs_test['calc_normal'] = True
     
     trainer = Trainer(model, args.device_ids, batched=render_kwargs_train['batched'])
     

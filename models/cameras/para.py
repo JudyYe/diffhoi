@@ -10,7 +10,8 @@ from jutils import geom_utils, mesh_utils
 
 class PoseNet(nn.Module):
     """returns extrinsics from learnable r, t per frame"""
-    def __init__(self, num_cams, learn_R, learn_t, init_c2w=None, init_dist=2):
+    def __init__(self, num_cams, learn_R, learn_t, 
+        init_c2w=None, init_dist=2):
         """
         :param num_cams:
         :param learn_R:  True/False

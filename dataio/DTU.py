@@ -47,6 +47,7 @@ class SceneDataset(torch.utils.data.Dataset):
         camera_dict = np.load(self.cam_file)
         scale_mats = [camera_dict['scale_mat_%d' % idx].astype(np.float32) for idx in range(self.n_images)]
         world_mats = [camera_dict['world_mat_%d' % idx].astype(np.float32) for idx in range(self.n_images)]
+        self.proj_mat = np.array(world_mats) @ np.array(scale_mats)
 
         self.intrinsics_all = []
         self.c2w_all = []
@@ -55,6 +56,8 @@ class SceneDataset(torch.utils.data.Dataset):
             P = world_mat @ scale_mat
             P = P[:3, :4]
             intrinsics, pose = load_K_Rt_from_P(P)
+            cTw = np.linalg.inv(pose)
+            # print(intrinsics @ cTw - world_mat @ scale_mat)
             cam_center_norms.append(np.linalg.norm(pose[:3,3]))
             
             # downscale intrinsics
