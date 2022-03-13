@@ -1,3 +1,4 @@
+import re
 from utils.print_fn import log
 
 import os
@@ -269,7 +270,9 @@ def update_config(config, unknown):
                 argtype = type(config[k])
                 print(f'Changing {k} ---- {config[k]} to {v}')
                 config[k] = v
-
+    # replace expname
+    # for value in re.findall(r'\$\{.+\}', config['expname']):
+    #     config[value]
     return config
 
 

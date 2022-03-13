@@ -160,6 +160,7 @@ def main_function(args):
                     # validate
                     #-------------------
                     if i_val > 0 and int_it % i_val == 0 or test_train:
+                        print('validation!!!!!')
                         test_train = 0
                         with torch.no_grad():
                             (val_ind, val_in, val_gt) = next(iter(valloader))
@@ -215,6 +216,7 @@ def main_function(args):
                     #-------------------
                     if is_master():
                         if i_val_mesh > 0 and (int_it % i_val_mesh == 0 or int_it in special_i_val_mesh) and it != 0:
+                            print('validating camera pose!!!!!')
                             with torch.no_grad():
                                 extrinsics_list = []
                                 intrinsics_list = []
@@ -234,6 +236,7 @@ def main_function(args):
                     if is_master():
                         # NOTE: not validating mesh before 3k, as some of the instances of DTU for NeuS training will have no large enough mesh at the beginning.
                         if i_val_mesh > 0 and (int_it % i_val_mesh == 0 or int_it in special_i_val_mesh) and it != 0:
+                            print('validating mesh!!!!!')
                             with torch.no_grad():
                                 io_util.cond_mkdir(mesh_dir)
                                 try:
@@ -254,6 +257,7 @@ def main_function(args):
                     #-------------------
                     # train
                     #-------------------
+                    print('TRAINING')
                     start_time = time.time()
                     trainer.train()
                     ret = trainer.forward(args, indices, model_input, ground_truth, render_kwargs_train, it)

@@ -1,7 +1,5 @@
-from sys import prefix
-
+import os.path as osp
 import copy
-import functools
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -47,7 +45,7 @@ class RelPoseNet(nn.Module):
         base_r, base_t, base_s = geom_utils.homo_to_rt(init_pose)
         # use axisang
         self.base_r = nn.Parameter(geom_utils.matrix_to_axis_angle(base_r), learn_base_R)
-        self.base_s = nn.Parameter(base_s, learn_base_s)
+        self.base_s = nn.Parameter(base_s[..., 0:1], learn_base_s)
         self.base_t = nn.Parameter(base_t, learn_base_t)
 
         self.r = nn.Parameter(torch.zeros(size=(num_frames, 3), dtype=torch.float32), requires_grad=learn_R)  # (N, 3)
@@ -61,7 +59,7 @@ class RelPoseNet(nn.Module):
         N = len(r)
 
         base = geom_utils.rt_to_homo(
-            rot_cvt.axis_angle_to_matrix(self.base_r), self.base_t, self.base_s)
+            rot_cvt.axis_angle_to_matrix(self.base_r), self.base_t, self.base_s.repeat(1, 3))
         base = base.repeat(N, 1, 1)
 
         frame_pose = frameTbase @ base
@@ -80,13 +78,13 @@ class VolSDFHoi(VolSDF):
                  use_nerfplusplus=False,
 
                  surface_cfg=dict(),
-                 radiance_cfg=dict()):
+                 radiance_cfg=dict(),
+                 oTh_cfg=dict()):
         super().__init__(beta_init, speed_factor, 
             input_ch, W_geo_feat, obj_bounding_radius, use_nerfplusplus, 
             surface_cfg, radiance_cfg)
         # TODO: initialize pose
-        self.oTh = RelPoseNet(data_size, learn_R=True, learn_t=True, 
-            init_pose=None, learn_base_s=True, learn_base_R=True, learn_base_t=True)
+        self.oTh = RelPoseNet(data_size, init_pose=None, **oTh_cfg)
 
 class MeshRenderer(nn.Module):
     def __init__(self):
@@ -96,9 +94,9 @@ class MeshRenderer(nn.Module):
         K = mesh_utils.intr_from_screen_to_ndc(pix_intr, H, W)
         f, p = mesh_utils.get_fxfy_pxpy(K)
         rot, t, _ = geom_utils.homo_to_rt(cTw)
-        cameras = PerspectiveCameras(f, p, R=rot.transpose(-1, -2), T=t)
+        cameras = PerspectiveCameras(f, p, R=rot.transpose(-1, -2), T=t, device=cTw.device)
 
-        image = mesh_utils.render_mesh(meshes, cameras, rgb_mode=True, depth_mode=True)
+        image = mesh_utils.render_mesh(meshes, cameras, rgb_mode=True, depth_mode=True, out_size=max(H, W))
         return image
 
 # class HandMeshRenderer(nn.Module):
@@ -128,6 +126,7 @@ class Trainer(nn.Module):
              render_kwargs_train: dict,
              it: int):
         device = self.device
+        N = len(indices)
         indices = indices.to(device)
         # palmTcam
         hTc = self.posenet(indices, model_input, ground_truth)
@@ -148,14 +147,14 @@ class Trainer(nn.Module):
         intrinsics_n = self.focalnet(model_input['inds_n'].to(device), model_input, ground_truth, H=H,W=W)
 
         # mesh rendering for hand
-        hHand = model_input['hand']
+        hHand = model_input['hand'].cuda()
+        # TODO: switch to hand FK
         # rtn = self.hand_wrapper.to_palm(
         #     model_input['hRot'].cuda(), model_input['hA'].cuda(), return_mesh=False)
         # palmHand = rtn[0]
 
         # camTpalm = model_input['camTpalm'] jgeom_utils.axis_angle_t_to_matrix(
             # t=mesh_utils.weak_to_full_persp(scale, ppoint, self.predcam_st[..., :1], self.predcam_st[..., 1:]))
-
         iHand = self.mesh_renderer(
             geom_utils.inverse_rt(mat=hTc, return_mat=True), 
             intrinsics, hHand, H, W)
@@ -174,21 +173,42 @@ class Trainer(nn.Module):
         target_rgb = torch.gather(ground_truth['rgb'].to(device), 1, torch.stack(3*[select_inds],-1))
         # [B, N_rays]
         target_mask = torch.gather(model_input["object_mask"].to(device), 1, select_inds).float()
+        # [B, N_rays]
+        target_obj = torch.gather(model_input["obj_mask"].to(device), 1, select_inds).float()
+        target_hand = torch.gather(model_input["hand_mask"].to(device), 1, select_inds).float()
+        
         # [B, N_rays, 2]
         target_flow_fw = torch.gather(model_input['flow_fw'].to(device), 1, torch.stack(2*[select_inds], -1))
 
         if "mask_ignore" in model_input:
             mask_ignore = torch.gather(model_input["mask_ignore"].to(device), 1, select_inds)
         elif args.training.fg == 1:
-            mask_ignore = target_mask
+            mask_ignore = target_mask # masks for RGB / flow 
         else:
             mask_ignore = None
         
-        rgb, depth_v, extras = self.renderer(rays_o, rays_d, detailed_output=True, **render_kwargs_train)
+        rgb_obj, depth_v, extras = self.renderer(rays_o, rays_d, detailed_output=True, **render_kwargs_train)
         flow_12 = volume_render_flow(depth_v, select_inds, intrinsics, intrinsics_n, c2w, c2w_n, **render_kwargs_train)
         # [B, N_rays, N_pts, 3]
         nablas: torch.Tensor = extras['implicit_nablas']
+
+        # combine object and hand RGB ???? 
+        depth_v_hand = iHand['depth'].view(N, -1)
+        mask_hand = iHand['mask'].view(N, -1)
+        rgb_hand = iHand['image'].permute(0, 2, 3, 1).view(N, -1, 3)
+        depth_v_hand_xy = torch.gather(depth_v_hand, 1, select_inds)
+        mask_hand_xy = torch.gather(mask_hand, 1, select_inds)
+        rgb_hand_xy = torch.gather(rgb_hand, 1, torch.stack(3*[select_inds], -1))
         
+        pred_hand_select = (depth_v_hand_xy < depth_v).float().unsqueeze(-1)
+        rgb = pred_hand_select * rgb_hand_xy + (1 - pred_hand_select) * rgb_obj
+
+        # masks for mask loss: # (N, P, 2)
+        # GT is marked as hand not object, AND predicted object depth is behind
+        ignore_obj = ((target_hand > 0) & ~(target_obj > 0)) & (depth_v > depth_v_hand_xy) 
+        ignore_hand = (~(target_hand > 0) & (target_obj > 0)) & (depth_v < depth_v_hand_xy)
+        w_obj = (~ignore_obj).float()
+        w_hand = (~ignore_hand).float()
         # [B, N_rays, ]
         #---------- OPTION1: just flatten and use all nablas
         # nablas = nablas.flatten(-3, -2)
@@ -211,7 +231,15 @@ class Trainer(nn.Module):
         losses['loss_img'] = F.l1_loss(rgb, target_rgb, reduction='none')
         losses['loss_eikonal'] = args.training.w_eikonal * F.mse_loss(nablas_norm, nablas_norm.new_ones(nablas_norm.shape), reduction='mean')
 
-        losses['loss_mask'] = args.training.w_mask * F.l1_loss(extras['mask_volume'], target_mask, reduction='mean')
+        # losses['loss_mask'] = args.training.w_mask * F.l1_loss(extras['mask_volume'], target_mask, reduction='mean')
+        if args.training.occ_mask == 'indp':
+            losses['loss_obj_mask'] = args.training.w_mask * (w_obj * F.l1_loss(extras['mask_volume'], target_obj, reduction='none')).sum() / w_obj.sum()
+            losses['loss_hand_mask'] = args.training.w_mask * (w_hand * F.l1_loss(mask_hand_xy, target_hand, reduction='none')).sum() / w_hand.sum()
+        elif args.training.occ_mask == 'union':
+            union_mask = (extras['mask_volume'] + mask_hand_xy).clamp(max=1)
+            losses['loss_mask'] = args.training.w_mask * F.l1_loss(union_mask, target_mask, reduction='mean')
+        else:
+            raise NotImplementedError(args.training.occ_mask)
         # convert mask from screen space to NDC space -- better bound the flow?? 
         # [0, H] -1, 1
         max_H = max(render_kwargs_train['H'], render_kwargs_train['W'])
@@ -223,6 +251,12 @@ class Trainer(nn.Module):
             losses['loss_img'] = losses['loss_img'].mean()
             losses['loss_fl_fw'] = losses['loss_fl_fw'].mean()
         
+        if it > 100:
+            hVerts = hHand.verts_padded()
+            oVerts = mesh_utils.apply_transform(hVerts, oTh)
+            sdf, hand_eik, _ = self.model.implicit_surface.forward_with_nablas(oVerts)
+            losses['inter_sdf'] = args.training.w_sdf * torch.sum(F.relu(-sdf))
+
         loss = 0
         for k, v in losses.items():
             loss += losses[k]
@@ -237,17 +271,66 @@ class Trainer(nn.Module):
         extras['scalars'] = {'beta': beta, 'alpha': alpha}
         extras['select_inds'] = select_inds
         
-        extras['hand_rgb'] = iHand['image']
+        extras['hand_rgb'] = iHand['image'].permute(0, 2, 3, 1).reshape(N, -1, 3)
+        extras['obj_rgb'] = rgb_obj
+        extras['hoi_rgb'] = rgb
+
+        extras['hand_mask'] = iHand['mask'].reshape(N, -1)
+        extras['obj_mask'] = extras['mask_volume'] # ??
+
+        extras['hand_depth'] = iHand['depth'].reshape(N, -1)
+        extras['obj_depth'] = extras['depth_volume'] # ??
+        
+        extras['obj_ignore'] = ignore_obj
+        extras['hand_ignore'] = ignore_hand
+
+        extras['obj_mask_target'] = model_input['obj_mask']
+        extras['hand_mask_target'] = model_input['hand_mask']
+        extras['mask_target'] = model_input['object_mask']
         extras['flow'] = flow_12
+        extras['hand'] = hHand
 
         return OrderedDict(
             [('losses', losses),
              ('extras', extras)])
         
-
     def val(self, logger: Logger, ret, to_img_fn, it, render_kwargs_test):
-        # log hand
-        logger.add_imgs(ret['hand_rgb'], 'val/predicted_hand', it)
+        mesh_utils.dump_meshes(osp.join(logger.log_dir, 'hand_meshes/%08d' % it), ret['hand'])
+        
+        mask = torch.cat([
+            to_img_fn(ret['hand_mask_target'].unsqueeze(-1).float()),
+            to_img_fn(ret['obj_mask_target'].unsqueeze(-1)),
+            to_img_fn(ret['mask_target'].unsqueeze(-1)),
+            ], -1)
+
+        logger.add_imgs(mask, 'val/hoi_mask_gt', it)
+
+        mask = torch.cat([
+            to_img_fn(ret['hand_mask'].unsqueeze(-1)),
+            to_img_fn(ret['obj_mask'].unsqueeze(-1)),
+            to_img_fn(ret['hand_ignore'].unsqueeze(-1).float()),
+            to_img_fn(ret['obj_ignore'].unsqueeze(-1).float()),
+            ], -1)
+        logger.add_imgs(mask, 'val/hoi_mask_pred', it)
+
+        image = torch.cat([
+            to_img_fn(ret['hand_rgb']),
+            to_img_fn(ret['obj_rgb']),
+            to_img_fn(ret['rgb']),
+        ], -1)
+        logger.add_imgs(image, 'val/hoi_rgb_pred', it)
+
+        depth_v_hand = ret['hand_depth'].unsqueeze(-1)
+        depth_v_obj = ret['obj_depth'].unsqueeze(-1)
+        depth_v_hoi = torch.minimum(depth_v_hand, depth_v_obj)
+        hand_front = (depth_v_hand < depth_v_obj).float()
+        depth = torch.cat([
+            to_img_fn(depth_v_hand/(depth_v_hand.max()+1e-10)),
+            to_img_fn(depth_v_obj/(depth_v_obj.max()+1e-10)),
+            to_img_fn(depth_v_hoi/(depth_v_obj.max()+1e-10)),
+            to_img_fn(hand_front)
+        ], -1)
+        logger.add_imgs(depth, 'val/hoi_depth_pred', it)
 
         #----------- plot beta heat map
         beta_heat_map = to_img_fn(ret['beta_map']).permute(0, 2, 3, 1).data.cpu().numpy()
@@ -286,6 +369,38 @@ class Trainer(nn.Module):
         cbar.ax.set_yticklabels(tick_labels)
         logger.add_figure(fig, 'val/upsample_iters', it)
 
+
+def compute_ordinal_depth_loss(masks, silhouettes, depths):
+    """
+
+    Args:
+        masks (_type_): GT 
+        silhouettes (_type_): bools predicted silouettes
+        depths (_type_): predicted depth
+
+    Returns:
+        _type_: _description_
+    """
+    loss = torch.tensor(0.0).float().cuda()
+    num_pairs = 0
+    for i in range(len(silhouettes)):
+        for j in range(len(silhouettes)):
+            has_pred = silhouettes[i] & silhouettes[j]
+            if has_pred.sum() == 0:
+                continue
+            else:
+                num_pairs += 1
+            front_i_gt = masks[i] & (~masks[j])
+            front_j_pred = depths[j] < depths[i]
+            m = front_i_gt & front_j_pred & has_pred
+            if m.sum() == 0:
+                continue
+            dists = torch.clamp(depths[i] - depths[j], min=0.0, max=2.0)
+            loss += torch.sum(torch.log(1 + torch.exp(dists))[m])
+    loss /= num_pairs
+    return {"loss_depth": loss}
+
+
 def get_model(args, data_size=-1):
     model_config = {
         'use_nerfplusplus': args.model.setdefault('outside_scene', 'builtin') == 'nerf++',
@@ -317,6 +432,7 @@ def get_model(args, data_size=-1):
     model_config['data_size'] = data_size
     model_config['surface_cfg'] = surface_cfg
     model_config['radiance_cfg'] = radiance_cfg
+    model_config['oTh_cfg'] = args.oTh    
 
     model = VolSDFHoi(**model_config)
     
@@ -335,7 +451,7 @@ def get_model(args, data_size=-1):
     render_kwargs_test['rayschunk'] = args.data.val_rayschunk
     render_kwargs_test['perturb'] = False
     render_kwargs_test['calc_normal'] = True
-    
+
     trainer = Trainer(model, args.device_ids, batched=render_kwargs_train['batched'])
     
     return model, trainer, render_kwargs_train, render_kwargs_test, trainer.renderer, volume_render_flow

@@ -19,7 +19,7 @@ data:
 
   N_rays: 1024        # N_rays for training
   val_rayschunk: 256 # N_rays for validation
-  val_downscale: 8    # downscale image for validation
+  val_downscale: 4    # downscale image for validation
 
 model:
   framework: VolSDFHOI
@@ -54,6 +54,13 @@ camera:
   order_f: 2
   init_f: 2.
 
+oTh:
+  learn_R: False
+  learn_t: False
+  learn_base_s: False
+  learn_base_R: False
+  learn_base_t: False
+
 training:
   speed_factor: 10.0
 
@@ -66,7 +73,9 @@ training:
   w_eikonal: 0.1
   w_mask: 0. 
   w_flow: 0. 
+  w_sdf: 0. 
   fg: 1
+  occ_mask: union  # union or indp
 
   log_root_dir: "../output/neurecon_out/"
 

@@ -11,7 +11,7 @@ import pytorch3d
 from pytorch3d.renderer.cameras import look_at_view_transform, PerspectiveCameras
 from pytorch3d.structures import Pointclouds
 from torchmetrics import ScaleInvariantSignalNoiseRatio
-from preprocess.inspect_dtu_cam import draw, proj
+
 from tools import render_view
 from jutils import image_utils, mesh_utils, geom_utils
 from utils.hand_utils import ManopthWrapper
@@ -28,6 +28,24 @@ time_len = 30
 H = W = 512
 def convert_to_DTU():
     return 
+
+def render_masks(wHoi, cTw_list, focal, save_dir):
+    wHoi = wHoi.to(device)
+    cTw_list = cTw_list.to(device)
+
+    for t in range(len(cTw_list)):
+        print(t, len(cTw_list))
+        c1Tw = geom_utils.homo_to_rt(cTw_list[t:t+1])
+        cam = PerspectiveCameras(focal, R=c1Tw[0].transpose(-1, -2), T=c1Tw[1], device=device)
+
+        # cHoi = mesh_utils.apply_transform(wHoi, cTw)
+        image = mesh_utils.render_mesh(wHoi, cam, out_size=H)
+
+        hand_mask = ((image['image'] * image['mask'])[:, 0:1] > 0.5).float()
+        obj_mask = ((image['image'] * image['mask'])[:, 1:2] > 0.5).float()
+        image_utils.save_images(hand_mask, osp.join(save_dir, 'hand_mask/%05d' % t))
+        image_utils.save_images(obj_mask, osp.join(save_dir, 'obj_mask/%05d' % t))
+
 
 def render_all(wHoi, cTw_list, focal, save_dir):
     wHoi = wHoi.to(device)
@@ -87,6 +105,7 @@ def render(index, split='test'):
 
     wHoi, wTh = mesh_utils.center_norm_geom(hHoi, 0)
     wHand = mesh_utils.apply_transform(hHand.to(device), wTh)
+    wObj = mesh_utils.apply_transform(hObj.to(device), wTh)
     mesh_utils.dump_meshes([osp.join(save_dir, index, 'gt')], wHoi)
     mesh_utils.dump_meshes([osp.join(save_dir, index, 'hand')], wHand)
 
@@ -104,10 +123,10 @@ def render(index, split='test'):
         focus=rad, zrate=0.1, rots=3, N=time_len,
     )
     c2w_tracks = torch.FloatTensor(c2w_tracks)
-    print(c2w_tracks)
     c2w_tracks = geom_utils.inverse_rt(mat=c2w_tracks,return_mat=True)
-    # render_all(wHoi, c2w_tracks, focal, osp.join(save_dir, index))
-    render_all(wHoi, cTw_list, focal, osp.join(save_dir, index))
+    # render_all(wHoi, cTw_list, focal, osp.join(save_dir, index))
+    wHoi_label = mesh_utils.join_scene_w_labels([wHand, wObj], 3)
+    render_masks(wHoi_label, cTw_list, focal, osp.join(save_dir, index))
 
     # save camera
     proj_mat = get_proj_intr_mat(cTw_list, H, W, focal)   # T, 4, 4

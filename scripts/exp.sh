@@ -1,6 +1,56 @@
+python -m train --config configs/volsdf.yaml --data:data_dir /checkpoint/yufeiy2/vhoi_out/syn_data/00006755 \
+    --expname dev/agnostic_blue  --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 \
+    --slurm --ddp
+
+
+python -m train --config configs/volsdf_hoi.yaml \
+    --expname sdf/sdf_no --training:occ_mask indp  \
+    --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 --training:w_sdf 0. \
+    --slurm --sl_ngpu 2 
+
+python -m train --config configs/volsdf_hoi.yaml \
+    --expname sdf/sdf_0.01 --training:occ_mask indp  \
+    --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 --training:w_sdf 0.01 \
+    --slurm --sl_ngpu 2 
+
+python -m train --config configs/volsdf_hoi.yaml \
+    --expname sdf/sdf_0.1 --training:occ_mask indp  \
+    --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 --training:w_sdf 0.1 \
+    --slurm --sl_ngpu 2 
+
+
+
+
+python -m train --config configs/volsdf_hoi.yaml \
+    --expname dev/indp --training:occ_mask indp  \
+    --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 \
+
+
+
+python -m train --config configs/volsdf_hoi.yaml \
+    --expname occ/union --training:occ_mask union  \
+    --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 \
+    --slurm --ddp
+
+python -m train --config configs/volsdf_hoi.yaml \
+    --expname occ/indp --training:occ_mask indp  \
+    --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 --test_train 1 \
+    --slurm --ddp
+
+
+-
+python -m train --config configs/volsdf_hoi.yaml \
+    --expname cmp/hybrid_blue  --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 \
+    --slurm --ddp
+
+python -m train --config configs/volsdf.yaml --data:data_dir /checkpoint/yufeiy2/vhoi_out/syn_data/00006755 \
+    --expname cmp/agnostic_blue  --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 \
+    --slurm --ddp
+
+--
+
 python -m train --config configs/volsdf_hoi.yaml \
     --expname dev/rgb_blue  --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 \
-    --slurm --ddp
 
 
 --

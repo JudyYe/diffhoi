@@ -21,7 +21,25 @@ class SceneDataset(DTU.SceneDataset):
                  cam_file=None,
                  scale_radius=-1):
         super().__init__(train_cameras, data_dir, downscale, cam_file, scale_radius)
-        self.hand = mesh_utils.load_mesh(osp.join(data_dir, 'hand.obj'))
+        self.hand = mesh_utils.load_mesh(osp.join(data_dir, 'hand.obj'), scale_verts=self.scale_cam)
+        self.hand.textures = mesh_utils.pad_texture(self.hand, 'yellow')
+
+        image_dir = '{0}/obj_mask'.format(self.instance_dir)
+        obj_paths = sorted(glob_imgs(image_dir))
+        image_dir = '{0}/hand_mask'.format(self.instance_dir)
+        hand_paths = sorted(glob_imgs(image_dir))
+
+        self.obj_masks = []
+        for path in obj_paths:
+            object_mask = load_mask(path, downscale)
+            object_mask = object_mask.reshape(-1)
+            self.obj_masks.append(torch.from_numpy(object_mask).to(dtype=torch.bool))
+
+        self.hand_masks = []
+        for path in hand_paths:
+            object_mask = load_mask(path, downscale)
+            object_mask = object_mask.reshape(-1)
+            self.hand_masks.append(torch.from_numpy(object_mask).to(dtype=torch.bool))
 
     def __len__(self):
         return self.n_images - 1
@@ -31,6 +49,8 @@ class SceneDataset(DTU.SceneDataset):
         # uv = np.mgrid[0:self.img_res[0], 0:self.img_res[1]].astype(np.int32)
         # uv = torch.from_numpy(np.flip(uv, axis=0).copy()).float()
         # uv = uv.reshape(2, -1).transpose(1, 0)
+        sample['obj_mask'] = self.obj_masks[idx]
+        sample['hand_mask'] = self.hand_masks[idx]
         sample['hand'] = self.hand
         return idx, sample, ground_truth
 
