@@ -70,11 +70,15 @@ class SceneDataset(torch.utils.data.Dataset):
             self.intrinsics_all.append(torch.from_numpy(intrinsics).float())
             self.c2w_all.append(torch.from_numpy(pose).float())
         max_cam_norm = max(cam_center_norms)
+        # print(max_cam_norm, scale_radius)
+        # assert False
         self.scale_cam = 1
+        self.max_cam_norm = max_cam_norm
         if scale_radius > 0:
             for i in range(len(self.c2w_all)):
                 self.c2w_all[i][:3, 3] *= (scale_radius / max_cam_norm / 1.1)
             self.scale_cam = (scale_radius / max_cam_norm / 1.1)
+            self.max_cam_norm = scale_radius
 
         self.rgb_images = []
         for path in tqdm(image_paths, desc='loading images...'):

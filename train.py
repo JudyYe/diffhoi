@@ -87,7 +87,7 @@ def main_function(args):
     
     # Create model
     posenet, focal_net = get_camera(args, datasize=len(dataset)+1, H=dataset.H, W=dataset.W)
-    model, trainer, render_kwargs_train, render_kwargs_test, volume_render_fn, flow_render_fn = get_model(args, data_size=len(dataset)+1)
+    model, trainer, render_kwargs_train, render_kwargs_test, volume_render_fn, flow_render_fn = get_model(args, data_size=len(dataset)+1, cam_norm=dataset.max_cam_norm)
     trainer.to(device)
     model.to(device)
     posenet.to(device)

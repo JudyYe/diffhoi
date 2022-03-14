@@ -1,16 +1,15 @@
+import os
 import os.path as osp
 import torch
 import numpy as np
 from tqdm import tqdm
 from glob import glob
 
-from . import DTU 
 from utils.io_util import load_flow, load_mask, load_rgb, glob_imgs
-from utils.rend_util import rot_to_quat, load_K_Rt_from_P
-from jutils import mesh_utils
+from jutils import mesh_utils, geom_utils
 
 
-class SceneDataset(DTU.SceneDataset):
+class SceneDataset(torch.utils.data.Dataset):
     # NOTE: jianfei: modified from IDR.   https://github.com/lioryariv/idr/blob/main/code/datasets/scene_dataset.py
     """Dataset for a class of objects, where each datapoint is a SceneInstanceDataset."""
 
@@ -20,9 +19,78 @@ class SceneDataset(DTU.SceneDataset):
                  downscale=1.,   # [H, W]
                  cam_file=None,
                  scale_radius=-1):
-        super().__init__(train_cameras, data_dir, downscale, cam_file, scale_radius)
-        self.hand = mesh_utils.load_mesh(osp.join(data_dir, 'hand.obj'), scale_verts=self.scale_cam)
-        self.hand.textures = mesh_utils.pad_texture(self.hand, 'yellow')
+
+        assert os.path.exists(data_dir), "Data directory is empty"
+
+        self.instance_dir = data_dir
+        self.train_cameras = train_cameras
+
+        image_dir = '{0}/image'.format(self.instance_dir)
+        image_paths = sorted(glob_imgs(image_dir))
+        mask_dir = '{0}/mask'.format(self.instance_dir)
+        mask_paths = sorted(glob_imgs(mask_dir))
+        fw_dir = '{0}/FlowFW'.format(self.instance_dir)
+        fw_paths = sorted(glob(os.path.join(fw_dir, '*.npz')))
+        bw_dir = '{0}/FlowBW'.format(self.instance_dir)
+        bw_paths = sorted(glob(os.path.join(bw_dir, '*.npz')))
+
+        self.n_images = len(image_paths)
+        
+        # determine width, height
+        self.downscale = downscale
+        tmp_rgb = load_rgb(image_paths[0], downscale)
+        _, self.H, self.W = tmp_rgb.shape
+
+        # load camera and pose
+        self.cam_file = '{0}/cameras_hoi.npz'.format(self.instance_dir)
+        camera_dict = np.load(self.cam_file)
+        self.wTc = geom_utils.inverse_rt(mat=torch.from_numpy(camera_dict['cTw']).float(), return_mat=True)
+        self.wTh = torch.from_numpy(camera_dict['wTh']).float()  # a scaling mat that recenter hoi to -1, 1? 
+        self.hTo = camera_dict['hTo']  # compute from hA
+        self.intrinsics_all = torch.from_numpy(camera_dict['K_pix']).float()  # (N, 4, 4)
+        print(self.intrinsics_all.shape)
+
+        # downscale intrinsics
+        self.intrinsics_all[..., 0, 2] /= downscale
+        self.intrinsics_all[..., 1, 2] /= downscale
+        self.intrinsics_all[..., 0, 0] /= downscale
+        self.intrinsics_all[..., 1, 1] /= downscale
+
+        self.scale_cam = 1
+        # calculate cam distance
+        cam_center_norms = []
+        for wTc in self.wTc:
+            cam_center_norms.append(np.linalg.norm(wTc[:3,3].detach().numpy()))
+        max_cam_norm = max(cam_center_norms)
+        self.max_cam_norm = max_cam_norm
+        print(self.max_cam_norm)
+
+        # TODO: crop??!!!
+        self.rgb_images = []
+        for path in tqdm(image_paths, desc='loading images...'):
+            rgb = load_rgb(path, downscale)
+            rgb = rgb.reshape(3, -1).transpose(1, 0)
+            self.rgb_images.append(torch.from_numpy(rgb).float())
+
+        self.object_masks = []
+        for path in mask_paths:
+            object_mask = load_mask(path, downscale)
+            object_mask = object_mask.reshape(-1)
+            self.object_masks.append(torch.from_numpy(object_mask).to(dtype=torch.bool))
+
+        self.flow_fw = []
+        for path in tqdm(fw_paths):
+            flow = load_flow(path, downscale)
+            flow = flow.reshape(-1, 2)
+            self.flow_fw.append(torch.from_numpy(flow).float())
+            
+        self.flow_bw = []
+
+        # load hand 
+        hands = np.load('{0}/hands.npz'.format(self.instance_dir))
+        self.hA = torch.from_numpy(hands['hA']).float().squeeze(1)
+        # self.hand = mesh_utils.load_mesh(osp.join(data_dir, 'hand.obj'), scale_verts=self.scale_cam)
+        # self.hand.textures = mesh_utils.pad_texture(self.hand, 'yellow')
 
         image_dir = '{0}/obj_mask'.format(self.instance_dir)
         obj_paths = sorted(glob_imgs(image_dir))
@@ -44,14 +112,34 @@ class SceneDataset(DTU.SceneDataset):
     def __len__(self):
         return self.n_images - 1
 
-    def __getitem__(self, idx):
-        idx, sample, ground_truth = super().__getitem__(idx)
-        # uv = np.mgrid[0:self.img_res[0], 0:self.img_res[1]].astype(np.int32)
-        # uv = torch.from_numpy(np.flip(uv, axis=0).copy()).float()
-        # uv = uv.reshape(2, -1).transpose(1, 0)
+    def __getitem__(self, idx): 
+        # TODO: support crop!
+        idx_n = idx + 1
+        sample = {
+            "object_mask": self.object_masks[idx],
+            "intrinsics": self.intrinsics_all[idx],
+            "intrinsics_n": self.intrinsics_all[idx_n],
+        }
+
+        ground_truth = {
+            "rgb": self.rgb_images[idx]
+        }
+
+        ground_truth["rgb"] = self.rgb_images[idx]
+        sample["object_mask"] = self.object_masks[idx]
+
+        sample['flow_fw'] = self.flow_fw[idx]
+        sample['inds_n'] = idx_n
+        
+        if not self.train_cameras:
+            sample["c2w"] = self.wTc[idx]
+            sample['c2w_n'] = self.wTc[idx_n]
+            sample['wTh'] = self.wTh[idx]
+            sample['wTh_n'] = self.wTh[idx_n]
+
         sample['obj_mask'] = self.obj_masks[idx]
         sample['hand_mask'] = self.hand_masks[idx]
-        sample['hand'] = self.hand
+        sample['hA'] = self.hA[idx]
         return idx, sample, ground_truth
 
 if __name__ == "__main__":

@@ -800,7 +800,7 @@ def get_model(args, data_size=-1):
     ## render_kwargs
     render_kwargs_train = {
         'near': args.data.near,
-        'far': args.data.far,
+        'far':  args.data.far,
         'batched': True,
         'perturb': args.model.setdefault('perturb', True),   # config whether do stratified sampling
         'white_bkgd': args.model.setdefault('white_bkgd', False),

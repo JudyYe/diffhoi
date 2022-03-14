@@ -45,16 +45,7 @@ class Logger(object):
         self.monitoring = None
         self.monitoring_dir = None
 
-        if self.is_master:
-            os.makedirs(os.path.join(log_dir, 'wandb'), exist_ok=True)
-            wandb.init(
-                project='vhoi',
-                name='/'.join(log_dir.split('/')[-2:]),
-                dir=log_dir,
-                entity='judyye',
-                resume="allow",
-            )
-        
+        self.wandb = monitoring == 'wandb'
         # NOTE: for now, we are allowing tensorboard writting on all child processes, 
         #       as it's already nicely supported, 
         #       and the data of different events file of different processes will be automatically aggregated when visualizing.
@@ -71,8 +62,20 @@ class Logger(object):
             from torch.utils.tensorboard import SummaryWriter
             # from tensorboardX import SummaryWriter
             self.tb = SummaryWriter(self.monitoring_dir)
+        elif monitoring == 'wandb':
+            if self.is_master:
+                log_dir = self.log_dir
+                os.makedirs(os.path.join(log_dir, 'wandb'), exist_ok=True)
+                wandb.init(
+                    project='vhoi_%s' % log_dir.split('/')[-2],
+                    name='/'.join(log_dir.split('/')[-2:]),
+                    dir=log_dir,
+                    entity='judyye',
+                    resume="allow",
+                    # id='_'.join(log_dir.split('/')[-2:]),
+                )
         else:
-            raise NotImplementedError('Monitoring tool "%s" not supported!'
+            raise print('Monitoring tool "%s" not supported!'
                                       % monitoring)
 
     def add(self, category, k, v, it):
@@ -92,7 +95,7 @@ class Logger(object):
         elif self.monitoring == 'tensorboard':
             self.tb.add_scalar(k_name, v, it)
 
-        if is_master():
+        if is_master() and self.wandb:
             wandb.log({k_name: v}, step=it)
 
     def add_vector(self, category, k, vec, it):
@@ -118,14 +121,14 @@ class Logger(object):
         # imgs = imgs / 2 + 0.5
         imgs = torchvision.utils.make_grid(imgs)
         torchvision.utils.save_image(imgs.clone(), outfile, nrow=8)
-        if is_master():
+        if is_master() and self.wandb:
             wandb.log({class_name: wandb.Image(imgs)}, step=it)
 
         if self.monitoring == 'tensorboard':
             self.tb.add_image(class_name, imgs, global_step=it)
 
     def add_meshes(self, name, mesh_file, it):
-        if is_master():
+        if is_master() and self.wandb:
             wandb.log({name: wandb.Object3D(open(osp.join(self.log_dir, mesh_file)))}, step=it)
 
     def add_figure(self, fig, class_name, it, save_img=True):

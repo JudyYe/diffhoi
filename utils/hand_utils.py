@@ -136,10 +136,11 @@ class ManopthWrapper(nn.Module):
                 art_pose = torch.cat([axisang, art_pose], -1)
             verts, joints, faces = self._forward_layer(art_pose, trans)
 
-            mat_rt = geom_utils.se3_to_matrix(glb_se3)
-            trans = Transform3d(matrix=mat_rt.transpose(1, 2))
-            verts = trans.transform_points(verts)
-            joints = trans.transform_points(joints)
+            if glb_se3 is not None:
+                mat_rt = geom_utils.se3_to_matrix(glb_se3)
+                trans = Transform3d(matrix=mat_rt.transpose(1, 2))
+                verts = trans.transform_points(verts)
+                joints = trans.transform_points(joints)
         else:  # inner translation
             if axisang is None:
                 axisang = torch.zeros([N, 3], device=device)

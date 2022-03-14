@@ -90,7 +90,7 @@ training:
   ckpt_ignore_keys: []     # only change if you want to drop certain keys in the saved checkpionts.
   ckpt_only_use_keys: null # only change if you want to only use certain keys in the saved checkpionts.
 
-  monitoring: tensorboard
+  monitoring: wandb
 
   i_save: 900       # unit: seconds
   i_backup: 50000   # unit: itertation steps
