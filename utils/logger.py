@@ -1,7 +1,10 @@
+import wandb
 from utils import io_util
+from utils.dist_util import is_master
 from utils.print_fn import log
 
 import os
+import os.path as osp
 import torch
 import pickle
 import imageio
@@ -42,7 +45,15 @@ class Logger(object):
         self.monitoring = None
         self.monitoring_dir = None
 
-        # if self.is_master:
+        if self.is_master:
+            os.makedirs(os.path.join(log_dir, 'wandb'), exist_ok=True)
+            wandb.init(
+                project='vhoi',
+                name='/'.join(log_dir.split('/')[-2:]),
+                dir=log_dir,
+                entity='judyye',
+                resume="allow",
+            )
         
         # NOTE: for now, we are allowing tensorboard writting on all child processes, 
         #       as it's already nicely supported, 
@@ -81,6 +92,9 @@ class Logger(object):
         elif self.monitoring == 'tensorboard':
             self.tb.add_scalar(k_name, v, it)
 
+        if is_master():
+            wandb.log({k_name: v}, step=it)
+
     def add_vector(self, category, k, vec, it):
         if category not in self.stats:
             self.stats[category] = {}
@@ -104,9 +118,15 @@ class Logger(object):
         # imgs = imgs / 2 + 0.5
         imgs = torchvision.utils.make_grid(imgs)
         torchvision.utils.save_image(imgs.clone(), outfile, nrow=8)
+        if is_master():
+            wandb.log({class_name: wandb.Image(imgs)}, step=it)
 
         if self.monitoring == 'tensorboard':
             self.tb.add_image(class_name, imgs, global_step=it)
+
+    def add_meshes(self, name, mesh_file, it):
+        if is_master():
+            wandb.log({name: wandb.Object3D(open(osp.join(self.log_dir, mesh_file)))}, step=it)
 
     def add_figure(self, fig, class_name, it, save_img=True):
         if save_img:

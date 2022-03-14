@@ -1,3 +1,7 @@
+from pathlib import Path
+import hydra
+import hydra.utils as hydra_utils
+
 from models.frameworks import get_model
 from models.cameras import get_camera
 from models.base import get_optimizer, get_scheduler
@@ -246,6 +250,7 @@ def main_function(args):
                                         filepath=os.path.join(mesh_dir, '{:08d}.ply'.format(it)),
                                         volume_size=args.data.get('volume_size', 2.0),
                                         show_progress=is_master())
+                                    logger.add_meshes('obj', os.path.join('meshes', '{:08d}.ply'.format(it)), it)
                                 except ValueError:
                                     print('fail to extract mesh')
                                     pass
@@ -257,7 +262,6 @@ def main_function(args):
                     #-------------------
                     # train
                     #-------------------
-                    print('TRAINING')
                     start_time = time.time()
                     trainer.train()
                     ret = trainer.forward(args, indices, model_input, ground_truth, render_kwargs_train, it)
@@ -312,7 +316,11 @@ def main_function(args):
                     for k, v in losses.items():
                         logger.add('losses', k, v.data.cpu().numpy().item(), it)
                         # print losses
-                        print(k, v.item())
+                    if it % args.training.print_freq == 0 and is_master():
+                        print('Iters [%04d] %f' % (it, losses['total']))
+                        for k, v in losses.items():
+                            if k != 'total':
+                                print('\t %010s:%.4f' % (k, v.item()))
 
                     #-------------------
                     # log extras
@@ -365,15 +373,49 @@ def main_function(args):
         ) 
         log.info("Everything done.")
 
-if __name__ == "__main__":
+
+
+def update_pythonpath_relative_hydra():
+    """Update PYTHONPATH to only have absolute paths."""
+    # NOTE: We do not change sys.path: we want to update paths for future instantiations
+    # of python using the current environment (namely, when submitit loads the job
+    # pickle).
+    try:
+        original_cwd = Path(hydra_utils.get_original_cwd()).resolve()
+    except (AttributeError, ValueError):
+        # Assume hydra is not initialized, we don't need to do anything.
+        # In hydra 0.11, this returns AttributeError; later it will return ValueError
+        # https://github.com/facebookresearch/hydra/issues/496
+        # I don't know how else to reliably check whether Hydra is initialized.
+        return
+    paths = []
+    for orig_path in os.environ["PYTHONPATH"].split(":"):
+        path = Path(orig_path)
+        if not path.is_absolute():
+            path = original_cwd / path
+        paths.append(path.resolve())
+    os.environ["PYTHONPATH"] = ":".join([str(x) for x in paths])
+    log.info('PYTHONPATH: {}'.format(os.environ["PYTHONPATH"]))
+
+
+# @hydra.main(config_path='./configs/', config_name='volsdf_hoi')
+def main():
+    # TODO: change to hydra for better sweeping?
+    # update_pythonpath_relative_hydra()
+    # print(config)
+    # print(config.expname)
+    # print(config.training)
+
     # Arguments
     parser = io_util.create_args_parser()
     parser.add_argument("--ddp", action='store_true', help='whether to use DDP to train.')
     parser.add_argument("--port", type=int, default=None, help='master port for multi processing. (if used)')
     slurm_utils.add_slurm_args(parser)
-
     args, unknown = parser.parse_known_args()
     config = io_util.load_config(args, unknown)
 
     slurm_utils.slurm_wrapper(args, config.training.exp_dir, main_function, {'args':config})
     # main_function(config)
+
+if __name__ == "__main__":
+    main()

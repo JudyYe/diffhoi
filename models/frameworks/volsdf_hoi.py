@@ -89,7 +89,20 @@ class VolSDFHoi(VolSDF):
 class MeshRenderer(nn.Module):
     def __init__(self):
         super().__init__()
+        self.z_far = 5.
     
+    def get_cameras(self, cTw, pix_intr, H, W):
+        K = mesh_utils.intr_from_screen_to_ndc(pix_intr, H, W)
+        f, p = mesh_utils.get_fxfy_pxpy(K)
+        print(f)
+        if cTw is None:
+            cameras = PerspectiveCameras(f, p,  device=pix_intr.device)
+        else:
+            rot, t, _ = geom_utils.homo_to_rt(cTw)
+            cameras = PerspectiveCameras(f, p, R=rot.transpose(-1, -2), T=t, device=cTw.device)
+        return cameras
+
+
     def forward(self, cTw, pix_intr, meshes:Meshes, H, W):
         K = mesh_utils.intr_from_screen_to_ndc(pix_intr, H, W)
         f, p = mesh_utils.get_fxfy_pxpy(K)
@@ -97,6 +110,7 @@ class MeshRenderer(nn.Module):
         cameras = PerspectiveCameras(f, p, R=rot.transpose(-1, -2), T=t, device=cTw.device)
 
         image = mesh_utils.render_mesh(meshes, cameras, rgb_mode=True, depth_mode=True, out_size=max(H, W))
+        image['depth'] = image['mask'] * image['depth'] + (1 - image['mask']) * self.z_far
         return image
 
 # class HandMeshRenderer(nn.Module):
@@ -290,12 +304,15 @@ class Trainer(nn.Module):
         extras['flow'] = flow_12
         extras['hand'] = hHand
 
+        extras['intrinsics'] = intrinsics
+
         return OrderedDict(
             [('losses', losses),
              ('extras', extras)])
         
     def val(self, logger: Logger, ret, to_img_fn, it, render_kwargs_test):
         mesh_utils.dump_meshes(osp.join(logger.log_dir, 'hand_meshes/%08d' % it), ret['hand'])
+        logger.add_meshes('hand',  osp.join('hand_meshes/%08d_0.obj' % it), it)
         
         mask = torch.cat([
             to_img_fn(ret['hand_mask_target'].unsqueeze(-1).float()),
@@ -316,7 +333,7 @@ class Trainer(nn.Module):
         image = torch.cat([
             to_img_fn(ret['hand_rgb']),
             to_img_fn(ret['obj_rgb']),
-            to_img_fn(ret['rgb']),
+            to_img_fn(ret['hoi_rgb']),
         ], -1)
         logger.add_imgs(image, 'val/hoi_rgb_pred', it)
 
@@ -331,6 +348,23 @@ class Trainer(nn.Module):
             to_img_fn(hand_front)
         ], -1)
         logger.add_imgs(depth, 'val/hoi_depth_pred', it)
+
+        # vis depth in point cloud
+        depth_hand = to_img_fn(depth_v_hand)
+        depth_obj = to_img_fn(depth_v_obj)
+        _, _, H, W = depth.shape
+        cameras = self.mesh_renderer.get_cameras(None, ret['intrinsics'], H, W)
+
+        depth_hand = mesh_utils.depth_to_pc(depth_hand, cameras=cameras)
+        depth_obj = mesh_utils.depth_to_pc(depth_obj, cameras=cameras)
+        # depth_hand.textures = mesh_utils.pad_texture(depth_hand, 'yellow')
+        # depth_obj.textures = mesh_utils.pad_texture(depth_hand, 'white')
+        # # depth_hoi = mesh_utils.join_scene([depth_hand, depth_obj])
+        mesh_utils.dump_meshes(
+            osp.join(logger.log_dir, 'depth_meshes/%08d_hand' % it), 
+            mesh_utils.pc_to_cubic_meshes(pc=depth_hand, eps=5e-2))
+        mesh_utils.dump_meshes(osp.join(logger.log_dir, 'depth_meshes/%08d_obj' % it), 
+            mesh_utils.pc_to_cubic_meshes(pc=depth_obj, eps=5e-2))
 
         #----------- plot beta heat map
         beta_heat_map = to_img_fn(ret['beta_map']).permute(0, 2, 3, 1).data.cpu().numpy()

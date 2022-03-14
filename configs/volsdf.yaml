@@ -87,3 +87,5 @@ training:
 
   i_val: 500
   i_val_mesh: 500
+
+  print_freq: 10

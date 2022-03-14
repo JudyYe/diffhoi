@@ -283,7 +283,6 @@ def create_args_parser():
     parser.add_argument('--resume_dir', type=str, default=None, help='Directory of experiment to load.')
     return parser
 
-
 def load_config(args, unknown, base_config_path=None):
     ''' overwrite seq
     command line param --over--> args.config --over--> default config yaml

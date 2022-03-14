@@ -71,7 +71,7 @@ training:
     focal: 1.0e-3
 
   w_eikonal: 0.1
-  w_mask: 0. 
+  w_mask: 1. 
   w_flow: 0. 
   w_sdf: 0. 
   fg: 1
@@ -97,3 +97,5 @@ training:
 
   i_val: 500
   i_val_mesh: 500
+
+  print_freq: 10

@@ -1,22 +1,35 @@
+python -m train --config configs/volsdf_hoi.yaml \
+    --expname debug/sdf_0.01 --training:occ_mask indp  \
+    --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 --training:w_sdf 0.01 \
+
+
+--=
 python -m train --config configs/volsdf.yaml --data:data_dir /checkpoint/yufeiy2/vhoi_out/syn_data/00006755 \
     --expname dev/agnostic_blue  --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 \
     --slurm --ddp
 
 
 python -m train --config configs/volsdf_hoi.yaml \
-    --expname sdf/sdf_no --training:occ_mask indp  \
-    --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 --training:w_sdf 0. \
+    --expname depth/sdf_no --training:occ_mask indp  \
+    --training:w_flow 0.0  --training:w_sdf 0. \
     --slurm --sl_ngpu 2 
 
 python -m train --config configs/volsdf_hoi.yaml \
-    --expname sdf/sdf_0.01 --training:occ_mask indp  \
-    --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 --training:w_sdf 0.01 \
+    --expname depth/sdf_0.01 --training:occ_mask indp  \
+    --training:w_flow 0.0  --training:w_sdf 0.01 \
     --slurm --sl_ngpu 2 
 
 python -m train --config configs/volsdf_hoi.yaml \
-    --expname sdf/sdf_0.1 --training:occ_mask indp  \
-    --training:w_mask 1.0 --training:w_flow 0.0 --training:fg 1 --training:w_sdf 0.1 \
+    --expname depth/sdf_0.1 --training:occ_mask indp  \
+    --training:w_flow 0.0  --training:w_sdf 0.1 \
     --slurm --sl_ngpu 2 
+
+
+python -m train --config configs/volsdf_hoi.yaml \
+    --expname depth/sdf_1 --training:occ_mask indp  \
+    --training:w_flow 0.0  --training:w_sdf 1 \
+    --slurm --sl_ngpu 2 
+
 
 
 
