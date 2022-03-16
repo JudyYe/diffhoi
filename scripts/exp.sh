@@ -1,6 +1,50 @@
+in objnorm coord
 python -m train --config configs/volsdf_hoi.yaml \
-    --expname dev/hoi --training:occ_mask indp  \
-    --training:w_flow 0.0  --training:w_sdf 0.01 --data:scale_radius -1 --data:data_dir /checkpoint/yufeiy2/vhoi_out/syn_data/00006755_cTh \
+    --expname ho3d_known_cam/MDF10_0090 --training:occ_mask indp  \
+    --training:w_flow 0.0  --training:w_sdf 0.01 --data:scale_radius -1 --data:data_dir /checkpoint/yufeiy2/vhoi_out/syn_data/MDF10_0090 \
+    --slurm --sl_ngpu 2 
+
+python -m train --config configs/volsdf_hoi.yaml \
+    --expname ho3d_known_cam/MDF10_0090_hand --training:occ_mask indp  \
+    --training:w_flow 0.0  --training:w_sdf 0.01 --data:scale_radius -1 --data:data_dir /checkpoint/yufeiy2/vhoi_out/syn_data/MDF10_0090 \
+    --model:joint_frame hand_norm \
+    --slurm --sl_ngpu 2 
+
+
+
+python -m train --config configs/volsdf_hoi.yaml \
+    --expname ho3d_known_cam/MDF10_0000 --training:occ_mask indp  \
+    --training:w_flow 0.0  --training:w_sdf 0.01 --data:scale_radius -1 --data:data_dir /checkpoint/yufeiy2/vhoi_out/syn_data/MDF10_0000 \
+    --slurm --sl_ngpu 2 
+
+python -m train --config configs/volsdf_hoi.yaml \
+    --expname ho3d_known_cam/MDF10_0000_hand --training:occ_mask indp  \
+    --training:w_flow 0.0  --training:w_sdf 0.01 --data:scale_radius -1 --data:data_dir /checkpoint/yufeiy2/vhoi_out/syn_data/MDF10_0000 \
+    --model:joint_frame hand_norm \
+    --slurm --sl_ngpu 2 
+
+
+
+python -m train --config configs/volsdf_hoi.yaml \
+    --expname ho3d_known_cam/SMu1_0650 --training:occ_mask indp  \
+    --training:w_flow 0.0  --training:w_sdf 0.01 --data:scale_radius -1 --data:data_dir /checkpoint/yufeiy2/vhoi_out/syn_data/SMu1_0650 \
+    --slurm --sl_ngpu 2 
+
+python -m train --config configs/volsdf_hoi.yaml \
+    --expname ho3d_known_cam/SMu1_0650_hand --training:occ_mask indp  \
+    --training:w_flow 0.0  --training:w_sdf 0.01 --data:scale_radius -1 --data:data_dir /checkpoint/yufeiy2/vhoi_out/syn_data/SMu1_0650 \
+    --model:joint_frame hand_norm \
+    --slurm --sl_ngpu 2 
+
+
+
+
+-
+python -m train --config configs/volsdf_hoi.yaml \
+    --expname dev/MDF10_0090 --training:occ_mask indp  \
+    --training:w_flow 0.0  --training:w_sdf 0.01 --data:scale_radius -1 --data:data_dir /checkpoint/yufeiy2/vhoi_out/syn_data/MDF10_0090 \
+    --model:joint_frame hand_norm \
+
 
 
 

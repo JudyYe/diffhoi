@@ -86,6 +86,7 @@ class VolSDFHoi(VolSDF):
         # TODO: initialize pose
         self.oTh = RelPoseNet(data_size, init_pose=None, **oTh_cfg)
 
+
 class MeshRenderer(nn.Module):
     def __init__(self):
         super().__init__()
@@ -93,7 +94,6 @@ class MeshRenderer(nn.Module):
     def get_cameras(self, cTw, pix_intr, H, W):
         K = mesh_utils.intr_from_screen_to_ndc(pix_intr, H, W)
         f, p = mesh_utils.get_fxfy_pxpy(K)
-        print(f)
         if cTw is None:
             cameras = PerspectiveCameras(f, p,  device=pix_intr.device)
         else:
@@ -102,25 +102,28 @@ class MeshRenderer(nn.Module):
             cameras = PerspectiveCameras(f, p, R=rot.transpose(-1, -2), T=t, device=cTw.device)
         return cameras
 
-
     def forward(self, cTw, pix_intr, meshes:Meshes, H, W, far, **kwargs):
-        K = mesh_utils.intr_from_screen_to_ndc(pix_intr, H, W)
-        f, p = mesh_utils.get_fxfy_pxpy(K)
-        cMeshes = mesh_utils.apply_transform(meshes, cTw)  # to allow scaling 
-        cameras = PerspectiveCameras(f, p, device=cTw.device)
+        cameras = self.get_cameras(None, pix_intr, H, W)
+
+        # apply cameraTworld outside of rendering to support scaling.
+        cMeshes = mesh_utils.apply_transform(meshes, cTw)  # to allow scaling                 
         image = mesh_utils.render_mesh(cMeshes, cameras, rgb_mode=True, depth_mode=True, out_size=max(H, W))
 
-        # rot, t, _ = geom_utils.homo_to_rt(cTw)
-        # cameras = PerspectiveCameras(f, p, R=rot.transpose(-1, -2), T=t, device=cTw.device)
-        # image = mesh_utils.render_mesh(meshes, cameras, rgb_mode=True, depth_mode=True, out_size=max(H, W))
-
+        # apply cameraTworld for depth 
+        # depth is in camera-view but is in another metric! 
+        # convert the depth unit to the normalized unit.
+        with torch.no_grad():
+            _, _, cTw_scale = geom_utils.homo_to_rt(cTw)
+            wTc_scale = 1 / cTw_scale.mean(-1)
+        image['depth'] = wTc_scale * image['depth']
         image['depth'] = image['mask'] * image['depth'] + (1 - image['mask']) * far
         return image
 
 
 class Trainer(nn.Module):
-    def __init__(self, model: VolSDFHoi, device_ids=[0], batched=True):
+    def __init__(self, model: VolSDFHoi, device_ids=[0], batched=True, args=None):
         super().__init__()
+        self.joint_frame = args.model.joint_frame
         self.model = model
         self.renderer = SingleRenderer(model)
         self.mesh_renderer = MeshRenderer()
@@ -136,6 +139,36 @@ class Trainer(nn.Module):
         self.posenet = posenet
         self.focalnet = focalnet
 
+    def get_jHand_camera(self, indices, model_input, ground_truth, H, W):
+        device = self.device
+        indices = indices.to(device)
+        # palmTcam
+        wTc = self.posenet(indices, model_input, ground_truth)
+
+        hTw = geom_utils.inverse_rt(mat=model_input['wTh'].to(device),return_mat=True)
+        wTh = model_input['wTh'].to(device)
+        
+        oTh = geom_utils.inverse_rt(mat=model_input['hTo'].to(device), return_mat=True)
+
+        onTo = model_input['onTo'].to(device)
+
+        oTc = oTh @ hTw @ wTc
+
+        if self.joint_frame == 'object_norm':
+            jTh = onTo @ oTh
+            jTc = onTo @ oTc # wTc
+        elif self.join_frame == 'hand_norm':
+            jTh =  wTh
+            jTc = wTc
+        
+        intrinsics = self.focalnet(indices, model_input, ground_truth, H=H, W=W)
+
+        # hand FK
+        hHand, _ = self.hand_wrapper(None, model_input['hA'].cuda())
+        jHand = mesh_utils.apply_transform(hHand, jTh)
+
+        return jHand, jTc, intrinsics
+
     def forward(self, 
              args,
              indices,
@@ -150,32 +183,52 @@ class Trainer(nn.Module):
         wTc = self.posenet(indices, model_input, ground_truth)
         wTc_n = self.posenet(model_input['inds_n'].to(device), model_input, ground_truth)
 
-        hTw = geom_utils.inverse_rt(mat=model_input['wTh'],return_mat=True).to(device)
+        hTw = geom_utils.inverse_rt(mat=model_input['wTh'].to(device),return_mat=True)
         wTh = model_input['wTh'].to(device)
+        hTw_n = geom_utils.inverse_rt(mat=model_input['wTh_n'].to(device),return_mat=True)
+        
+        oTh = geom_utils.inverse_rt(mat=model_input['hTo'].to(device), return_mat=True)
+        oTh_n = geom_utils.inverse_rt(mat=model_input['hTo_n'].to(device), return_mat=True)
+
+        onTo = model_input['onTo'].to(device)
+        onTo_n = model_input['onTo_n'].to(device)
+
+        oTc = oTh @ hTw @ wTc
+        oTc_n = oTh_n @ hTw_n @ wTc_n         
         # apply object to hand pose, include scale!, R, t
         # oTh = self.model.oTh(indices)
         # oTh_n = self.model.oTh(model_input['inds_n'].to(device))
 
-        c2w = wTc
-        c2w_n = wTc_n
-        # NOTE: the mesh / vol rendering needs to be in the same coord system, in order to compare their depth!!
+        # NOTE: the mesh / vol rendering needs to be in the same coord system (joint), in order to compare their depth!!
+
+        if args.model.joint_frame == 'object_norm':
+            jTh = onTo @ oTh
+            jTc = onTo @ oTc # wTc
+            jTc_n = onTo @ oTc_n # wTc_n
+        elif args.model.joint_frame == 'hand_norm':
+            jTh =  wTh
+            jTc = wTc
+            jTc_n = wTc_n
+
+
+        # NOTE: znear and zfar is important: distance of camera center to world origin
+        cam_norm = jTc_n[..., 0:4, 3]
+        cam_norm = cam_norm[..., 0:3] / cam_norm[..., 3:4]  # (N, 3)
+        norm = torch.norm(cam_norm, dim=-1)
+        
+        render_kwargs_train['far'] = (norm + args.model.obj_bounding_radius).cpu().item()
+        render_kwargs_train['near'] = (norm - args.model.obj_bounding_radius).cpu().item()
 
         H = render_kwargs_train['H']
         W = render_kwargs_train['W']
         intrinsics = self.focalnet(indices, model_input, ground_truth, H=H, W=W)
         intrinsics_n = self.focalnet(model_input['inds_n'].to(device), model_input, ground_truth, H=H,W=W)
 
-        # mesh rendering for hand
-        # hHand = model_input['hand'].cuda()
-        # iHand = self.mesh_renderer(
-        #     geom_utils.inverse_rt(mat=hTc, return_mat=True), 
-        #     intrinsics, hHand, **render_kwargs_train)
-
-        # TODO: switch to hand FK
+        # hand FK
         hHand, _ = self.hand_wrapper(None, model_input['hA'].cuda())
-        wHand = mesh_utils.apply_transform(hHand, wTh)
+        jHand = mesh_utils.apply_transform(hHand, jTh)
         iHand = self.mesh_renderer(
-            geom_utils.inverse_rt(mat=wTc, return_mat=True), intrinsics, wHand, **render_kwargs_train
+            geom_utils.inverse_rt(mat=jTc, return_mat=True), intrinsics, jHand, **render_kwargs_train
         )
 
         # volumetric rendering
@@ -183,10 +236,10 @@ class Trainer(nn.Module):
         # rays in canonical object frame
         if self.training:
             rays_o, rays_d, select_inds = rend_util.get_rays(
-                c2w, intrinsics, H, W, N_rays=args.data.N_rays)
+                jTc, intrinsics, H, W, N_rays=args.data.N_rays)
         else:
             rays_o, rays_d, select_inds = rend_util.get_rays(
-                c2w, intrinsics, H, W, N_rays=-1)
+                jTc, intrinsics, H, W, N_rays=-1)
 
         # [B, N_rays, 3]
         target_rgb = torch.gather(ground_truth['rgb'].to(device), 1, torch.stack(3*[select_inds],-1))
@@ -207,7 +260,7 @@ class Trainer(nn.Module):
             mask_ignore = None
         
         rgb_obj, depth_v, extras = self.renderer(rays_o, rays_d, detailed_output=True, **render_kwargs_train)
-        flow_12 = volume_render_flow(depth_v, select_inds, intrinsics, intrinsics_n, c2w, c2w_n, **render_kwargs_train)
+        flow_12 = volume_render_flow(depth_v, select_inds, intrinsics, intrinsics_n, jTc, jTc_n, **render_kwargs_train)
         # [B, N_rays, N_pts, 3]
         nablas: torch.Tensor = extras['implicit_nablas']
 
@@ -272,8 +325,8 @@ class Trainer(nn.Module):
         
         if it > 100:
             hVerts = hHand.verts_padded()
-            oVerts = mesh_utils.apply_transform(hVerts, wTh)
-            sdf, hand_eik, _ = self.model.implicit_surface.forward_with_nablas(oVerts)
+            jVerts = mesh_utils.apply_transform(hVerts, jTh)
+            sdf, hand_eik, _ = self.model.implicit_surface.forward_with_nablas(jVerts)
             losses['inter_sdf'] = args.training.w_sdf * torch.sum(F.relu(-sdf))
 
         loss = 0
@@ -307,7 +360,7 @@ class Trainer(nn.Module):
         extras['hand_mask_target'] = model_input['hand_mask']
         extras['mask_target'] = model_input['object_mask']
         extras['flow'] = flow_12
-        extras['hand'] = wHand
+        extras['hand'] = jHand
 
         extras['intrinsics'] = intrinsics
 
@@ -355,21 +408,32 @@ class Trainer(nn.Module):
         logger.add_imgs(depth, 'val/hoi_depth_pred', it)
 
         # # vis depth in point cloud
-        # depth_hand = to_img_fn(depth_v_hand)
-        # depth_obj = to_img_fn(depth_v_obj)
-        # _, _, H, W = depth.shape
-        # cameras = self.mesh_renderer.get_cameras(None, ret['intrinsics'], H, W)
+        depth_hand = to_img_fn(depth_v_hand)
+        depth_obj = to_img_fn(depth_v_obj)
+        _, _, H, W = depth_hand.shape
+        cameras = self.mesh_renderer.get_cameras(None, ret['intrinsics'], H, W)
+        print('H, W', H, W)
 
-        # depth_hand = mesh_utils.depth_to_pc(depth_hand, cameras=cameras)
-        # depth_obj = mesh_utils.depth_to_pc(depth_obj, cameras=cameras)
+        depth_hand = mesh_utils.depth_to_pc(depth_hand, cameras=cameras)
+        depth_obj = mesh_utils.depth_to_pc(depth_obj, cameras=cameras)
+        
+        depth_hand = mesh_utils.pc_to_cubic_meshes(pc=depth_hand, eps=5e-2)
+        depth_obj = mesh_utils.pc_to_cubic_meshes(pc=depth_obj, eps=5e-2)
+
+        mesh_utils.dump_meshes(
+            osp.join(logger.log_dir, 'meshes/%08d_hand' % it), 
+            depth_hand)
+        mesh_utils.dump_meshes(osp.join(logger.log_dir, 'meshes/%08d_obj' % it), 
+            depth_obj)
+
+        depth_hoi = mesh_utils.join_scene_w_labels([depth_hand, depth_obj], 3)
+        image_list = mesh_utils.render_geom_rot(depth_hoi, 'circle', cameras=cameras, view_centric=True)
+        logger.add_gifs(image_list, 'val/hoi_depth_pointcloud', it)
+        # logger.add_meshes()
         # # depth_hand.textures = mesh_utils.pad_texture(depth_hand, 'yellow')
         # # depth_obj.textures = mesh_utils.pad_texture(depth_hand, 'white')
         # # # depth_hoi = mesh_utils.join_scene([depth_hand, depth_obj])
-        # mesh_utils.dump_meshes(
-        #     osp.join(logger.log_dir, 'depth_meshes/%08d_hand' % it), 
-        #     mesh_utils.pc_to_cubic_meshes(pc=depth_hand, eps=5e-2))
-        # mesh_utils.dump_meshes(osp.join(logger.log_dir, 'depth_meshes/%08d_obj' % it), 
-        #     mesh_utils.pc_to_cubic_meshes(pc=depth_obj, eps=5e-2))
+
 
         #----------- plot beta heat map
         beta_heat_map = to_img_fn(ret['beta_map']).permute(0, 2, 3, 1).data.cpu().numpy()
@@ -492,6 +556,6 @@ def get_model(args, data_size=-1, **kwargs):
     render_kwargs_test['perturb'] = False
     render_kwargs_test['calc_normal'] = True
 
-    trainer = Trainer(model, args.device_ids, batched=render_kwargs_train['batched'])
+    trainer = Trainer(model, args.device_ids, batched=render_kwargs_train['batched'], args=args)
     
     return model, trainer, render_kwargs_train, render_kwargs_test, trainer.renderer, volume_render_flow

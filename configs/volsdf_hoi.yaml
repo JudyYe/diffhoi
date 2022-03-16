@@ -41,6 +41,7 @@ model:
     skips: []
     embed_multires: -1
     embed_multires_view: -1
+  joint_frame: 'object_norm'  # object_norm / hand_norm
 
 camera:
   mode: 'gt'  # gt, ft, net, para

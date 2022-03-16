@@ -47,8 +47,9 @@ class SceneDataset(torch.utils.data.Dataset):
         self.wTc = geom_utils.inverse_rt(mat=torch.from_numpy(camera_dict['cTw']).float(), return_mat=True)
         self.wTh = torch.from_numpy(camera_dict['wTh']).float()  # a scaling mat that recenter hoi to -1, 1? 
         self.hTo = camera_dict['hTo']  # compute from hA
+        self.onTo = camera_dict['onTo']
         self.intrinsics_all = torch.from_numpy(camera_dict['K_pix']).float()  # (N, 4, 4)
-        print(self.intrinsics_all.shape)
+
 
         # downscale intrinsics
         self.intrinsics_all[..., 0, 2] /= downscale
@@ -80,10 +81,13 @@ class SceneDataset(torch.utils.data.Dataset):
 
         self.flow_fw = []
         for path in tqdm(fw_paths):
-            flow = load_flow(path, downscale)
-            flow = flow.reshape(-1, 2)
+            if osp.exists(path):
+                flow = load_flow(path, downscale)
+                flow = flow.reshape(-1, 2)
             self.flow_fw.append(torch.from_numpy(flow).float())
-            
+        if len(self.flow_fw) == 0:
+            print('No flow!')
+            self.flow_fw = torch.zeros([self.n_images - 1, self.H * self.W, 2])
         self.flow_bw = []
 
         # load hand 
@@ -134,8 +138,15 @@ class SceneDataset(torch.utils.data.Dataset):
         if not self.train_cameras:
             sample["c2w"] = self.wTc[idx]
             sample['c2w_n'] = self.wTc[idx_n]
+
             sample['wTh'] = self.wTh[idx]
             sample['wTh_n'] = self.wTh[idx_n]
+
+            sample['hTo'] = self.hTo[idx]
+            sample['hTo_n'] = self.hTo[idx_n]
+            
+            sample['onTo'] = self.onTo[idx]
+            sample['onTo_n'] = self.onTo[idx_n]
 
         sample['obj_mask'] = self.obj_masks[idx]
         sample['hand_mask'] = self.hand_masks[idx]

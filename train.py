@@ -239,7 +239,8 @@ def main_function(args):
                     #-------------------
                     if is_master():
                         # NOTE: not validating mesh before 3k, as some of the instances of DTU for NeuS training will have no large enough mesh at the beginning.
-                        if i_val_mesh > 0 and (int_it % i_val_mesh == 0 or int_it in special_i_val_mesh) and it != 0:
+                        # if i_val_mesh > 0 and (int_it % i_val_mesh == 0 or int_it in special_i_val_mesh) and it != 0:
+                        if i_val > 0 and int_it % i_val == 0 or test_train:
                             print('validating mesh!!!!!')
                             with torch.no_grad():
                                 io_util.cond_mkdir(mesh_dir)
@@ -251,6 +252,12 @@ def main_function(args):
                                         volume_size=args.data.get('volume_size', 2.0),
                                         show_progress=is_master())
                                     logger.add_meshes('obj', os.path.join('meshes', '{:08d}.ply'.format(it)), it)
+                                    
+                                    jObj = mesh_utils.load_mesh(os.path.join(mesh_dir, '{:08d}.ply'.format(it)))
+                                    jHand = ret['hand']
+                                    jHoi = mesh_utils.join_scene([jObj.to(device), jHand.to(device)])
+                                    image_list = mesh_utils.render_geom_rot(jHoi, scale_geom=True)
+                                    logger.add_gifs(image_list, 'hoi', it)
                                 except ValueError:
                                     print('fail to extract mesh')
                                     pass
