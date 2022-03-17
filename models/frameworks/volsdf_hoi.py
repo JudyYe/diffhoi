@@ -117,7 +117,6 @@ class MeshRenderer(nn.Module):
         # apply cameraTworld outside of rendering to support scaling.
         cMeshes = mesh_utils.apply_transform(meshes, cTw)  # to allow scaling                 
         image = mesh_utils.render_mesh(cMeshes, cameras, rgb_mode=True, depth_mode=True, out_size=max(H, W))
-
         # apply cameraTworld for depth 
         # depth is in camera-view but is in another metric! 
         # convert the depth unit to the normalized unit.
@@ -133,6 +132,7 @@ class Trainer(nn.Module):
     def __init__(self, model: VolSDFHoi, device_ids=[0], batched=True, args=None):
         super().__init__()
         self.joint_frame = args.model.joint_frame
+        self.obj_radius = args.model.obj_bounding_radius
         self.model = model
         self.renderer = SingleRenderer(model)
         self.mesh_renderer = MeshRenderer()
@@ -159,15 +159,22 @@ class Trainer(nn.Module):
         return jHand, jTc, jTh, intrinsics
 
     def render(self, jHand, jTc, intrinsics, render_kwargs, use_surface_render='sphere_tracing'):
+        N = 1
+        H, W = render_kwargs['H'], render_kwargs['W']
+
+        norm = mesh_utils.get_camera_dist(wTc=jTc)
+        render_kwargs['far'] = (norm + self.obj_radius).cpu().item()
+        render_kwargs['near'] = (norm - self.obj_radius).cpu().item()
+        
         model = self.model
         if use_surface_render:
             assert use_surface_render == 'sphere_tracing' or use_surface_render == 'root_finding'
             from models.ray_casting import surface_render
-            render_fn = functools.partial(surface_render, model=model, ray_casting_algo=use_surface_render)
+            render_fn = functools.partial(surface_render, model=model, ray_casting_algo=use_surface_render, 
+                ray_casting_cfgs={'near': render_kwargs['near'], 'far': render_kwargs['far']})
         else:
             render_fn = self.renderer
-        N = 1
-        H, W = render_kwargs['H'], render_kwargs['W']
+        
         # mesh rendering 
         iHand = self.mesh_renderer(
             geom_utils.inverse_rt(mat=jTc, return_mat=True), intrinsics, jHand, **render_kwargs
