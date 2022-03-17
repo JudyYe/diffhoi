@@ -518,10 +518,21 @@ def get_optimizer(args, model, posenet, focalnet):
     # else:
         # raise NotImplementedError
     lr_dict = args.training.lr
+    model_but_oTh = []
+    oTh = []
+
+    for name, param in model.named_parameters():
+        if 'oTh' in name:
+            print('another param', name)
+            oTh.append(param)
+        else:
+            model_but_oTh.append(param)
     param_groups = [
-        {'params': model.parameters(), 'lr': lr_dict['model']},
+        {'params': model_but_oTh, 'lr': lr_dict['model']},
+        {'params': oTh, 'lr': lr_dict['oTh']},
         {'params': posenet.parameters(), 'lr': lr_dict['pose']},
-        {'params': focalnet.parameters(), 'lr': lr_dict['focal']}            
+        {'params': focalnet.parameters(), 'lr': lr_dict['focal'], 
+        }            
     ]
     
     optimizer = optim.AdamW(params=param_groups)

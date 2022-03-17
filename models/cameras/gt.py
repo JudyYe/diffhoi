@@ -1,11 +1,14 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from jutils import geom_utils
 
 
 class PoseNet(nn.Module):
-    def __init__(self):
+    def __init__(self, key='c2w', inverse=False):
         super().__init__()
+        self.key = key
+        self.inverse = inverse
 
     def forward(self, inds, model_input, gt):
         """returns extrinsic stored in model_input: c2w_n or c2w, 
@@ -13,8 +16,11 @@ class PoseNet(nn.Module):
         device = inds.device
         N = len(inds)
         # return  model_input['c2w'].to(device)
-        c2w_n = model_input['c2w_n'].to(device)  # (N, 4, 4)
-        c2w = model_input['c2w'].to(device)
+        c2w_n = model_input['%s_n' % self.key].to(device)  # (N, 4, 4)
+        c2w = model_input['%s' % self.key].to(device)
+        if self.inverse:
+            c2w_n = geom_utils.inverse_rt(mat=c2w_n, return_mat=True)
+            c2w = geom_utils.inverse_rt(mat=c2w, return_mat=True)
         m_nxt = (inds == model_input['inds_n'].to(device)).float()
         m_nxt = m_nxt.view(N, 1, 1)
         rtn = c2w_n * m_nxt + c2w * (1 - m_nxt)  # (N, 4, 4)

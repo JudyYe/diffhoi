@@ -1,3 +1,4 @@
+from time import sleep
 import wandb
 from utils import io_util
 from utils.dist_util import is_master
@@ -109,6 +110,10 @@ class Logger(object):
             vec = vec.data.clone().cpu().numpy()
 
         self.stats[category][k].append((it, vec))
+
+    def add_gif_files(self, file_path, class_name, it):
+        if is_master() and self.wandb:
+            wandb.log({class_name: wandb.Video(file_path)}, step=it)
 
     def add_gifs(self,image_list, class_name, it):
         outdir = os.path.join(self.img_dir, class_name)

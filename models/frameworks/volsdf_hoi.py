@@ -1,5 +1,8 @@
+import functools
 import os.path as osp
 import copy
+from statistics import mode
+from turtle import forward
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -14,6 +17,7 @@ from pytorch3d.renderer import PerspectiveCameras
 import pytorch3d.transforms.rotation_conversions as rot_cvt
 
 from models.base import ImplicitSurface, NeRF, RadianceNet
+from models.cameras.gt import PoseNet
 from models.frameworks.volsdf import SingleRenderer, VolSDF, volume_render_flow
 from utils import hand_utils, io_util, train_util, rend_util
 from utils.dist_util import is_master
@@ -28,7 +32,7 @@ class RelPoseNet(nn.Module):
         nn (_type_): _description_
     """
     def __init__(self, num_frames, learn_R, learn_t, 
-                 init_pose, learn_base_s, learn_base_R, learn_base_t):
+                 init_pose, learn_base_s, learn_base_R, learn_base_t, **kwargs):
         """
         Args:
             num_frames (_type_): N
@@ -84,7 +88,12 @@ class VolSDFHoi(VolSDF):
             input_ch, W_geo_feat, obj_bounding_radius, use_nerfplusplus, 
             surface_cfg, radiance_cfg)
         # TODO: initialize pose
-        self.oTh = RelPoseNet(data_size, init_pose=None, **oTh_cfg)
+        if oTh_cfg['mode'] == 'learn':
+            self.oTh = RelPoseNet(data_size, init_pose=None, **oTh_cfg)
+        elif oTh_cfg['mode'] == 'gt':
+            self.oTh = PoseNet('hTo', True)
+        else:
+            raise NotImplementedError('Not implemented oTh.model: %s' % oTh_cfg['mode'])
 
 
 class MeshRenderer(nn.Module):
@@ -140,34 +149,92 @@ class Trainer(nn.Module):
         self.focalnet = focalnet
 
     def get_jHand_camera(self, indices, model_input, ground_truth, H, W):
-        device = self.device
-        indices = indices.to(device)
-        # palmTcam
-        wTc = self.posenet(indices, model_input, ground_truth)
-
-        hTw = geom_utils.inverse_rt(mat=model_input['wTh'].to(device),return_mat=True)
-        wTh = model_input['wTh'].to(device)
-        
-        oTh = geom_utils.inverse_rt(mat=model_input['hTo'].to(device), return_mat=True)
-
-        onTo = model_input['onTo'].to(device)
-
-        oTc = oTh @ hTw @ wTc
-
-        if self.joint_frame == 'object_norm':
-            jTh = onTo @ oTh
-            jTc = onTo @ oTc # wTc
-        elif self.join_frame == 'hand_norm':
-            jTh =  wTh
-            jTc = wTc
-        
+        jTc, jTc_n, jTh, jTh_n = self.get_jTc(indices, model_input, ground_truth)
         intrinsics = self.focalnet(indices, model_input, ground_truth, H=H, W=W)
 
         # hand FK
         hHand, _ = self.hand_wrapper(None, model_input['hA'].cuda())
         jHand = mesh_utils.apply_transform(hHand, jTh)
 
-        return jHand, jTc, intrinsics
+        return jHand, jTc, jTh, intrinsics
+
+    def render(self, jHand, jTc, intrinsics, render_kwargs, use_surface_render='sphere_tracing'):
+        model = self.model
+        if use_surface_render:
+            assert use_surface_render == 'sphere_tracing' or use_surface_render == 'root_finding'
+            from models.ray_casting import surface_render
+            render_fn = functools.partial(surface_render, model=model, ray_casting_algo=use_surface_render)
+        else:
+            render_fn = self.renderer
+        N = 1
+        H, W = render_kwargs['H'], render_kwargs['W']
+        # mesh rendering 
+        iHand = self.mesh_renderer(
+            geom_utils.inverse_rt(mat=jTc, return_mat=True), intrinsics, jHand, **render_kwargs
+        )
+
+        # volumetric rendering
+        # rays in canonical object frame
+        rays_o, rays_d, select_inds = rend_util.get_rays(
+            jTc, intrinsics, H, W, N_rays=-1)
+        rgb_obj, depth_v, extras = render_fn(rays_o, rays_d, detailed_output=True, **render_kwargs)
+
+        # matting
+        depth_v_hand = iHand['depth'].view(N, -1)
+        mask_hand = iHand['mask'].view(N, -1)
+        rgb_hand = iHand['image'].permute(0, 2, 3, 1).view(N, -1, 3)
+        depth_v_hand_xy = torch.gather(depth_v_hand, 1, select_inds)
+        mask_hand_xy = torch.gather(mask_hand, 1, select_inds)
+        rgb_hand_xy = torch.gather(rgb_hand, 1, torch.stack(3*[select_inds], -1))
+
+        pred_hand_select = (depth_v_hand_xy < depth_v).float().unsqueeze(-1)
+        rgb = pred_hand_select * rgb_hand_xy + (1 - pred_hand_select) * rgb_obj
+        
+        if not self.training:
+            rgb = rgb.reshape(1, H, W, 3).permute([0, 3, 1, 2])
+            pred_hand_select = pred_hand_select.reshape(1, 1, H, W)
+        rtn = {}
+        rtn['image'] = rgb.cpu()
+        rtn['hand_front'] = pred_hand_select.cpu()
+        rtn['obj_front'] = 1-pred_hand_select.cpu()
+        return rtn
+
+    def get_jTc(self, indices, model_input, ground_truth):
+        device = self.device
+        # palmTcam
+        wTc = self.posenet(indices, model_input, ground_truth)
+        wTc_n = self.posenet(model_input['inds_n'].to(device), model_input, ground_truth)
+
+        hTw = geom_utils.inverse_rt(mat=model_input['wTh'].to(device),return_mat=True)
+        wTh = model_input['wTh'].to(device)
+        hTw_n = geom_utils.inverse_rt(mat=model_input['wTh_n'].to(device),return_mat=True)
+        
+        # TODO: change here!
+        oTh = self.model.oTh(indices.to(device), model_input, ground_truth)
+        oTh_n = self.model.oTh(model_input['inds_n'].to(device), model_input, ground_truth)
+        # oTh = geom_utils.inverse_rt(mat=model_input['hTo'].to(device), return_mat=True)
+        # oTh_n = geom_utils.inverse_rt(mat=model_input['hTo_n'].to(device), return_mat=True)
+
+        onTo = model_input['onTo'].to(device)
+        onTo_n = model_input['onTo_n'].to(device)
+
+        oTc = oTh @ hTw @ wTc
+        oTc_n = oTh_n @ hTw_n @ wTc_n         
+
+        # NOTE: the mesh / vol rendering needs to be in the same coord system (joint), in order to compare their depth!!
+        if self.joint_frame == 'object_norm':
+            jTh = onTo @ oTh
+            jTh_n = None
+            jTc = onTo @ oTc # wTc
+            jTc_n = onTo @ oTc_n # wTc_n
+        elif self.joint_frame == 'hand_norm':
+            jTh =  wTh
+            jTh_n = None
+            jTc = wTc
+            jTc_n = wTc_n
+
+        return jTc, jTc_n, jTh, jTh_n
+
 
     def forward(self, 
              args,
@@ -179,37 +246,8 @@ class Trainer(nn.Module):
         device = self.device
         N = len(indices)
         indices = indices.to(device)
-        # palmTcam
-        wTc = self.posenet(indices, model_input, ground_truth)
-        wTc_n = self.posenet(model_input['inds_n'].to(device), model_input, ground_truth)
 
-        hTw = geom_utils.inverse_rt(mat=model_input['wTh'].to(device),return_mat=True)
-        wTh = model_input['wTh'].to(device)
-        hTw_n = geom_utils.inverse_rt(mat=model_input['wTh_n'].to(device),return_mat=True)
-        
-        oTh = geom_utils.inverse_rt(mat=model_input['hTo'].to(device), return_mat=True)
-        oTh_n = geom_utils.inverse_rt(mat=model_input['hTo_n'].to(device), return_mat=True)
-
-        onTo = model_input['onTo'].to(device)
-        onTo_n = model_input['onTo_n'].to(device)
-
-        oTc = oTh @ hTw @ wTc
-        oTc_n = oTh_n @ hTw_n @ wTc_n         
-        # apply object to hand pose, include scale!, R, t
-        # oTh = self.model.oTh(indices)
-        # oTh_n = self.model.oTh(model_input['inds_n'].to(device))
-
-        # NOTE: the mesh / vol rendering needs to be in the same coord system (joint), in order to compare their depth!!
-
-        if args.model.joint_frame == 'object_norm':
-            jTh = onTo @ oTh
-            jTc = onTo @ oTc # wTc
-            jTc_n = onTo @ oTc_n # wTc_n
-        elif args.model.joint_frame == 'hand_norm':
-            jTh =  wTh
-            jTc = wTc
-            jTc_n = wTc_n
-
+        jTc, jTc_n, jTh, jTh_n = self.get_jTc(indices, model_input, ground_truth)
 
         # NOTE: znear and zfar is important: distance of camera center to world origin
         cam_norm = jTc_n[..., 0:4, 3]

@@ -1,3 +1,4 @@
+from fileinput import filelineno
 from pathlib import Path
 import hydra
 import hydra.utils as hydra_utils
@@ -30,6 +31,7 @@ from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
+import tools.vis_clips as tool_clip
 
 def main_function(args):
 
@@ -43,7 +45,7 @@ def main_function(args):
     i_backup = int(args.training.i_backup // world_size) if args.training.i_backup > 0 else -1
     i_val = int(args.training.i_val // world_size) if args.training.i_val > 0 else -1
     i_val_mesh = int(args.training.i_val_mesh // world_size) if args.training.i_val_mesh > 0 else -1
-    special_i_val_mesh = [int(i // world_size) for i in [1, 100, 1000, 3000, 5000, 7000]]
+    special_i_val_mesh = [int(i // world_size) for i in [100, 1000, 3000, 5000, 7000]]
     exp_dir = args.training.exp_dir
     mesh_dir = os.path.join(exp_dir, 'meshes')
     
@@ -163,7 +165,7 @@ def main_function(args):
                     #-------------------
                     # validate
                     #-------------------
-                    if i_val > 0 and int_it % i_val == 0 or test_train:
+                    if i_val > 0 and int_it % i_val == 0 or test_train or int_it in special_i_val_mesh:
                         print('validation!!!!!')
                         test_train = 0
                         with torch.no_grad():
@@ -235,12 +237,23 @@ def main_function(args):
                                 os.path.join(logger.log_dir, 'cams', '%08d' % it))
                     
                     #-------------------
+                    # validate rendering
+                    #-------------------
+                    # NOTE: not validating mesh before 3k, as some of the instances of DTU for NeuS training will have no large enough mesh at the beginning.
+                    if i_val > 0 and int_it % i_val == 0 or test_train or int_it in special_i_val_mesh:
+                        one_time_loader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=mesh_utils.collate_meshes)
+                        file_list = tool_clip.run(
+                            one_time_loader, trainer, 
+                            os.path.join(logger.log_dir, 'meshes'), '%08d' % it, 224, 224,
+                            N=64, volume_size=args.data.get('volume_size', 2.0))
+                        for file in file_list:
+                            name = os.path.basename(file)[9:-4]
+                            logger.add_gif_files(file, 'render/' + name, it)
+                    #-------------------
                     # validate mesh
                     #-------------------
                     if is_master():
-                        # NOTE: not validating mesh before 3k, as some of the instances of DTU for NeuS training will have no large enough mesh at the beginning.
-                        # if i_val_mesh > 0 and (int_it % i_val_mesh == 0 or int_it in special_i_val_mesh) and it != 0:
-                        if i_val > 0 and int_it % i_val == 0 or test_train:
+                        if i_val > 0 and int_it % i_val == 0 or test_train or int_it in special_i_val_mesh:
                             print('validating mesh!!!!!')
                             with torch.no_grad():
                                 io_util.cond_mkdir(mesh_dir)
@@ -257,7 +270,7 @@ def main_function(args):
                                     jHand = ret['hand']
                                     jHoi = mesh_utils.join_scene([jObj.to(device), jHand.to(device)])
                                     image_list = mesh_utils.render_geom_rot(jHoi, scale_geom=True)
-                                    logger.add_gifs(image_list, 'hoi', it)
+                                    logger.add_gifs(image_list, 'render/hoi_one_frame', it)
                                 except ValueError:
                                     print('fail to extract mesh')
                                     pass

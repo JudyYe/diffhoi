@@ -13,6 +13,7 @@ data:
   downscale: 1        # downscale image for training
   scale_radius: 3.0   # scale the dataset's all camera to be within this radius
   pin_memory: True
+  volume_size: 6.0
 
   near: 0.0
   far: 6.0  # NOTE: in volSDF，far = 2r=2*3=6.0
@@ -56,6 +57,7 @@ camera:
   init_f: 2.
 
 oTh:
+  mode: 'gt'
   learn_R: False
   learn_t: False
   learn_base_s: False
@@ -70,6 +72,7 @@ training:
     model: 5.0e-4
     pose: 1.0e-3
     focal: 1.0e-3
+    oTh: 1.0e-3
 
   w_eikonal: 0.1
   w_mask: 1. 
@@ -93,10 +96,10 @@ training:
 
   monitoring: wandb
 
-  i_save: 900       # unit: seconds
+  i_save: 1000       # unit: seconds
   i_backup: 50000   # unit: itertation steps
 
-  i_val: 500
-  i_val_mesh: 500
+  i_val: 1000
+  i_val_mesh: 1000
 
   print_freq: 10
