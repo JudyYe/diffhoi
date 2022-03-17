@@ -14,7 +14,7 @@ from utils.logger import Logger
 from utils.checkpoints import CheckpointIO
 from dataio import get_data
 
-from jutils import web_utils, slurm_utils, mesh_utils
+from jutils import web_utils, slurm_utils, mesh_utils, slurm_wrapper
 import os
 import sys
 import time
@@ -434,6 +434,7 @@ def main():
     args, unknown = parser.parse_known_args()
     config = io_util.load_config(args, unknown)
 
+    
     slurm_utils.slurm_wrapper(args, config.training.exp_dir, main_function, {'args':config})
     # main_function(config)
 

@@ -35,10 +35,10 @@ time_len = 30
 H = W = 224
 
 
-def render(vid_index, start, dt, split='train'):
+def render(vid_index, start, dt=10, split='train'):
     hand_wrapper = ManopthWrapper().to(device)
     cnt = 0
-    with open(osp.join(data_dir, 'train.txt')) as fp:
+    with open(osp.join(data_dir, '%s.txt' % split)) as fp:
         frame_dict = [line.strip() for line in fp if line.split('/')[0] == vid_index]
     frame_dict = set(frame_dict)
     t = start - 1
@@ -57,10 +57,10 @@ def render(vid_index, start, dt, split='train'):
             continue
         t += dt - 1
         cnt += 1
-        bg = Image.open(osp.join('../data/ho3d/train/%s/rgb/%s.jpg' % (vid_index, frame_index)))
+        bg = Image.open(osp.join('../data/ho3d/%s/%s/rgb/%s.jpg' % (split, vid_index, frame_index)))
         # image = ToTensor()(image)[None]
 
-        with open(osp.join('../data/ho3d/train/%s/meta/%s.pkl' % (vid_index, frame_index)), 'rb') as fp:
+        with open(osp.join('../data/ho3d/%s/%s/meta_plus/%s.pkl' % (split, vid_index, frame_index)), 'rb') as fp:
             anno = pickle.load(fp)
         hTo, cTh, hA, hHand, bbox_sq, f, p = get_crop(anno, hand_wrapper)
 
@@ -218,6 +218,21 @@ def proj3d(points, cam):
 
 if __name__ == '__main__':
     # render('MDF10', 0, 10)
-    render('SMu1', 650, 10)
+    # render('SMu1', 650, 10)
     
+    render('SMu41', 0, 10)
+    # sugar box
+    render('SS2', 0, 10)
+    # 006_mustard_bottle
+    render('SM2', 0, 10)
+    # scissor
+    render('GSF11', 0, 10)
+    render('GSF11', 1000, 10)
+    # 003_cracker_box
+    render('MC2', 0, 10)
+    # banana
+    render('BB12', 0, 10)
+
+    # render('AP12', 50, 10, split='evaluation')
+    # AP12/0051
     # flow()
