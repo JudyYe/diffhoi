@@ -173,55 +173,31 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                         with torch.no_grad():
                             (val_ind, val_in, val_gt) = next(iter(valloader))
                             
-                            # val_in = train_util.to_device(val_in, device)
-                            # val_gt = train_util.to_device(val_gt, device)
                             trainer.eval()
                             val_ind = val_ind.to(device)
                             loss_extras = trainer(args, val_ind, val_in, val_gt, render_kwargs_test, 0)
-
-                            # c2w = posenet(val_ind, val_in, val_gt)
-                            # c2w_n = posenet(val_in['inds_n'].to(device), val_in, val_gt)
-
-                            # intrinsics = focal_net(val_ind, val_in, val_gt, H=valH,W=valW)
-                            # intrinsics_n = focal_net(val_in['inds_n'].to(device), val_in, val_gt,H=valH,W=valW)
-                            
-                            # # N_rays=-1 for rendering full image
-                            # rays_o, rays_d, select_inds = rend_util.get_rays(
-                            #     c2w, intrinsics, render_kwargs_test['H'], render_kwargs_test['W'], N_rays=-1)
+ 
                             target_rgb = val_gt['rgb'].to(device)    
                             target_mask = val_in['object_mask'].to(device)
                             target_flow = val_in['flow_fw'].to(device)
-                            # rgb, depth_v, ret = volume_render_fn(rays_o, rays_d, calc_normal=True, detailed_output=True, **render_kwargs_test)
-                            # flow = flow_render_fn(depth_v, select_inds, intrinsics, intrinsics_n, c2w, c2w_n, **render_kwargs_test)
+ 
                             ret = loss_extras['extras']
-                            rgb = ret['rgb']
-                            depth_v = ret['depth_volume']
-                            flow = ret['flow']
-                            print(rgb.shape)
 
                             to_img = functools.partial(
                                 rend_util.lin2img, 
                                 H=render_kwargs_test['H'], W=render_kwargs_test['W'],
                                 batched=render_kwargs_test['batched'])
-                            logger.add_imgs(to_img(target_rgb), 'val/gt_rgb', it)
-                            logger.add_imgs(to_img(rgb), 'val/predicted_rgb', it)
-                            logger.add_imgs(to_img((depth_v/(depth_v.max()+1e-10)).unsqueeze(-1)), 'val/pred_depth_volume', it)
-                            logger.add_imgs(to_img(target_mask.unsqueeze(-1).float()), 'val/gt_mask', it)
-                            logger.add_imgs(to_img(ret['mask_volume'].unsqueeze(-1)), 'val/pred_mask_volume', it)
+                            logger.add_imgs(to_img(target_rgb), 'gt/gt_rgb', it)
+                            logger.add_imgs(to_img(target_mask.unsqueeze(-1).float()), 'gt/gt_mask', it)
+                            logger.add_imgs(to_img(flow_util.batch_flow_to_image(target_flow)), 'gt/gt_flo_fw', it)
 
-                            logger.add_imgs(to_img(flow_util.batch_flow_to_image(flow)), 'val/predicted_flo_fw', it)
-                            logger.add_imgs(to_img(flow_util.batch_flow_to_image(target_flow)), 'val/gt_flo_fw', it)
-                            if 'depth_surface' in ret:
-                                logger.add_imgs(to_img((ret['depth_surface']/ret['depth_surface'].max()).unsqueeze(-1)), 'val/pred_depth_surface', it)
-                            if 'mask_surface' in ret:
-                                logger.add_imgs(to_img(ret['mask_surface'].unsqueeze(-1).float()), 'val/predicted_mask', it)
                             if hasattr(trainer, 'val'):
                                 if args.ddp:
                                     trainer.module.val(logger, ret, to_img, it, render_kwargs_test)
                                 else:
                                     trainer.val(logger, ret, to_img, it, render_kwargs_test)
                             
-                            logger.add_imgs(to_img(ret['normals_volume']/2.+0.5), 'val/predicted_normals', it)
+                            logger.add_imgs(to_img(ret['normals_volume']/2.+0.5), 'obj/predicted_normals', it)
                     #-------------------
                     # validate camera pose 
                     #-------------------

@@ -118,10 +118,12 @@ class Worker:
 def hydra_main(config):
     # TODO: change to hydra for better sweeping?
     update_pythonpath_relative_hydra()
-    print(OmegaConf.to_yaml(config))
     # DANGEROUS: set device !
     io_util.setup_config_for_hydra(config)
-    print(config.output, config.training.exp_dir, config.logging.submitit_dir)
+
+    if not config.environment.resume:
+        log.warn('dangerous!! wipe out %s' % config.training.exp_dir)
+        os.system('rm -r %s' % config.training.exp_dir)
     # add slurm 
     slurm_utils.slurm_wrapper_hydra(config, Worker())
 

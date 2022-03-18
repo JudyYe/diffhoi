@@ -52,6 +52,12 @@ model:
 
   joint_frame: 'object_norm'  # object_norm / hand_norm
 
+blend_train:
+  method: 'soft'
+  sigma: 1e-4
+  gamma: 1e-4
+  background_color: [1.0, 1.0, 1.0]
+  
 # camera:
 #   mode: 'gt'  # gt, ft, net, para
 #   hypothesis: 1

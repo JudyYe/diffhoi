@@ -1,5 +1,13 @@
 PYTHONPATH=. python -m engine \
-    environment.slurm=False environment.multiprocessing_distributed=False environment.world_size=1
+    expname=dev_blend/\${blend_train.method} \
+    environment=dev \
+    blend_train.method=soft
+
+
+PYTHONPATH=. python -m engine \
+    expname=dev_blend/\${blend_train.method} \
+    training.monitoring=none \
+    blend_train.method=hard
 
 
 

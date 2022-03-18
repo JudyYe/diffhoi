@@ -1,4 +1,4 @@
-resume: True
+resume: False
 
 workers: 80
 
@@ -17,8 +17,8 @@ gpu:
 ngpu: 2
 mem_gb: 256
 
-slurm: True
-slurm_partition: devlab
+slurm: False
+slurm_partition: none
 slurm_timeout: 2880
 nodelist: ""
 exclude_nodes: ""
