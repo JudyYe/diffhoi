@@ -1,3 +1,8 @@
+PYTHONPATH=. python -m engine \
+    environment.slurm=False environment.multiprocessing_distributed=False environment.world_size=1
+
+
+
 DATA=AP12_0050
 python -m train --config configs/volsdf_hoi.yaml \
     --expname learn_oTh/unknown_${DATA} --training:occ_mask indp  \

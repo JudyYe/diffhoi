@@ -15,27 +15,36 @@ def is_port_in_use(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(('localhost', port)) == 0
 
-def init_env(args):
+def init_env(args, gpu=None, ngpus_per_node=None):
     global rank, local_rank, world_size
-    while True:
-        port = random.randint(10000, 20000)    
-        if not is_port_in_use(port):
-            print('use port', port)
-            break
+    # while True:
+    #     port = random.randint(10000, 20000)    
+    #     if not is_port_in_use(port):
+    #         print('use port', port)
+    #         break
+    port = args.environment.port
+    print(gpu, ngpus_per_node)
+    # if args.environment.multiprocessing_distributed:
+        # return init_hydra(args, gpu, ngpus_per_node)
+
     if args.ddp:
         #------------- multi process running, using DDP
         if 'SLURM_PROCID' in os.environ:
             #--------- for SLURM
             slurm_initialize('nccl', port=port)
+            rank = int(os.environ['RANK'])
+            local_rank = int(os.environ['LOCAL_RANK'])
+            world_size = int(os.environ['WORLD_SIZE'])
         else:
             #--------- for torch.distributed.launch
+            rank = args.environment.rank * ngpus_per_node + gpu
+            local_rank = rank
+            world_size = args.environment.world_size
+
             dist.init_process_group(backend='nccl', 
             init_method="tcp://{}:{}".format("localhost", str(port)),
-            rank=local_rank,        world_size = 1)
+            rank=local_rank,        world_size = world_size)
 
-        rank = int(os.environ['RANK'])
-        local_rank = int(os.environ['LOCAL_RANK'])
-        world_size = int(os.environ['WORLD_SIZE'])
         torch.cuda.set_device(local_rank)
         args.device_ids = [local_rank]
         print("=> Init Env @ DDP: rank={}, world_size={}, local_rank={}.\n\tdevice_ids set to {}".format(rank, world_size, local_rank, args.device_ids))

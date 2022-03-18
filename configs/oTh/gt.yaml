@@ -1,0 +1,7 @@
+mode: 'gt'
+learn_R: False
+learn_t: False
+
+learn_base_s: False
+learn_base_R: False
+learn_base_t: False

@@ -1,0 +1,5 @@
+run:
+  dir: ${output}/${expname}/outputs
+sweep:
+  dir: ${output}/${expname}/outputs
+  subdir: ID${hydra.job.id} 

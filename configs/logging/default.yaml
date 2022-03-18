@@ -1,0 +1,19 @@
+# Logging frequency
+print_freq: 100
+save_freq: 25
+save_freq_mints: 20
+eval_freq: 5
+debug: False
+
+# Paths
+ckpt_dir: ${output}/${expname}/checkpoints/
+submitit_dir: ${output}/${expname}/submitit_train_logs/
+result_dir: ${output}/${expname}/results/
+suffix: ''
+
+# Logging
+log_tb: True
+use_wandb: True
+wandb_dir: ${output}/${expname}/wandb/
+wandb_user: judyye # judyye
+wandb_project: ${expname}

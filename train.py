@@ -2,6 +2,7 @@ from fileinput import filelineno
 from pathlib import Path
 import hydra
 import hydra.utils as hydra_utils
+import submitit
 
 from models.frameworks import get_model
 from models.cameras import get_camera
@@ -33,9 +34,10 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 import tools.vis_clips as tool_clip
 
-def main_function(args):
 
-    init_env(args)
+def main_function(gpu=None, ngpus_per_node=None, args=None):
+
+    init_env(args, gpu, ngpus_per_node)
     
     #----------------------------
     #-------- shortcuts ---------
@@ -214,7 +216,10 @@ def main_function(args):
                             if 'mask_surface' in ret:
                                 logger.add_imgs(to_img(ret['mask_surface'].unsqueeze(-1).float()), 'val/predicted_mask', it)
                             if hasattr(trainer, 'val'):
-                                trainer.val(logger, ret, to_img, it, render_kwargs_test)
+                                if args.ddp:
+                                    trainer.module.val(logger, ret, to_img, it, render_kwargs_test)
+                                else:
+                                    trainer.val(logger, ret, to_img, it, render_kwargs_test)
                             
                             logger.add_imgs(to_img(ret['normals_volume']/2.+0.5), 'val/predicted_normals', it)
                     #-------------------
@@ -395,37 +400,8 @@ def main_function(args):
 
 
 
-def update_pythonpath_relative_hydra():
-    """Update PYTHONPATH to only have absolute paths."""
-    # NOTE: We do not change sys.path: we want to update paths for future instantiations
-    # of python using the current environment (namely, when submitit loads the job
-    # pickle).
-    try:
-        original_cwd = Path(hydra_utils.get_original_cwd()).resolve()
-    except (AttributeError, ValueError):
-        # Assume hydra is not initialized, we don't need to do anything.
-        # In hydra 0.11, this returns AttributeError; later it will return ValueError
-        # https://github.com/facebookresearch/hydra/issues/496
-        # I don't know how else to reliably check whether Hydra is initialized.
-        return
-    paths = []
-    for orig_path in os.environ["PYTHONPATH"].split(":"):
-        path = Path(orig_path)
-        if not path.is_absolute():
-            path = original_cwd / path
-        paths.append(path.resolve())
-    os.environ["PYTHONPATH"] = ":".join([str(x) for x in paths])
-    log.info('PYTHONPATH: {}'.format(os.environ["PYTHONPATH"]))
 
-
-# @hydra.main(config_path='./configs/', config_name='volsdf_hoi')
 def main():
-    # TODO: change to hydra for better sweeping?
-    # update_pythonpath_relative_hydra()
-    # print(config)
-    # print(config.expname)
-    # print(config.training)
-
     # Arguments
     parser = io_util.create_args_parser()
     parser.add_argument("--ddp", action='store_true', help='whether to use DDP to train.')
@@ -436,7 +412,7 @@ def main():
 
     
     slurm_utils.slurm_wrapper(args, config.training.exp_dir, main_function, {'args':config})
-    # main_function(config)
 
 if __name__ == "__main__":
+    # hydra_main()
     main()

@@ -1,4 +1,18 @@
-expname: volsdf_65
+defaults:
+  - environment: default
+  - logging: default
+  - hydra: default
+  - data: ho3d
+  - camera: gt
+  - oTh: gt
+
+
+output: "/checkpoint/yufeiy2/vhoi_out/neurecon_out"
+expname: dev/tmp
+
+
+ddp: ${environment.multiprocessing_distributed} # deprecated
+resume_dir: 
 
 # device_ids: [0]     # single gpu           ; run on specified GPU
 # device_ids: [1, 0]  # DP                   ; run on specified GPU
@@ -6,21 +20,6 @@ device_ids: -1        # single GPU / DP / DDP; run on all available GPUs;
 
 test_train: 0
 
-data:
-  type: HOI
-  batch_size: 1       # one batch, one image
-  data_dir: /checkpoint/yufeiy2/vhoi_out/syn_data/00006755
-  downscale: 1        # downscale image for training
-  scale_radius: 3.0   # scale the dataset's all camera to be within this radius
-  pin_memory: True
-  volume_size: 6.0
-
-  near: 0.0
-  far: 6.0  # NOTE: in volSDF，far = 2r=2*3=6.0
-
-  N_rays: 1024        # N_rays for training
-  val_rayschunk: 256 # N_rays for validation
-  val_downscale: 4    # downscale image for validation
 
 model:
   framework: VolSDFHOI
@@ -30,41 +29,53 @@ model:
   max_upsample_iter: 6      # up sample iteratioms, as in the VolSDF paper
 
   W_geometry_feature: 256
-
+  use_siren: False
+  perturb: True
+  white_bkgd: False
   surface:
     radius_init: 1.0        # as in VolSDF supp B.3, unit sphere
     D: 8
+    W: 256
     skips: [4]
     embed_multires: 6
+    use_siren: False
+    geometric_init: True
 
   radiance:
+    use_siren: False
+    use_view_dirs: True
     D: 4
+    W: 256
     skips: []
     embed_multires: -1
     embed_multires_view: -1
+
   joint_frame: 'object_norm'  # object_norm / hand_norm
 
-camera:
-  mode: 'gt'  # gt, ft, net, para
-  hypothesis: 1
-  learn_R: 1
-  learn_t: 1
-  init_dist: 2
-  learn_f: 1
-  learn_pp: 1
-  fx_only: 1
-  order_f: 2
-  init_f: 2.
+# camera:
+#   mode: 'gt'  # gt, ft, net, para
+#   hypothesis: 1
+#   learn_R: 1
+#   learn_t: 1
+#   init_dist: 2
+#   learn_f: 1
+#   learn_pp: 1
+#   fx_only: 1
+#   order_f: 2
+#   init_f: 2.
 
-oTh:
-  mode: 'gt'
-  learn_R: False
-  learn_t: False
-  learn_base_s: False
-  learn_base_R: False
-  learn_base_t: False
+# oTh:
+#   mode: 'gt'
+#   learn_R: False
+#   learn_t: False
+#   learn_base_s: False
+#   learn_base_R: False
+#   learn_base_t: False
 
 training:
+  exp_dir: ${training.log_root_dir}/${expname}
+  
+  beta_init: 0.1
   speed_factor: 10.0
 
   # lr: 5.0e-4
@@ -81,7 +92,7 @@ training:
   fg: 1
   occ_mask: union  # union or indp
 
-  log_root_dir: "../output/neurecon_out/"
+  log_root_dir: "/checkpoint/yufeiy2/vhoi_out/neurecon_out"
 
   num_iters: 50000
 

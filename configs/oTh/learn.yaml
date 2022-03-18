@@ -1,0 +1,7 @@
+mode: 'learn'
+learn_R: True
+learn_t: True
+
+learn_base_s: False
+learn_base_R: False
+learn_base_t: False

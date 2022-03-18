@@ -1,6 +1,7 @@
 from time import sleep
 import wandb
 from utils import io_util
+from utils import dist_util
 from utils.dist_util import is_master
 from utils.print_fn import log
 
@@ -133,11 +134,11 @@ class Logger(object):
         
     def add_imgs(self, imgs, class_name, it):
         outdir = os.path.join(self.img_dir, class_name)
-        if self.is_master and not os.path.exists(outdir):
-            os.makedirs(outdir)
+        outfile = os.path.join(outdir, '{:08d}_{}.png'.format(it, self.rank))
+        if self.is_master:
+            os.makedirs(os.path.dirname(outfile), exist_ok=True)
         if self.multi_process_logging:
             dist.barrier()
-        outfile = os.path.join(outdir, '{:08d}_{}.png'.format(it, self.rank))
 
         # imgs = imgs / 2 + 0.5
         imgs = torchvision.utils.make_grid(imgs)

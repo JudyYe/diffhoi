@@ -1,4 +1,8 @@
+from typing import Union
 import re
+
+import omegaconf
+from omegaconf import DictConfig, OmegaConf
 from utils.print_fn import log
 
 import os
@@ -92,8 +96,12 @@ def backup(backup_dir):
     special_files_to_copy = []
     filetypes_to_copy = [".py"]
     subdirs_to_copy = ["", "dataio/", "models/", "tools/", "debug_tools/", "utils/"]
-
-    this_dir = "./" # TODO
+    
+    # to support hydra
+    if "PYTHONPATH" in os.environ:
+        this_dir = os.environ['PYTHONPATH']
+    else:
+        this_dir = "./" # TODO
     cond_mkdir(backup_dir)
     # special files
     [
@@ -240,12 +248,18 @@ def load_yaml(path, default_path=None):
     return config
 
 
-def save_config(datadict: ForceKeyErrorDict, path: str):
+def save_config(datadict: Union[ForceKeyErrorDict, DictConfig], path: str):
     datadict = copy.deepcopy(datadict)
     datadict.training.ckpt_file = None
-    datadict.training.pop('exp_dir')
-    with open(path, 'w', encoding='utf8') as outfile:
-        yaml.dump(datadict.to_dict(), outfile, default_flow_style=False)
+
+    if isinstance(datadict, DictConfig):
+        with open(path, 'w', encoding='utf8') as outfile:
+            yaml.dump(OmegaConf.to_yaml(datadict), outfile, default_flow_style=False)
+    else:
+        datadict.training.pop('exp_dir')
+        log.info(type(datadict))
+        with open(path, 'w', encoding='utf8') as outfile:
+            yaml.dump(datadict.to_dict(), outfile, default_flow_style=False)
 
 
 def update_config(config, unknown):
@@ -282,6 +296,31 @@ def create_args_parser():
     parser.add_argument('--config', type=str, default=None, help='Path to config file.')
     parser.add_argument('--resume_dir', type=str, default=None, help='Directory of experiment to load.')
     return parser
+
+
+def setup_config_for_hydra(config):
+    if config.resume_dir is not None:
+        # change the default config to the config?? but still overwrite
+        pass
+    # set devices and ddp
+    if config.ddp:
+        if config.device_ids != -1:
+            print("=> Ignoring device_ids configs when using DDP. Auto set to -1.")
+            config.device_ids = -1
+    else:
+        # # device_ids: -1 will be parsed as using all available cuda device
+        # # device_ids: [] will be parsed as using all available cuda device
+        if (type(config.device_ids) == int and config.device_ids == -1) \
+                or (type(config.device_ids) == list and len(config.device_ids) == 0):
+            config.device_ids = list(range(torch.cuda.device_count()))
+        # # e.g. device_ids: 0 will be parsed as device_ids [0]
+        elif isinstance(config.device_ids, int):
+            config.device_ids = [config.device_ids]
+        # # e.g. device_ids: 0,1 will be parsed as device_ids [0,1]
+        elif isinstance(config.device_ids, str):
+            config.device_ids = [int(m) for m in config.device_ids.split(',')]
+        print("=> Use cuda devices: {}".format(config.device_ids))
+    return config
 
 
 def load_config(args, unknown, base_config_path=None):
