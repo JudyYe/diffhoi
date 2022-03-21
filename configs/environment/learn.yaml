@@ -18,8 +18,8 @@ workers: 80
 mem_gb: 256
 
 slurm: True
-slurm_partition: devlab
-slurm_timeout: 2880
+slurm_partition: learnlab
+slurm_timeout: 60
 nodelist: ""
 exclude_nodes: ""
 

@@ -1,3 +1,4 @@
+from copy import deepcopy
 from fileinput import filelineno
 from flask import render_template
 import numpy as np
@@ -5,7 +6,7 @@ import os
 import os.path as osp
 
 from tqdm import tqdm
-from models.frameworks.volsdf_hoi import MeshRenderer
+from models.frameworks.volsdf_hoi import MeshRenderer, VolSDFHoi
 from utils import io_util, mesh_util
 from utils.dist_util import is_master
 from utils.mesh_util import extract_mesh
@@ -19,7 +20,7 @@ from torch.utils.data.dataloader import DataLoader
 from jutils import image_utils, geom_utils, mesh_utils
 
 
-def run_render(dataloader:DataLoader, trainer, save_dir, name, render_kwargs, H=None, W=None, offset=None):
+def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_kwargs, offset=None):
     device = trainer.device
     if offset is None:
         offset = geom_utils.axis_angle_t_to_matrix(
@@ -29,10 +30,10 @@ def run_render(dataloader:DataLoader, trainer, save_dir, name, render_kwargs, H=
 
     orig_H, orig_W = dataloader.dataset.H, dataloader.dataset.W
 
-    if H is not None:
-        render_kwargs['H'] = H
-    if W is not None:
-        render_kwargs['W'] = W
+    # if H is not None:
+    #     render_kwargs['H'] = H
+    # if W is not None:
+    #     render_kwargs['W'] = W
     H, W = render_kwargs['H'], render_kwargs['W']
     
     # reconstruct  hand and render
@@ -66,6 +67,8 @@ def run_render(dataloader:DataLoader, trainer, save_dir, name, render_kwargs, H=
     for n, img_list in zip(name_list, image_list):
         image_utils.save_gif(img_list, osp.join(save_dir, name + '_%s' % n))
 
+    file_list = [osp.join(save_dir, name + '_%s.gif' % n) for n in name_list]
+    return file_list
 
 def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_size=6):
     device = trainer.device

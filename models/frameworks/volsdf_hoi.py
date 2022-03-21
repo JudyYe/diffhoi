@@ -24,7 +24,7 @@ from utils import hand_utils, io_util, train_util, rend_util
 from utils.dist_util import is_master
 from utils.logger import Logger
 
-from models.blending import hard_rgb_blend, softmax_rgb_blend
+from models.blending import hard_rgb_blend, softmax_rgb_blend, volumetric_rgb_blend
 from jutils import geom_utils, mesh_utils
 
 
@@ -136,6 +136,8 @@ class Trainer(nn.Module):
         super().__init__()
         self.joint_frame = args.model.joint_frame
         self.obj_radius = args.model.obj_bounding_radius
+        self.args = args
+
         self.model = model
         self.renderer = SingleRenderer(model)
         self.mesh_renderer = MeshRenderer()
@@ -166,8 +168,8 @@ class Trainer(nn.Module):
         H, W = render_kwargs['H'], render_kwargs['W']
 
         norm = mesh_utils.get_camera_dist(wTc=jTc)
-        render_kwargs['far'] = (norm + self.obj_radius).cpu().item()
-        render_kwargs['near'] = (norm - self.obj_radius).cpu().item()
+        render_kwargs['far'] = zfar = (norm + self.obj_radius).cpu().item()
+        render_kwargs['near'] = znear = (norm - self.obj_radius).cpu().item()
         
         model = self.model
         if use_surface_render:
@@ -188,9 +190,14 @@ class Trainer(nn.Module):
         rays_o, rays_d, select_inds = rend_util.get_rays(
             jTc, intrinsics, H, W, N_rays=-1)
         rgb_obj, depth_v, extras = render_fn(rays_o, rays_d, detailed_output=True, **render_kwargs)
-        iObj = {'rgb': rgb_obj, 'depth': depth_v, 'mask': extras['mask_volume']}        
 
-        iHoi = self.blend(iHand, iObj, select_inds, blend)
+        iObj = {'rgb': rgb_obj, 'depth': depth_v, }
+        if use_surface_render:
+            iObj['mask'] = extras['mask_surface']
+        else:
+            iObj['mask'] = extras['mask_volume']
+
+        iHoi = self.blend(iHand, iObj, select_inds, zfar, znear, method='hard')
         
         # matting
         pred_hand_select = (iHand['depth'] < iObj['depth']).float().unsqueeze(-1)
@@ -253,9 +260,38 @@ class Trainer(nn.Module):
         iHand['mask'] = torch.gather(iHand['mask'], 1, select_inds).float()
 
         blend_params = BlendParams(sigma, gamma, background_color)
+        blend_label = BlendParams(sigma, gamma, (0., 0., 0.))
         iHoi = {}
         if method=='soft':
+            # label: 
+            hand_label = F.one_hot(torch.zeros_like(iHand['mask']).long(), num_classes=3).float()
+            obj_label = F.one_hot(torch.ones_like(iObj['mask']).long(), num_classes=3).float()
+            if self.args.training.label_prob == 2:
+                hand_label *= iHand['mask'].unsqueeze(-1)
+                obj_label *= iObj['mask'].unsqueeze(-1)
+            iHoi['label'] = softmax_rgb_blend(
+                (hand_label, obj_label),
+                (iHand['depth'], iObj['depth']),
+                (iHand['mask'], iObj['mask']),
+                blend_label, znear, zfar)[..., 0:3]
+
             rgba = softmax_rgb_blend(
+                (iHand['rgb'], iObj['rgb']),
+                (iHand['depth'], iObj['depth']),
+                (iHand['mask'], iObj['mask']),
+                blend_params, znear, zfar)
+            iHoi['rgb'], iHoi['mask'] = rgba.split([3, 1], -1)
+            iHoi['mask'] = iHoi['mask'].squeeze(-1)
+        elif method == 'vol':
+            hand_label = F.one_hot(torch.zeros_like(iHand['mask']).long(), num_classes=3).float()
+            obj_label = F.one_hot(torch.ones_like(iObj['mask']).long(), num_classes=3).float()
+            iHoi['label'] = volumetric_rgb_blend(
+                (hand_label, obj_label),
+                (iHand['depth'], iObj['depth']),
+                (iHand['mask'], iObj['mask']),
+                blend_label, znear, zfar)[..., 0:3]
+
+            rgba = volumetric_rgb_blend(
                 (iHand['rgb'], iObj['rgb']),
                 (iHand['depth'], iObj['depth']),
                 (iHand['mask'], iObj['mask']),
@@ -270,6 +306,14 @@ class Trainer(nn.Module):
                 blend_params)
             iHoi['rgb'], iHoi['mask'] = rgba.split([3, 1], -1)
             iHoi['mask'] = iHoi['mask'].squeeze(-1)
+
+            hand_label = torch.zeros_like(iHand['mask']).long()
+            obj_label = torch.ones_like(iHand['mask']).long()
+            iHoi['label'] = hard_rgb_blend(
+                (F.one_hot(hand_label, num_classes=3), F.one_hot(obj_label, num_classes=3)),
+                (iHand['depth'], iObj['depth']),
+                (iHand['mask'], iObj['mask']),
+                blend_label)[..., 0:3]
         else:
             raise NotImplementedError('blend method %s' % method)        
         # placholder:
@@ -350,6 +394,8 @@ class Trainer(nn.Module):
         ignore_hand = (~(target_hand > 0) & (target_obj > 0)) & (iObj['depth'] < iHand['depth'])
         w_obj = (~ignore_obj).float()
         w_hand = (~ignore_hand).float()
+        label_target = torch.stack([target_hand, target_obj, torch.zeros_like(target_obj)], -1) # (N, P, 3)
+        extras['label_target'] = label_target
 
         if "mask_ignore" in model_input:
             mask_ignore = torch.gather(model_input["mask_ignore"].to(device), 1, select_inds)
@@ -380,13 +426,15 @@ class Trainer(nn.Module):
 
         losses = OrderedDict()
 
-        losses['loss_img'] = F.l1_loss(iHoi['rgb'], target_rgb, reduction='none')
-        losses['loss_eikonal'] = args.training.w_eikonal * F.mse_loss(nablas_norm, nablas_norm.new_ones(nablas_norm.shape), reduction='mean')
-        # TODO: unify mask_ignore
-        if mask_ignore is not None:
-            losses['loss_img'] = (losses['loss_img'] * mask_ignore[..., None].float()).sum() / (mask_ignore.sum() + 1e-10)
-        else:
-            losses['loss_img'] = losses['loss_img'].mean()
+        if  args.training.w_eikonal > 0:
+            losses['loss_eikonal'] = args.training.w_eikonal * F.mse_loss(nablas_norm, nablas_norm.new_ones(nablas_norm.shape), reduction='mean')
+        if args.training.w_rgb > 0:
+            losses['loss_img'] = F.l1_loss(iHoi['rgb'], target_rgb, reduction='none')
+            # TODO: unify mask_ignore
+            if mask_ignore is not None:
+                losses['loss_img'] = (losses['loss_img'] * mask_ignore[..., None].float()).sum() / (mask_ignore.sum() + 1e-10)
+            else:
+                losses['loss_img'] = losses['loss_img'].mean()
 
         # losses['loss_mask'] = args.training.w_mask * F.l1_loss(extras['mask_volume'], target_mask, reduction='mean')
         if args.training.occ_mask == 'indp':
@@ -395,8 +443,20 @@ class Trainer(nn.Module):
         elif args.training.occ_mask == 'union':
             union_mask = (iObj['mask'] + iHand['mask']).clamp(max=1)
             losses['loss_mask'] = args.training.w_mask * F.l1_loss(union_mask, target_mask, reduction='mean')
+        elif args.training.occ_mask == 'label':
+            # TODO Q1: GT(1, 1). --> pred??; Q2: normalize?? 
+            losses['loss_mask'] = args.training.w_mask * F.l1_loss(iHoi['label'], label_target)
+            # 
         else:
             raise NotImplementedError(args.training.occ_mask)
+
+        if args.training.w_depth > 0:
+            losses['loss_depth'] = args.training.w_depth * compute_ordinal_depth_loss(
+                [target_hand > 0.5, target_obj > 0.5],
+                [iHand['mask'] > 0.5, iObj['mask'] > 0.5],
+                [iHand['depth'], iObj['depth']]
+            )
+
         # convert mask from screen space to NDC space -- better bound the flow?? 
         # [0, H] -1, 1
         max_H = max(render_kwargs_train['H'], render_kwargs_train['W'])
@@ -407,7 +467,7 @@ class Trainer(nn.Module):
             else:
                 losses['loss_fl_fw'] = losses['loss_fl_fw'].mean()
         
-        if it > 100:
+        if it > 100 and args.training.w_sdf > 0:
             hVerts = hHand.verts_padded()
             jVerts = mesh_utils.apply_transform(hVerts, jTh)
             sdf, hand_eik, _ = self.model.implicit_surface.forward_with_nablas(jVerts)
@@ -450,18 +510,23 @@ class Trainer(nn.Module):
         mesh_utils.dump_meshes(osp.join(logger.log_dir, 'hand_meshes/%08d' % it), ret['hand'])
         logger.add_meshes('hand',  osp.join('hand_meshes/%08d_0.obj' % it), it)
         
+        print(ret['hand_mask_target'].device, ret['label_target'].device, ret['iHoi']['label'].device)
+        # import pdb
+        # pdb.set_trace()
         mask = torch.cat([
-            to_img_fn(ret['hand_mask_target'].unsqueeze(-1).float()),
-            to_img_fn(ret['obj_mask_target'].unsqueeze(-1)),
-            to_img_fn(ret['mask_target'].unsqueeze(-1)),
+            to_img_fn(ret['hand_mask_target'].unsqueeze(-1).float()).repeat(1, 3, 1, 1),
+            to_img_fn(ret['obj_mask_target'].unsqueeze(-1)).repeat(1, 3, 1, 1),
+            to_img_fn(ret['mask_target'].unsqueeze(-1)).repeat(1, 3, 1, 1),
+            to_img_fn(ret['label_target'].cpu()),
             ], -1)
 
         logger.add_imgs(mask, 'gt/hoi_mask_gt', it)
 
         mask = torch.cat([
-            to_img_fn(ret['iHand']['mask'].unsqueeze(-1)),
-            to_img_fn(ret['iObj']['mask'].unsqueeze(-1)),
-            to_img_fn(ret['iHoi']['mask'].unsqueeze(-1)),
+            to_img_fn(ret['iHand']['mask'].unsqueeze(-1)).repeat(1, 3, 1, 1),
+            to_img_fn(ret['iObj']['mask'].unsqueeze(-1)).repeat(1, 3, 1, 1),
+            to_img_fn(ret['iHoi']['mask'].unsqueeze(-1)).repeat(1, 3, 1, 1),
+            to_img_fn(ret['iHoi']['label']),
             ], -1)
         logger.add_imgs(mask, 'hoi/hoi_mask_pred', it)
         mask = torch.cat([
@@ -582,7 +647,7 @@ def compute_ordinal_depth_loss(masks, silhouettes, depths):
             dists = torch.clamp(depths[i] - depths[j], min=0.0, max=2.0)
             loss += torch.sum(torch.log(1 + torch.exp(dists))[m])
     loss /= num_pairs
-    return {"loss_depth": loss}
+    return loss
 
 
 def get_model(args, data_size=-1, **kwargs):

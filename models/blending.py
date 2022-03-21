@@ -71,6 +71,56 @@ def hard_rgb_blend(
     return torch.cat([pixel_colors, alpha], dim=-1)  # (N, H, W, 4)
 
 
+def volumetric_rgb_blend(color_list, zbuf_list, mask_list,
+    blend_params: BlendParams,
+    znear: Union[float, torch.Tensor] = 1.0,
+    zfar: Union[float, torch.Tensor] = 100,
+) -> torch.Tensor:
+    N, nP, _ = color_list[0].shape
+    device = color_list[0].device
+    pixel_colors = torch.ones((N, nP, 4), device=device)
+    background_ = blend_params.background_color
+    if not isinstance(background_, torch.Tensor):
+        background = torch.tensor(background_, dtype=torch.float32, device=device)
+    else:
+        background = background_.to(device)
+
+    # Weight for background color
+    eps = 1e-10
+    
+    # compose and sort
+    colors = torch.stack(color_list, 2)  # (N, P, K, 3)
+    zbuf = torch.stack(zbuf_list, -1)    # (N, P, K)
+    mask = torch.stack(mask_list, -1)    # (N, P, K)
+
+    zbuf, sort_indices_masked = torch.sort(zbuf, dim=-1)  # sort from near to far
+    colors = torch.gather(colors, dim=-2, index=torch.stack([sort_indices_masked]*3, dim=-1))
+    mask = torch.gather(mask, dim=-1, index=sort_indices_masked) 
+
+    # # Mask for padded pixels.
+    # mask = fragments.pix_to_face >= 0
+
+    # # Sigmoid probability map based on the distance of the pixel to the face.
+    # prob_map = torch.sigmoid(-fragments.dists / blend_params.sigma) * mask
+    prob_map = mask
+    # The cumulative product ensures that alpha will be 0.0 if at least 1
+    # face fully covers the pixel as for that face, prob will be 1.0.
+    # This results in a multiplication by 0.0 because of the (1.0 - prob)
+    # term. Therefore 1.0 - alpha will be 1.0.
+    alpha = torch.prod((1.0 - prob_map), dim=-1)    
+    
+    miss = torch.cumprod(1 - prob_map, dim=-1)
+    miss = torch.cat([torch.ones([N, nP, 1], device=device), miss], -1)  # nP+1
+    prob_map = torch.cat([prob_map, torch.ones([N, nP, 1], device=device)], -1)  # nP+1
+    weights_num = prob_map * miss  # hit probability at [k]
+
+    # Sum: weights * textures + background color
+    weighted_colors = (weights_num[..., :-1, None] * colors).sum(dim=-2)
+    weighted_background = weights_num[..., -1, None] * background  # (N, 3)
+    pixel_colors[..., :3] = (weighted_colors + weighted_background)
+    pixel_colors[..., 3] = 1.0 - alpha
+    return pixel_colors
+
 
 def softmax_rgb_blend(
     color_list, zbuf_list, mask_list,
@@ -136,7 +186,7 @@ def softmax_rgb_blend(
 
     zbuf, sort_indices_masked = torch.sort(zbuf, dim=-1)  # sort from near to far
     colors = torch.gather(colors, dim=-2, index=torch.stack([sort_indices_masked]*3, dim=-1))
-    mask = torch.gather(mask, dim=-1, index=sort_indices_masked)
+    mask = torch.gather(mask, dim=-1, index=sort_indices_masked) 
 
     # # Mask for padded pixels.
     # mask = fragments.pix_to_face >= 0
@@ -157,9 +207,9 @@ def softmax_rgb_blend(
     # Reshape to be compatible with (N, H, W, K) values in fragments
     if torch.is_tensor(zfar):
         # pyre-fixme[16]
-        zfar = zfar[:, None, None, None]
+        zfar = zfar[:, None, None]
     if torch.is_tensor(znear):
-        znear = znear[:, None, None, None]
+        znear = znear[:, None, None]
 
     z_inv = (zfar - zbuf) / (zfar - znear) * mask
     z_inv_max = torch.max(z_inv, dim=-1).values[..., None].clamp(min=eps)

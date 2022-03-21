@@ -72,7 +72,7 @@ class Logger(object):
                     project='vhoi_%s' % log_dir.split('/')[-2],
                     name='/'.join(log_dir.split('/')[-2:]),
                     dir=log_dir,
-                    entity='judyye',
+                    entity='judy_smith',
                     resume="allow",
                     # id='_'.join(log_dir.split('/')[-2:]),
                 )

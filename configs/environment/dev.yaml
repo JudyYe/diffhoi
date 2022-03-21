@@ -1,3 +1,4 @@
+# wipe out the existing folder, no slurm
 resume: False
 
 workers: 80

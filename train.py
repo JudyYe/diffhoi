@@ -1,3 +1,4 @@
+from copy import deepcopy
 from fileinput import filelineno
 from pathlib import Path
 import hydra
@@ -107,6 +108,11 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
     render_kwargs_test['H'] = val_dataset.H
     render_kwargs_test['W'] = val_dataset.W
     valH, valW = render_kwargs_test['H'], render_kwargs_test['W']
+
+    render_kwargs_surface = deepcopy(render_kwargs_test)
+    render_kwargs_surface['H'] = render_kwargs_train['H'] // args.data.surface_downscale
+    render_kwargs_surface['W'] = render_kwargs_train['W'] // args.data.surface_downscale
+    render_kwargs_surface['rayschunk'] = args.data.surface_rayschunk
 
     # build optimizer
     optimizer = get_optimizer(args, model, posenet, focal_net)
@@ -223,13 +229,23 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     # NOTE: not validating mesh before 3k, as some of the instances of DTU for NeuS training will have no large enough mesh at the beginning.
                     if i_val > 0 and int_it % i_val == 0 or test_train or int_it in special_i_val_mesh:
                         one_time_loader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=mesh_utils.collate_meshes)
-                        file_list = tool_clip.run(
+                        file_list = tool_clip.run_render(
                             one_time_loader, trainer, 
-                            os.path.join(logger.log_dir, 'meshes'), '%08d' % it, 224, 224,
-                            N=64, volume_size=args.data.get('volume_size', 2.0))
+                            os.path.join(logger.log_dir, 'nvs'), '%08d' % it, render_kwargs_surface)
                         for file in file_list:
                             name = os.path.basename(file)[9:-4]
-                            logger.add_gif_files(file, 'render/' + name, it)
+                            logger.add_gif_files(file, 'nvs/' + name, it)
+                        try:
+                            file_list = tool_clip.run(
+                                one_time_loader, trainer, 
+                                os.path.join(logger.log_dir, 'meshes'), '%08d' % it, 224, 224,
+                                N=64, volume_size=args.data.get('volume_size', 2.0))
+                            for file in file_list:
+                                name = os.path.basename(file)[9:-4]
+                                logger.add_gif_files(file, 'render/' + name, it)
+                        except ValueError:
+                            log.warn('No surface extracted; pass')
+                            pass
                     #-------------------
                     # validate mesh
                     #-------------------
@@ -253,7 +269,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                                     image_list = mesh_utils.render_geom_rot(jHoi, scale_geom=True)
                                     logger.add_gifs(image_list, 'render/hoi_one_frame', it)
                                 except ValueError:
-                                    print('fail to extract mesh')
+                                    log.warn('No surface extracted; pass')
                                     pass
 
                     if it >= args.training.num_iters:
@@ -297,7 +313,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                         #----------------------------------------------------------------------------
                         #------------------- things only done in master -----------------------------
                         #----------------------------------------------------------------------------
-                        pbar.set_postfix(lr=optimizer.param_groups[0]['lr'], loss_total=losses['total'].item(), loss_img=losses['loss_img'].item())
+                        pbar.set_postfix(lr=optimizer.param_groups[0]['lr'], loss_total=losses['total'].item())
 
                         if i_backup > 0 and int_it % i_backup == 0 and it > 0:
                             checkpoint_io.save(filename='{:08d}.pt'.format(it), global_step=it, epoch_idx=epoch_idx)

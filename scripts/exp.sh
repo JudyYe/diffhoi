@@ -1,3 +1,72 @@
+
+
+
+PYTHONPATH=. python -m engine -m \
+    expname=render_label2_rgb/\${blend_train.method}_order\${training.label_prob} \
+    blend_train.method=vol,soft,hard training.occ_mask=label training.label_prob=1 \
+
+
+PYTHONPATH=. python -m engine -m \
+    expname=render_label2_rgb/\${blend_train.method}_order\${training.label_prob} \
+    blend_train.method=soft training.occ_mask=label training.label_prob=2 \
+
+
+
+---
+PYTHONPATH=. python -m engine -m \
+    expname=render_label2/\${blend_train.method}_order\${training.label_prob} \
+    blend_train.method=vol,soft,hard training.occ_mask=label training.label_prob=1 \
+    training.w_eikonal=0 training.w_rgb=0 
+
+PYTHONPATH=. python -m engine -m \
+    expname=render_label2/\${blend_train.method}_order\${training.label_prob} \
+    blend_train.method=soft training.occ_mask=label training.label_prob=2 \
+    training.w_eikonal=0 training.w_rgb=0 environment=dev
+
+
+--
+PYTHONPATH=. python -m engine -m \
+    expname=dev/order\${training.label_prob}_wd\${training.w_depth} \
+    blend_train.method=vol training.occ_mask=label training.label_prob=1 \
+    training.w_eikonal=0 training.w_rgb=0  environment=dev
+
+
+
+PYTHONPATH=. python -m engine -m \
+    expname=render_label/order\${training.label_prob}_wd\${training.w_depth} \
+    blend_train.method=soft training.occ_mask=label training.label_prob=1,2 training.w_depth=1.0,0.0 \
+    training.w_eikonal=0 training.w_rgb=0 
+
+PYTHONPATH=. python -m engine -m \
+    expname=render_label/\${blend_train.method}_\${training.occ_mask}_\${training.label_prob} \
+    blend_train.method=soft training.occ_mask=label training.label_prob=1 training.w_depth 1.0 \
+    training.w_eikonal=0 training.w_rgb=0 environment=dev
+
+
+--
+
+
+PYTHONPATH=. python -m engine \
+    expname=test_requeue/\${data.index}_\${blend_train.method}_\${training.occ_mask} \
+    data.index=AP12_0050,SM2_0000 \
+    blend_train.method=soft training.occ_mask=label \
+    environment=learn \
+
+
+# only mask, make sure gradient works? 
+PYTHONPATH=. python -m engine -m \
+    expname=only_mask/\${blend_train.method}_\${training.occ_mask} \
+    blend_train.method=soft,hard training.occ_mask=indp,union,label \
+    training.w_eikonal=0 training.w_rgb=0 
+
+# see soft or hard blending~~
+PYTHONPATH=. python -m engine -m \
+    expname=soft_hard/\${blend_train.method}_\${training.occ_mask} \
+    blend_train.method=soft,hard training.occ_mask=indp,union,label \
+
+
+
+--
 PYTHONPATH=. python -m engine \
     expname=dev_blend/\${blend_train.method} \
     environment=dev \
