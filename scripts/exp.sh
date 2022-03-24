@@ -1,3 +1,25 @@
+PYTHONPATH=. python -m engine -m \
+    expname=honey_grow/hand_text_\${data.index}_\${oTh.mode} \
+    oTh=gt,learn \
+    data.index=MC2_0000,GSF11_1000,SM2_0000
+
+
+PYTHONPATH=. python -m engine -m \
+    expname=honey_grow/hand_text_\${data.index}_\${oTh.mode}_wm\${training.w_mask} \
+    oTh=gt,learn \
+    data.index=MC2_0000,GSF11_1000,SM2_0000 \
+    training.w_mask=10
+
+
+
+# separation
+
+
+---
+PYTHONPATH=. python -m engine \
+    expname=dev/hand_text \
+    environment=dev 
+
 
 
 

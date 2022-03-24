@@ -52,31 +52,15 @@ model:
 
   joint_frame: 'object_norm'  # object_norm / hand_norm
 
+hand_text:
+  size: 6
+
 blend_train:
   method: vol
   sigma: 1e-4
   gamma: 1e-4
   background_color: [1.0, 1.0, 1.0]
   
-# camera:
-#   mode: 'gt'  # gt, ft, net, para
-#   hypothesis: 1
-#   learn_R: 1
-#   learn_t: 1
-#   init_dist: 2
-#   learn_f: 1
-#   learn_pp: 1
-#   fx_only: 1
-#   order_f: 2
-#   init_f: 2.
-
-# oTh:
-#   mode: 'gt'
-#   learn_R: False
-#   learn_t: False
-#   learn_base_s: False
-#   learn_base_R: False
-#   learn_base_t: False
 
 training:
   exp_dir: ${training.log_root_dir}/${expname}
@@ -90,6 +74,7 @@ training:
     pose: 1.0e-3
     focal: 1.0e-3
     oTh: 1.0e-3
+    text: 1.0e-3
 
   w_eikonal: 0.1
   w_mask: 1. 

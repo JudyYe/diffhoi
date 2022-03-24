@@ -1,5 +1,7 @@
+import logging
 from time import sleep
 import wandb
+from wandb.errors import UsageError
 from utils import io_util
 from utils import dist_util
 from utils.dist_util import is_master
@@ -68,14 +70,26 @@ class Logger(object):
             if self.is_master:
                 log_dir = self.log_dir
                 os.makedirs(os.path.join(log_dir, 'wandb'), exist_ok=True)
-                wandb.init(
-                    project='vhoi_%s' % log_dir.split('/')[-2],
-                    name='/'.join(log_dir.split('/')[-2:]),
-                    dir=log_dir,
-                    entity='judy_smith',
-                    resume="allow",
-                    # id='_'.join(log_dir.split('/')[-2:]),
-                )
+                # try 10 times to connect wandb
+                cnt = 0; succeed = False
+                while cnt <= 10 and not succeed:
+                    try:
+                        cnt  += 1
+                        wandb.init(
+                            project='vhoi_%s' % log_dir.split('/')[-2],
+                            name='/'.join(log_dir.split('/')[-2:]),
+                            dir=log_dir,
+                            entity='judy_smith',
+                            resume="allow",
+                            # id='_'.join(log_dir.split('/')[-2:]),
+                        )
+                        succeed = True
+                    except UsageError:
+                        sec = np.random.randint(0, 10)
+                        logging.warn('Try to connect to wandb [%d/10], %d' % (cnt, sec))
+                        sleep(sec)
+                if cnt > 10 and not succeed:
+                    raise UsageError('Cannot connect to wandb after 10 attempts')
         else:
             raise print('Monitoring tool "%s" not supported!'
                                       % monitoring)

@@ -1,6 +1,3 @@
-from copy import deepcopy
-from fileinput import filelineno
-from flask import render_template
 import numpy as np
 import os
 import os.path as osp
@@ -9,7 +6,6 @@ from tqdm import tqdm
 from models.frameworks.volsdf_hoi import MeshRenderer, VolSDFHoi
 from utils import io_util, mesh_util
 from utils.dist_util import is_master
-from utils.mesh_util import extract_mesh
 
 from models.frameworks import get_model
 from models.cameras import get_camera
@@ -95,7 +91,7 @@ def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_siz
         jObj = mesh_utils.load_mesh(osp.join(save_dir, name + '_obj.ply')).cuda()
 
     # reconstruct  hand and render in normazlied frame
-    name_list = ['gt', 'viwe_0', 'view_1', 'view_j', 'view_h', 'view_hy']
+    name_list = ['gt', 'viwe_0', 'view_1', 'view_j', 'view_h', 'view_hy', 'obj']
     image_list = [[] for _ in name_list]
     for (indices, model_input, ground_truth) in dataloader:
         hh = ww = int(np.sqrt(ground_truth['rgb'].size(1) ))
@@ -127,6 +123,7 @@ def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_siz
         image_list[4].append(image4)
         image_list[5].append(image5)
 
+    image_list[6] = mesh_utils.render_geom_rot(jObj, scale_geom=True)
         # toto: render novel view!
     if is_master():
         for n, im_list in zip(name_list, image_list):
@@ -184,6 +181,8 @@ def main_function(args):
 
 
 def render(renderer, jHand, jObj, jTc, intrinsics, H, W, zfar=-1):
+    jHand.textures = mesh_utils.pad_texture(jHand, 'blue')
+    jObj.textures = mesh_utils.pad_texture(jObj, 'white')
     jMeshes = mesh_utils.join_scene([jHand, jObj])
     if jTc is None:
         image = mesh_utils.render_geom_rot(jMeshes, scale_geom=True, time_len=1, out_size=H)[0]

@@ -93,11 +93,12 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
     # Create model
     posenet, focal_net = get_camera(args, datasize=len(dataset)+1, H=dataset.H, W=dataset.W)
     model, trainer, render_kwargs_train, render_kwargs_test, volume_render_fn, flow_render_fn = get_model(args, data_size=len(dataset)+1, cam_norm=dataset.max_cam_norm)
+    trainer.init_camera(posenet, focal_net)
+    trainer.init_hand_texture(dataloader)
     trainer.to(device)
     model.to(device)
     posenet.to(device)
     focal_net.to(device)
-    trainer.init_camera(posenet, focal_net)
 
     log.info(model)
     log.info("=> Nerf params: " + str(train_util.count_trainable_parameters(model)))
@@ -378,17 +379,17 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
         checkpoint_io.save(filename='final_{:08d}.pt'.format(it), global_step=it, epoch_idx=epoch_idx)
         logger.save_stats('stats.p')
         # save web 
-        last = lambda x: sorted(glob(os.path.join(logger.log_dir, x)))[-1]
-        web_utils.run(logger.log_dir + '/web/', 
-            [['gt_rgb', 'predicted_rgb', 'predicted mask', 'meshes'],
-                [last('imgs/val/gt_rgb/*.png'), 
-                last('imgs/val/predicted_rgb/*.png'),
-                last('imgs/val/pred_mask_volume/*.png'),
-                last('meshes/*.ply'),
-            ]],
-            width=400
-        ) 
-        log.info("Everything done.")
+        # last = lambda x: sorted(glob(os.path.join(logger.log_dir, x)))[-1]
+        # web_utils.run(logger.log_dir + '/web/', 
+        #     [['gt_rgb', 'predicted_rgb', 'predicted mask', 'meshes'],
+        #         [last('imgs/val/gt_rgb/*.png'), 
+        #         last('imgs/val/predicted_rgb/*.png'),
+        #         last('imgs/val/pred_mask_volume/*.png'),
+        #         last('meshes/*.ply'),
+        #     ]],
+        #     width=400
+        # ) 
+        # log.info("Everything done.")
 
 
 

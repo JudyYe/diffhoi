@@ -9,9 +9,10 @@ import numpy as np
 import smplx
 import torch
 import torch.nn as nn
-from pytorch3d.renderer import TexturesVertex
+from pytorch3d.renderer import TexturesVertex, TexturesUV
 from pytorch3d.structures import Meshes
 from pytorch3d.transforms import Transform3d, Rotate, Translate
+from pytorch3d.io import load_obj
 
 from manopth.manolayer import ManoLayer
 from manopth.tensutils import th_with_zeros, th_posemap_axisang
@@ -100,6 +101,11 @@ class ManopthWrapper(nn.Module):
                 contact_list.extend(verts_idx)
                 self.register_buffer('contact_index_%d' % ind, torch.LongTensor(verts_idx))
         self.register_buffer('contact_index' , torch.LongTensor(contact_list))
+
+        # load uv map
+        rtn = load_obj(osp.join(mano_path, 'open_hand_uv.obj'))
+        self.register_buffer('verts_uv', rtn[2].verts_uvs[None])
+        self.register_buffer('faces_uv', rtn[1].textures_idx[None])
     
     def to_palm(self, rot, hA, add_pca=False, return_mesh=True):
         if add_pca:
@@ -121,7 +127,8 @@ class ManopthWrapper(nn.Module):
             return verts, faces, textures, joints, palmTh
 
 
-    def forward(self, glb_se3, art_pose, axisang=None, trans=None, return_mesh=True, mode='outer', **kwargs) -> Tuple[Meshes, torch.Tensor]:
+    def forward(self, glb_se3, art_pose, axisang=None, trans=None, return_mesh=True, 
+        mode='outer', texture='uv', **kwargs) -> Tuple[Meshes, torch.Tensor]:
         # return 
     # def __call__(self, glb_se3, art_pose, axisang=None, trans=None, return_mesh=True, mode='outer', **kwargs):
         N = len(art_pose)
@@ -152,10 +159,16 @@ class ManopthWrapper(nn.Module):
             # if art_pose.size(-1) == 45:
             verts, joints, faces = self._forward_layer(art_pose, trans, **kwargs)
 
-        textures = torch.ones_like(verts)
+        if texture == 'verts':
+            textures = torch.ones_like(verts)
+            textures = TexturesVertex(textures)
+        elif torch.is_tensor(texture):
+            textures = TexturesUV(texture, self.faces_uv.repeat(N, 1, 1), self.verts_uv.repeat(N, 1, 1))
 
+        else:
+            raise NotImplementedError
         if return_mesh:
-            return Meshes(verts, faces, TexturesVertex(textures)), joints
+            return Meshes(verts, faces, textures), joints
         else:
             return verts, faces, textures, joints
 

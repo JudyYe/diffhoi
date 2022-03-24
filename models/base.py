@@ -519,17 +519,23 @@ def get_optimizer(args, model, posenet, focalnet):
         # raise NotImplementedError
     lr_dict = args.training.lr
     model_but_oTh = []
+    texture = []
     oTh = []
 
     for name, param in model.named_parameters():
         if 'oTh' in name:
             print('another param', name)
             oTh.append(param)
+        elif 'uv_text' in name:
+            print('another param', name)
+            texture.append(param)
         else:
+            print(name)
             model_but_oTh.append(param)
     param_groups = [
         {'params': model_but_oTh, 'lr': lr_dict['model']},
         {'params': oTh, 'lr': lr_dict['oTh']},
+        {'params': texture, 'lr': lr_dict['text']},
         {'params': posenet.parameters(), 'lr': lr_dict['pose']},
         {'params': focalnet.parameters(), 'lr': lr_dict['focal'], 
         }            

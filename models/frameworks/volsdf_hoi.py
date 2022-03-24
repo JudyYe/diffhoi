@@ -86,7 +86,8 @@ class VolSDFHoi(VolSDF):
 
                  surface_cfg=dict(),
                  radiance_cfg=dict(),
-                 oTh_cfg=dict()):
+                 oTh_cfg=dict(),
+                 text_cfg=dict()):
         super().__init__(beta_init, speed_factor, 
             input_ch, W_geo_feat, obj_bounding_radius, use_nerfplusplus, 
             surface_cfg, radiance_cfg)
@@ -97,6 +98,11 @@ class VolSDFHoi(VolSDF):
             self.oTh = PoseNet('hTo', True)
         else:
             raise NotImplementedError('Not implemented oTh.model: %s' % oTh_cfg['mode'])
+        # initialize uv texture of hand
+        t_size = text_cfg.get('size', 4)
+        uv_text = torch.ones([1, t_size, t_size, 3]); uv_text[..., 2] = 0
+        self.uv_text = nn.Parameter(uv_text)
+        self.uv_text_init = False
 
 
 class MeshRenderer(nn.Module):
@@ -119,7 +125,8 @@ class MeshRenderer(nn.Module):
 
         # apply cameraTworld outside of rendering to support scaling.
         cMeshes = mesh_utils.apply_transform(meshes, cTw)  # to allow scaling                 
-        image = mesh_utils.render_mesh(cMeshes, cameras, rgb_mode=True, depth_mode=True, out_size=max(H, W))
+        image = mesh_utils.render_soft(cMeshes, cameras, rgb_mode=True, depth_mode=True, out_size=max(H, W))
+        # image = mesh_utils.render_mesh(cMeshes, cameras, rgb_mode=True, depth_mode=True, out_size=max(H, W))
         # apply cameraTworld for depth 
         # depth is in camera-view but is in another metric! 
         # convert the depth unit to the normalized unit.
@@ -149,6 +156,18 @@ class Trainer(nn.Module):
         self.focalnet: nn.Module = None
         self.hand_wrapper = hand_utils.ManopthWrapper()
 
+    def init_hand_texture(self, dataloader):
+        color_list = []
+        with torch.no_grad():
+            for (indices, model_input, ground_truth) in dataloader:
+                hand_color = (ground_truth['rgb'] * model_input['hand_mask'][..., None]).sum(1) / model_input['hand_mask'][..., None].sum(1)
+                # (N, 3)
+                color_list.append(hand_color)
+            color_list = torch.cat(color_list, 0).mean(0).reshape(1, 1, 1, 3)  # 3
+        t_size = self.args.hand_text.size
+        uv_text = torch.zeros([1, t_size, t_size, 3]) + color_list.cpu()
+        self.model.uv_text = nn.Parameter(uv_text.data)
+
     def init_camera(self, posenet, focalnet):
         self.posenet = posenet
         self.focalnet = focalnet
@@ -158,7 +177,7 @@ class Trainer(nn.Module):
         intrinsics = self.focalnet(indices, model_input, ground_truth, H=H, W=W)
 
         # hand FK
-        hHand, _ = self.hand_wrapper(None, model_input['hA'].cuda())
+        hHand, _ = self.hand_wrapper(None, model_input['hA'].cuda(), texture=self.model.uv_text)
         jHand = mesh_utils.apply_transform(hHand, jTh)
 
         return jHand, jTc, jTh, intrinsics
@@ -350,7 +369,7 @@ class Trainer(nn.Module):
         # 2. RENDER MY SCENE 
         # 2.1 RENDER HAND
         # hand FK
-        hHand, _ = self.hand_wrapper(None, model_input['hA'].cuda())
+        hHand, _ = self.hand_wrapper(None, model_input['hA'].cuda(), texture=self.model.uv_text)
         jHand = mesh_utils.apply_transform(hHand, jTh)
         iHand = self.mesh_renderer(
             geom_utils.inverse_rt(mat=jTc, return_mat=True), intrinsics, jHand, **render_kwargs_train
@@ -682,6 +701,8 @@ def get_model(args, data_size=-1, **kwargs):
     model_config['surface_cfg'] = surface_cfg
     model_config['radiance_cfg'] = radiance_cfg
     model_config['oTh_cfg'] = args.oTh    
+    model_config['text_cfg'] = args.hand_text
+
 
     model = VolSDFHoi(**model_config)
     
