@@ -15,5 +15,5 @@ suffix: ''
 log_tb: True
 use_wandb: True
 wandb_dir: ${output}/${expname}/wandb/
-wandb_user: judy_smith # judyye
+wandb_user: judyye
 wandb_project: ${expname}

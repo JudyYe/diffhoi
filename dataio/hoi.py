@@ -1,3 +1,4 @@
+import logging
 import os
 import os.path as osp
 import torch
@@ -18,7 +19,7 @@ class SceneDataset(torch.utils.data.Dataset):
                  data_dir,
                  downscale=1.,   # [H, W]
                  cam_file=None,
-                 scale_radius=-1):
+                 scale_radius=-1, args=dict()):
 
         assert os.path.exists(data_dir), "Data directory is empty"
 
@@ -93,6 +94,13 @@ class SceneDataset(torch.utils.data.Dataset):
         # load hand 
         hands = np.load('{0}/hands.npz'.format(self.instance_dir))
         self.hA = torch.from_numpy(hands['hA']).float().squeeze(1)
+        noise = args.data.noise
+        if args.hA.mode == 'learn':
+            logging.info('jitter hand a bit!')
+            self.hA_inp = self.hA + (torch.rand([45]) * noise * 2 - noise)
+        else:
+            self.hA_inp = self.hA
+
         # self.hand = mesh_utils.load_mesh(osp.join(data_dir, 'hand.obj'), scale_verts=self.scale_cam)
         # self.hand.textures = mesh_utils.pad_texture(self.hand, 'yellow')
 
@@ -150,7 +158,10 @@ class SceneDataset(torch.utils.data.Dataset):
 
         sample['obj_mask'] = self.obj_masks[idx]
         sample['hand_mask'] = self.hand_masks[idx]
-        sample['hA'] = self.hA[idx]
+        sample['hA'] = self.hA_inp[idx]
+        sample['hA_n'] = self.hA_inp[idx_n]
+
+        ground_truth['hA'] = self.hA[idx]
         return idx, sample, ground_truth
 
 if __name__ == "__main__":

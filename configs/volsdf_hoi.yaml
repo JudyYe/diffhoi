@@ -52,6 +52,9 @@ model:
 
   joint_frame: 'object_norm'  # object_norm / hand_norm
 
+hA:
+  mode: 'gt'  # gt / learn
+
 hand_text:
   size: 6
 

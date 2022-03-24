@@ -340,6 +340,8 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                             if k != 'total':
                                 print('\t %010s:%.4f' % (k, v.item()))
 
+                    logger.add('metric', 'hA', (extras['hA'].cpu() - ground_truth['hA']).abs().mean(), it)
+
                     #-------------------
                     # log extras
                     names = ["radiance", "alpha", "implicit_surface", "implicit_nablas_norm", "sigma_out", "radiance_out"]

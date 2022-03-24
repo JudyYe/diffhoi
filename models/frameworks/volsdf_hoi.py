@@ -18,6 +18,7 @@ from pytorch3d.renderer import PerspectiveCameras
 import pytorch3d.transforms.rotation_conversions as rot_cvt
 from pytorch3d.renderer.blending import BlendParams
 
+from models.articulation import get_artnet
 from models.cameras.gt import PoseNet
 from models.frameworks.volsdf import SingleRenderer, VolSDF, volume_render_flow
 from utils import hand_utils, io_util, train_util, rend_util
@@ -87,7 +88,8 @@ class VolSDFHoi(VolSDF):
                  surface_cfg=dict(),
                  radiance_cfg=dict(),
                  oTh_cfg=dict(),
-                 text_cfg=dict()):
+                 text_cfg=dict(),
+                 hA_cfg=dict()):
         super().__init__(beta_init, speed_factor, 
             input_ch, W_geo_feat, obj_bounding_radius, use_nerfplusplus, 
             surface_cfg, radiance_cfg)
@@ -103,6 +105,10 @@ class VolSDFHoi(VolSDF):
         uv_text = torch.ones([1, t_size, t_size, 3]); uv_text[..., 2] = 0
         self.uv_text = nn.Parameter(uv_text)
         self.uv_text_init = False
+
+        # hand articulation
+        hA_mode = hA_cfg.pop('mode')
+        self.hA_net = get_artnet(hA_mode, hA_cfg)
 
 
 class MeshRenderer(nn.Module):
@@ -175,9 +181,10 @@ class Trainer(nn.Module):
     def get_jHand_camera(self, indices, model_input, ground_truth, H, W):
         jTc, jTc_n, jTh, jTh_n = self.get_jTc(indices, model_input, ground_truth)
         intrinsics = self.focalnet(indices, model_input, ground_truth, H=H, W=W)
-
+        
+        hA = self.model.hA_net(indices, model_input, None)
         # hand FK
-        hHand, _ = self.hand_wrapper(None, model_input['hA'].cuda(), texture=self.model.uv_text)
+        hHand, _ = self.hand_wrapper(None, hA, texture=self.model.uv_text)
         jHand = mesh_utils.apply_transform(hHand, jTh)
 
         return jHand, jTc, jTh, intrinsics
@@ -369,7 +376,8 @@ class Trainer(nn.Module):
         # 2. RENDER MY SCENE 
         # 2.1 RENDER HAND
         # hand FK
-        hHand, _ = self.hand_wrapper(None, model_input['hA'].cuda(), texture=self.model.uv_text)
+        hA = self.model.hA_net(indices, model_input, None)
+        hHand, _ = self.hand_wrapper(None, hA, texture=self.model.uv_text)
         jHand = mesh_utils.apply_transform(hHand, jTh)
         iHand = self.mesh_renderer(
             geom_utils.inverse_rt(mat=jTc, return_mat=True), intrinsics, jHand, **render_kwargs_train
@@ -518,7 +526,7 @@ class Trainer(nn.Module):
         extras['mask_target'] = model_input['object_mask']
         extras['flow'] = iHoi['flow']
         extras['hand'] = jHand
-
+        extras['hA'] = hA
         extras['intrinsics'] = intrinsics
 
         return OrderedDict(
@@ -703,6 +711,8 @@ def get_model(args, data_size=-1, **kwargs):
     model_config['oTh_cfg'] = args.oTh    
     model_config['text_cfg'] = args.hand_text
 
+    hA_cfg = {'key': 'hA', 'data_size': data_size, 'mode': args.hA.mode}
+    model_config['hA_cfg'] = hA_cfg
 
     model = VolSDFHoi(**model_config)
     

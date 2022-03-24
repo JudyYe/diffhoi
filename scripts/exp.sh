@@ -1,3 +1,27 @@
+
+
+--
+# optimize hand articulation
+
+PYTHONPATH=. python -m engine -m \
+    expname=art/hA_\${hA.mode}_\${training.w_sdf} \
+    hA.mode=learn,gt training.w_sdf=0.01,0 
+
+
+--
+
+
+PYTHONPATH=. python -m engine -m \
+    expname=honey_grow/hand_text_\${data.index}_\${oTh.mode}_wm\${training.w_mask} \
+    oTh=gt,learn \
+    data.index=BB12_0000,AP12_0050,MDF10_0000,SMu41_0000,SS2_0000 \
+    training.w_mask=1,10
+
+
+MC2_0000,GSF11_1000,SM2_0000
+
+
+--    
 PYTHONPATH=. python -m engine -m \
     expname=honey_grow/hand_text_\${data.index}_\${oTh.mode} \
     oTh=gt,learn \
@@ -8,7 +32,16 @@ PYTHONPATH=. python -m engine -m \
     expname=honey_grow/hand_text_\${data.index}_\${oTh.mode}_wm\${training.w_mask} \
     oTh=gt,learn \
     data.index=MC2_0000,GSF11_1000,SM2_0000 \
-    training.w_mask=10
+    training.w_mask=1
+
+
+# bu 
+PYTHONPATH=. python -m engine -m \
+    expname=honey_grow/hand_text_\${data.index}_\${oTh.mode}_wm\${training.w_mask} \
+    oTh=learn \
+    data.index=SM2_0000 \
+    training.w_mask=50
+
 
 
 

@@ -12,6 +12,7 @@ def get_data(args, return_val=False, val_downscale=4.0, **overwrite_cfgs):
         cfgs['cam_file'] = args.data.get('cam_file', None)
     elif dataset_type == 'HOI':
         from .hoi import SceneDataset
+        cfgs['args'] = args
         cfgs['cam_file'] = args.data.get('cam_file', None)
     elif dataset_type == 'HOI_dtu':
         from .hoi_dtu import SceneDataset
