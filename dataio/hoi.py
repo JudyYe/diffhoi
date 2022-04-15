@@ -27,6 +27,7 @@ class SceneDataset(torch.utils.data.Dataset):
         self.train_cameras = train_cameras
 
         image_dir = '{0}/image'.format(self.instance_dir)
+        print(image_dir)
         image_paths = sorted(glob_imgs(image_dir))
         mask_dir = '{0}/mask'.format(self.instance_dir)
         mask_paths = sorted(glob_imgs(mask_dir))
@@ -64,7 +65,7 @@ class SceneDataset(torch.utils.data.Dataset):
         for wTc in self.wTc:
             cam_center_norms.append(np.linalg.norm(wTc[:3,3].detach().numpy()))
         max_cam_norm = max(cam_center_norms)
-        self.max_cam_norm = max_cam_norm
+        self.max_cam_norm = max_cam_norm  # in camera metric??? 
         print(self.max_cam_norm)
 
         # TODO: crop??!!!

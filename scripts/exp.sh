@@ -1,3 +1,15 @@
+--100doh
+
+
+PYTHONPATH=. python -m engine \
+    environment=dev \
+    data=100doh
+
+
+PYTHONPATH=. python -m engine \
+    environment=dev \
+    expname=art/hA_\${hA.mode}_\${training.w_sdf} \
+    data.index=SMu1_0650
 
 
 --

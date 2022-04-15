@@ -81,7 +81,7 @@ def get_mean_pose(model='mano', tensor=True, device='cpu'):
 
 
 class ManopthWrapper(nn.Module):
-    def __init__(self, mano_path='/checkpoint/yufeiy2/pretrain_model/smplx/mano/', **kwargs):
+    def __init__(self, mano_path='/glusterfs/yufeiy2/pretrain_model/mano', **kwargs):
         super().__init__()
         self.mano_layer_right = ManoLayer(
             mano_root=mano_path, side='right', use_pca=kwargs.get('use_pca', False), ncomps=kwargs.get('ncomps', 45),
@@ -128,7 +128,7 @@ class ManopthWrapper(nn.Module):
 
 
     def forward(self, glb_se3, art_pose, axisang=None, trans=None, return_mesh=True, 
-        mode='outer', texture='uv', **kwargs) -> Tuple[Meshes, torch.Tensor]:
+        mode='outer', texture='verts', **kwargs) -> Tuple[Meshes, torch.Tensor]:
         # return 
     # def __call__(self, glb_se3, art_pose, axisang=None, trans=None, return_mesh=True, mode='outer', **kwargs):
         N = len(art_pose)

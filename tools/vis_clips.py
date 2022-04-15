@@ -33,7 +33,7 @@ def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_
     H, W = render_kwargs['H'], render_kwargs['W']
     
     # reconstruct  hand and render
-    name_list = ['gt', 'render_0', 'render_1', 'hand_front', 'obj_front']
+    name_list = ['gt', 'render_0', 'render_1', 'hand_0', 'hand_1', 'obj_0', 'obj_1', 'hand_front', 'obj_front']
     image_list = [[] for _ in name_list]
     for (indices, model_input, ground_truth) in tqdm(dataloader):
         hh = ww = int(np.sqrt(ground_truth['rgb'].size(1) ))
@@ -57,8 +57,12 @@ def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_
 
         image_list[1].append(image1['image'])
         image_list[2].append(image2['image'])
-        image_list[3].append(image1['hand_front'])
-        image_list[4].append(image1['obj_front'])
+        image_list[3].append(image1['hand'])
+        image_list[4].append(image2['hand'])
+        image_list[5].append(image1['obj'])
+        image_list[6].append(image2['obj'])
+        image_list[7].append(image1['hand_front'])
+        image_list[8].append(image1['obj_front'])
 
     for n, img_list in zip(name_list, image_list):
         image_utils.save_gif(img_list, osp.join(save_dir, name + '_%s' % n))

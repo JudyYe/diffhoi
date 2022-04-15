@@ -233,6 +233,8 @@ class Trainer(nn.Module):
             pred_hand_select = pred_hand_select.reshape(1, 1, H, W)
         rtn = {}
         rtn['image'] = rgb.cpu()
+        rtn['hand'] = iHand['image'].cpu()
+        rtn['obj'] = iObj['rgb'].reshape(1, H, W, 3).permute([0, 3, 1, 2]).cpu()
         rtn['hand_front'] = pred_hand_select.cpu()
         rtn['obj_front'] = 1-pred_hand_select.cpu()
         return rtn

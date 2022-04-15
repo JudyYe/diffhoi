@@ -1,34 +1,25 @@
-from inspect import FrameInfo
+from glob import glob
 import imageio
-import cv2
 import numpy as np
 import os
 import os.path as osp
 import pickle
 from PIL import Image
 
-import argparse
-from pyparsing import FollowedBy
-from sklearn.exceptions import DataDimensionalityWarning
 import torch
 from torchvision.transforms import ToTensor
-import pytorch3d
-from pytorch3d.renderer.cameras import look_at_view_transform, PerspectiveCameras
-from pytorch3d.structures import Pointclouds
-from torchmetrics import ScaleInvariantSignalNoiseRatio
-from models.frameworks.volsdf_hoi import MeshRenderer
+from pytorch3d.renderer.cameras import PerspectiveCameras
 
-from tools import render_view
 from jutils import image_utils, mesh_utils, geom_utils
 from utils.hand_utils import ManopthWrapper, cvt_axisang_t_i2o
-from utils.rend_util import load_K_Rt_from_P
 
 
 # get psuedo mask
 # cameras 
 
-data_dir = '/checkpoint/yufeiy2/datasets/HO3D'
-save_dir = '/checkpoint/yufeiy2/vhoi_out/syn_data/'
+data_dir = '/glusterfs/yufeiy2/download_data/HO3D/'
+save_dir = '/glusterfs/yufeiy2/vhoi/syn_data/'
+shape_dir = '/glusterfs/yufeiy2/download_data/YCBObjects/models'
 device = 'cuda:0'
 
 time_len = 30
@@ -70,7 +61,7 @@ def render(vid_index, start, dt=10, split='train'):
         hTw =  geom_utils.inverse_rt(mat=wTh, return_mat=True)
         cTw = cTh @ hTw
 
-        mesh_file = osp.join('/checkpoint/yufeiy2/datasets/YCBObjects/models', anno['objName'], 'textured_simple.obj')
+        mesh_file = osp.join(shape_dir, anno['objName'], 'textured_simple.obj')
         oMesh = mesh_utils.load_mesh(mesh_file)
         print('oMesh', oMesh.verts_packed().max(0)[0] - oMesh.verts_packed().min(0)[0])
         _,  onTo = mesh_utils.center_norm_geom(oMesh, 0)  # obj norm
@@ -215,23 +206,31 @@ def proj3d(points, cam):
     p2d = p2d[..., :2] / p2d[..., 2:3]
     return p2d
 
+def link():
+    data_idr = '/glusterfs/yufeiy2/fair/ihoi_data/HO3D/train'
+    vid_list = glob(data_dir, '*')
+    for vid in vid_list:
+        vid_list
 
 if __name__ == '__main__':
-    # render('MDF10', 0, 10)
+    # link()
+    # # render('MDF10', 0, 10)
     # render('SMu1', 650, 10)
+    render('SMu1', 651, 1)
+
     
-    render('SMu41', 0, 10)
-    # sugar box
-    render('SS2', 0, 10)
-    # 006_mustard_bottle
-    render('SM2', 0, 10)
-    # scissor
-    render('GSF11', 0, 10)
-    render('GSF11', 1000, 10)
-    # 003_cracker_box
-    render('MC2', 0, 10)
-    # banana
-    render('BB12', 0, 10)
+    # render('SMu41', 0, 10)
+    # # sugar box
+    # render('SS2', 0, 10)
+    # # 006_mustard_bottle
+    # render('SM2', 0, 10)
+    # # scissor
+    # render('GSF11', 0, 10)
+    # render('GSF11', 1000, 10)
+    # # 003_cracker_box
+    # render('MC2', 0, 10)
+    # # banana
+    # render('BB12', 0, 10)
 
     # render('AP12', 50, 10, split='evaluation')
     # AP12/0051

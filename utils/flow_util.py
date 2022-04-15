@@ -29,13 +29,7 @@
 # Date: 6th Aug 2016
 # ==============================
 """
-import png
 import numpy as np
-import matplotlib.colors as cl
-import matplotlib.pyplot as plt
-from PIL import Image
-import cv2
-import pdb
 import torch
 
 UNKNOWN_FLOW_THRESH = 1e7

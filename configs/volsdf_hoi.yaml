@@ -7,7 +7,7 @@ defaults:
   - oTh: gt
 
 
-output: "/checkpoint/yufeiy2/vhoi_out/neurecon_out"
+output: "/glusterfs/yufeiy2/vhoi/output/"
 expname: dev/tmp
 
 
@@ -66,6 +66,7 @@ blend_train:
   
 
 training:
+  log_root_dir: ${output}
   exp_dir: ${training.log_root_dir}/${expname}
   
   beta_init: 0.1
@@ -89,8 +90,7 @@ training:
   occ_mask: label  # union | indp | label? 
   label_prob: 1
 
-  log_root_dir: "/checkpoint/yufeiy2/vhoi_out/neurecon_out"
-
+  
   num_iters: 50000
 
   # lr decay
