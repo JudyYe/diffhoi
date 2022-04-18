@@ -10,7 +10,7 @@ class PoseNet(nn.Module):
         self.key = key
         self.inverse = inverse
 
-    def forward(self, inds, model_input, gt):
+    def forward(self, inds, model_input, gt, **kwargs):
         """returns extrinsic stored in model_input: c2w_n or c2w, 
         depending on if inds == model_input['inds_n']"""
         device = inds.device

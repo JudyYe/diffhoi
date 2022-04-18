@@ -1,0 +1,9 @@
+mode: 'delta'  # gt, ft, net, para
+hypothesis: 1
+learn_R: 1
+learn_t: 1
+
+learn_f: 1
+learn_pp: 1
+fx_only: 1
+order_f: 2

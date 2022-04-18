@@ -1,17 +1,17 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from jutils import geom_utils, mesh_utils
+from .gt import PoseNet as GTPose
+from .gt import FocalNet as GTFocal
 
 
 """from nerfmm: https://github.com/JudyYe/nerfmm/tree/dfa552bf4c2967d11dcd2ea8462fda2cbc96c4df/models"""
 
 class PoseNet(nn.Module):
     """returns extrinsics from learnable r, t per frame"""
-    def __init__(self, num_cams, learn_R, learn_t, 
-        init_c2w=None, init_dist=2):
+    def __init__(self, num_cams, learn_R, learn_t, key='c2w', inverse=False):
         """
         :param num_cams:
         :param learn_R:  True/False
@@ -20,16 +20,8 @@ class PoseNet(nn.Module):
         """
         super().__init__()
         self.num_cams = num_cams
-        self.init_c2w = None
-        if init_c2w is None:
-            # identity rotation +  (0, 0, 2)
-            zeros = torch.zeros([num_cams, 3, ], dtype=torch.float32)
-            twos =  torch.zeros([num_cams, 3, ], dtype=torch.float32)
-            twos[..., -1] = -init_dist
-            # NOTE: inverse?????? 
-            init_c2w = geom_utils.axis_angle_t_to_matrix(zeros, twos)  
-        self.init_c2w = nn.Parameter(init_c2w, requires_grad=False)
-
+        self.gt = GTPose(key, inverse)
+        
         self.r = nn.Parameter(torch.zeros(size=(num_cams, 3), dtype=torch.float32), requires_grad=learn_R)  # (N, 3)
         self.t = nn.Parameter(torch.zeros(size=(num_cams, 3), dtype=torch.float32), requires_grad=learn_t)  # (N, 3)
 
@@ -42,8 +34,9 @@ class PoseNet(nn.Module):
         # rt as a correction to init_c2w
         c2w = geom_utils.axis_angle_t_to_matrix(r, t)
         
+        base_c2w = self.gt(cam_id, model_input, gt)
         # learn a delta pose between init pose and target pose, if a init pose is provided
-        c2w = c2w @ self.init_c2w[cam_id]  #  torch.gather(self.init_c2w, 0, cam_id)
+        c2w = c2w @ base_c2w 
         return c2w
 
 
@@ -52,17 +45,10 @@ class FocalNet(nn.Module):
     def __init__(self, num_cams, H, W, learn_f, learn_pp, fx_only, order=2, init_focal=None, init_px=0, init_py=0):
         super().__init__()
         self.num_cams = num_cams
-        # self.H = H
-        # self.W = W
+        self.gt = GTFocal()
         self.fx_only = fx_only  # If True, output [fx, fx]. If False, output [fx, fy]
         self.order = order  # check our supplementary section.
-        
-        zeros = torch.zeros([num_cams, 2], dtype=torch.float32)
-        # final focal length = H/W * init_f_ndc * coe_x**2
-        self.init_f_ndc = nn.Parameter(init_focal + zeros, requires_grad=False)
-        # final pp = HW/2 * (init_pp_ndc + pp)
-        self.init_pp_ndc =  nn.Parameter(0.5+zeros, requires_grad=False)
-        
+                
         if self.fx_only:
             coe_x = torch.ones([num_cams, 1], dtype=torch.float32, requires_grad=False)
             self.fx = nn.Parameter(coe_x, requires_grad=learn_f)  # (1, )
@@ -74,11 +60,14 @@ class FocalNet(nn.Module):
         
         self.pp = nn.Parameter(torch.zeros([num_cams, 2]), requires_grad=learn_pp)
 
-    def _get_focal(self, i, H, W):  # the i=None is just to enable multi-gpu training
+    def _get_focal(self, i, H, W, init_K_ndc):  # the i=None is just to enable multi-gpu training
         # final focal length = H/W * init_f_ndc * coe_x**2
-        init_fx, init_fy = self.init_f_ndc[i].split(1, -1)
+        
+        # self.init_f_ndc[i].split(1, -1)
+        init_fx, init_fy = init_K_ndc[:, 0, 0], init_K_ndc[:, 1, 1]  
 
-        max_H = max(H, W)
+        # max_H = max(H, W)
+        max_H = 1
         if self.fx_only:
             if self.order == 2:
                 fxfy = torch.cat([self.fx[i] ** 2 * max_H * init_fx, 
@@ -95,12 +84,14 @@ class FocalNet(nn.Module):
                                     self.fy[i] * H * init_fy], -1)
         return fxfy
 
-    def _get_pp(self, i, H, W):  # the i=None is just to enable multi-gpu training
+    def _get_pp(self, i, H, W, init_K_ndc):  # the i=None is just to enable multi-gpu training
         # final pp = HW/2 * (init_pp_ndc + pp)
         px, py = self.pp[i].split(1, dim=-1)  # (N, 2)
-        init_px, init_py = self.init_pp_ndc[i].split(1, -1)
-        px = W * (init_px + px)
-        py = H * (init_py + py)
+        init_px, init_py = init_K_ndc[:, 0, 2], init_K_ndc[:, 1, 2]
+        # px = W * (init_px + px)
+        # py = H * (init_py + py)
+        px = (init_px + px)
+        py = (init_py + py)
         pxpy = torch.cat([px, py], -1)
         return pxpy
         
@@ -111,10 +102,13 @@ class FocalNet(nn.Module):
         Return:
             (N, 4, 4)
         """
-        fxfy = self._get_focal(i, H, W)
-        pxpy = self._get_pp(i, H, W)
-        # print(fxfy, pxpy, fxfy.size(), pxpy.size())
+        init_K_screen = self.gt(i, model_input, gt)
+        init_K_ndc = mesh_utils.intr_from_screen_to_ndc(init_K_screen, H, W)
+
+        fxfy = self._get_focal(i, H, W, init_K_ndc)
+        pxpy = self._get_pp(i, H, W, init_K_ndc)
         intrinsics = mesh_utils.get_k_from_fp(fxfy, pxpy)
+        intrinsics = mesh_utils.intr_from_ndc_to_screen(intrinsics, H, W)
         return intrinsics
 
 
@@ -123,7 +117,6 @@ def get_camera(args, datasize, **kwargs):
         'num_cams': datasize,
         'learn_R': bool(args.camera.learn_R),
         'learn_t': bool(args.camera.learn_t),
-        'init_dist': args.camera.init_dist,
     }
     posenet = PoseNet(**camera_conf)
     intr_conf = {
@@ -134,7 +127,6 @@ def get_camera(args, datasize, **kwargs):
         'learn_pp': bool(args.camera.learn_pp),
         'fx_only': bool(args.camera.fx_only),
         'order': args.camera.order_f,
-        'init_focal': args.camera.init_f,
     }
     focalnet = FocalNet(**intr_conf)
     return posenet, focalnet
@@ -166,7 +158,6 @@ if __name__ == '__main__':
 
     extrinsics = np.linalg.inv(c2w)  # camera extrinsics are w2c matrix
     camera_matrix = model_input['intrinsics'].data.cpu().numpy()[0]
-    print('camera_matrix')
 
     visualize(camera_matrix, extrinsics, '../output/neurecon_out/debug_cam/all.png')
 

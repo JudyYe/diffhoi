@@ -1,3 +1,4 @@
+import logging
 from typing import Union
 import re
 
@@ -253,9 +254,11 @@ def save_config(datadict: Union[ForceKeyErrorDict, DictConfig], path: str):
     datadict.training.ckpt_file = None
 
     if isinstance(datadict, DictConfig):
-        with open(path, 'w', encoding='utf8') as outfile:
-            yaml.dump(OmegaConf.to_yaml(datadict), outfile, default_flow_style=False)
+        logging.warning('to yaml ')
+        with open(path, 'w') as outfile:
+            outfile.write('%s' %  OmegaConf.to_yaml(datadict))
     else:
+        logging.warning('to dict ')
         datadict.training.pop('exp_dir')
         log.info(type(datadict))
         with open(path, 'w', encoding='utf8') as outfile:

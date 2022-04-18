@@ -56,6 +56,13 @@ class Custom(Dataset):
             'cam': [],
         }    
         self.preload_anno()
+        self.preload_cTh()
+    
+    def preload_cTh(self):
+        self.cTh = []
+        for i in range(len(self)):
+            self.cTh.append(self[i]['cTh'])
+
 
     def __len__(self):
         return len(self.mask_dir)
@@ -105,11 +112,9 @@ class Custom(Dataset):
             hoi_bbox = image_utils.square_bbox(hoi_bbox, 0.2)
             
             self.anno['bbox'].append(hoi_bbox)
-            self.anno['rot'].append(rot[0])
             self.anno['cam'].append([one_hand['pred_camera'], one_hand['bbox_top_left'], one_hand['bbox_scale_ratio']])
+            self.anno['rot'].append(rot[0])
             self.anno['hA'].append(hA[0])
-        print(self.anno['hand_mask'].shape, self.anno['hand_mask'].dtype)
-        print(self.anno['obj_mask'][0].shape, self.anno['obj_mask'][0].dtype)
             
     def get_bbox(self, idx):
         return self.anno['bbox'][idx]
@@ -137,7 +142,6 @@ class Custom(Dataset):
         p = torch.FloatTensor([0, 0])
 
         translate = torch.FloatTensor([tx, ty, fx/s])
-        print('cam', cam, pred_cam, translate)
         return translate, f, p
 
     def get_cTh(self, idx, translate, ):
@@ -158,7 +162,7 @@ class Custom(Dataset):
         sample['bbox'] = self.get_bbox(idx)  # target bbox
         translate, sample['cam_f'], sample['cam_p'] = self.get_cam_fp(idx, sample['bbox'])
         cTh = self.get_cTh(idx, translate)
-        sample['cTh'] = geom_utils.matrix_to_se3(cTh)
+        sample['cTh'] = cTh
         sample['image'] = self.get_image(idx, sample['bbox'])
         sample['obj_mask'] = self.get_obj_mask(idx, sample['bbox'])
         sample['hand_mask'] = self.get_obj_mask(idx, sample['bbox'], 'hand_mask')
@@ -166,7 +170,54 @@ class Custom(Dataset):
 
         sample['rot'] = self.anno['rot'][idx]
         sample['index'] = self.anno['index'][idx]
+        sample['inds'] = idx
         return sample   
+
+
+def vis_dataset(dataloader, name, hA_list=None, cTh_list=None):
+    hand_wrapper = ManopthWrapper().to(device)
+    name_list = ['gt', 'cHand', 'hHand', 'hHand_1']
+    image_list = [[] for _ in name_list]
+    if hA_list is None:
+        hA_list = [data['hA'][0] for data in dataloader]
+    if cTh_list is None:
+        cTh_list = [data['cTh'][0] for data in dataloader]
+
+    for i, data in enumerate(dataloader):
+        for k, v in data.items():
+            try:
+                data[k] = v.to(device)
+            except AttributeError:
+                pass
+        image_list[0].append(data['image'])
+
+        cameras = PerspectiveCameras(data['cam_f'], data['cam_p'], device=device)
+        hA = hA_list[i][None].to(device)
+        cTh = cTh_list[i][None].to(device)
+
+        hHand, _ = hand_wrapper(None, hA)
+        cHand, _ = hand_wrapper(geom_utils.matrix_to_se3(cTh), hA)
+
+        iHand = mesh_utils.render_mesh(cHand, cameras)
+        image1 = image_utils.blend_images(iHand['image'], mask=iHand['mask'], bg=data['image'])
+
+        gif = mesh_utils.render_geom_rot(hHand, time_len=3, scale_geom=True)
+        
+        image_list[1].append(image1)
+        image_list[2].append(gif[0])
+        image_list[3].append(gif[1])
+
+    for n, img_list in zip(name_list, image_list):
+        image_utils.save_gif(img_list, osp.join(vis_dir, name + '_%s' % n))
+
+    file_list = [osp.join(vis_dir, name + '_%s.gif' % n) for n in name_list]
+    return file_list
+
+
+def get_dataloader(seqname, bs=1, shuffle=False):
+    dataset = Custom(seqname, data_dir)
+    dataloader = DataLoader(dataset, bs, shuffle=shuffle)
+    return dataloader
 
 
 def render(seqname, ):

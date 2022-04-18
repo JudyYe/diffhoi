@@ -1,0 +1,25 @@
+resume: True
+
+
+world_size: 1
+rank: 0
+dist_url: tcp://localhost:10001
+dist_backend: nccl
+port: 10001
+node: localhost
+
+
+multiprocessing_distributed: False
+distributed: True
+seed:
+gpu:
+ngpu: 2
+workers: 80
+mem_gb: 256
+
+slurm: False
+slurm_partition: devlab
+slurm_timeout: 2880
+nodelist: ""
+exclude_nodes: ""
+

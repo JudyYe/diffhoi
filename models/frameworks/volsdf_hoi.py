@@ -242,8 +242,8 @@ class Trainer(nn.Module):
     def get_jTc(self, indices, model_input, ground_truth):
         device = self.device
         # palmTcam
-        wTc = self.posenet(indices, model_input, ground_truth)
-        wTc_n = self.posenet(model_input['inds_n'].to(device), model_input, ground_truth)
+        wTc = self.posenet(indices, model_input, ground_truth, )
+        wTc_n = self.posenet(model_input['inds_n'].to(device), model_input, ground_truth, )
 
         hTw = geom_utils.inverse_rt(mat=model_input['wTh'].to(device),return_mat=True)
         wTh = model_input['wTh'].to(device)
@@ -610,42 +610,42 @@ class Trainer(nn.Module):
         # # # depth_hoi = mesh_utils.join_scene([depth_hand, depth_obj])
 
 
-        #----------- plot beta heat map
-        beta_heat_map = to_img_fn(ret['beta_map']).permute(0, 2, 3, 1).data.cpu().numpy()
-        beta_heat_map = io_util.gallery(beta_heat_map, int(np.sqrt(beta_heat_map.shape[0])))
-        _, beta = self.model.forward_ab()
-        beta = beta.data.cpu().numpy().item()
-        # beta_min = beta_heat_map.min()
-        beta_max = beta_heat_map.max().item()
-        if beta_max != beta:
-            ticks = np.linspace(beta, beta_max, 10).tolist()
-        else:
-            ticks = [beta]
-        tick_labels = ["{:.4f}".format(b) for b in ticks]
-        tick_labels[0] = "beta={:.4f}".format(beta)
+        # #----------- plot beta heat map
+        # beta_heat_map = to_img_fn(ret['beta_map']).permute(0, 2, 3, 1).data.cpu().numpy()
+        # beta_heat_map = io_util.gallery(beta_heat_map, int(np.sqrt(beta_heat_map.shape[0])))
+        # _, beta = self.model.forward_ab()
+        # beta = beta.data.cpu().numpy().item()
+        # # beta_min = beta_heat_map.min()
+        # beta_max = beta_heat_map.max().item()
+        # if beta_max != beta:
+        #     ticks = np.linspace(beta, beta_max, 10).tolist()
+        # else:
+        #     ticks = [beta]
+        # tick_labels = ["{:.4f}".format(b) for b in ticks]
+        # tick_labels[0] = "beta={:.4f}".format(beta)
         
-        fig = plt.figure(figsize=(5, 3), dpi=100)
-        ax = fig.add_subplot(111)
-        ax_im = ax.imshow(beta_heat_map, vmin=beta, vmax=beta_max)
-        cbar = fig.colorbar(ax_im, ticks=ticks)
-        cbar.ax.set_yticklabels(tick_labels)
-        logger.add_figure(fig, 'val/beta_heat_map', it)
+        # fig = plt.figure(figsize=(5, 3), dpi=100)
+        # ax = fig.add_subplot(111)
+        # ax_im = ax.imshow(beta_heat_map, vmin=beta, vmax=beta_max)
+        # cbar = fig.colorbar(ax_im, ticks=ticks)
+        # cbar.ax.set_yticklabels(tick_labels)
+        # logger.add_figure(fig, 'val/beta_heat_map', it)
         
-        #----------- plot iteration used for each ray
-        max_iter = render_kwargs_test['max_upsample_steps']
-        iter_usage_map = to_img_fn(ret['iter_usage'].unsqueeze(-1)).permute(0, 2, 3, 1).data.cpu().numpy()
-        iter_usage_map = io_util.gallery(iter_usage_map, int(np.sqrt(iter_usage_map.shape[0])))
-        iter_usage_map[iter_usage_map==-1] = max_iter+1
+        # #----------- plot iteration used for each ray
+        # max_iter = render_kwargs_test['max_upsample_steps']
+        # iter_usage_map = to_img_fn(ret['iter_usage'].unsqueeze(-1)).permute(0, 2, 3, 1).data.cpu().numpy()
+        # iter_usage_map = io_util.gallery(iter_usage_map, int(np.sqrt(iter_usage_map.shape[0])))
+        # iter_usage_map[iter_usage_map==-1] = max_iter+1
         
-        fig = plt.figure(figsize=(5, 3), dpi=100)
-        ax = fig.add_subplot(111)
-        ax_im = ax.imshow(iter_usage_map, vmin=0, vmax=max_iter+1)
-        ticks = list(range(max_iter+2))
-        tick_labels = ["{:d}".format(b) for b in ticks]
-        tick_labels[-1] = 'not converged'
-        cbar = fig.colorbar(ax_im, ticks=ticks)
-        cbar.ax.set_yticklabels(tick_labels)
-        logger.add_figure(fig, 'val/upsample_iters', it)
+        # fig = plt.figure(figsize=(5, 3), dpi=100)
+        # ax = fig.add_subplot(111)
+        # ax_im = ax.imshow(iter_usage_map, vmin=0, vmax=max_iter+1)
+        # ticks = list(range(max_iter+2))
+        # tick_labels = ["{:d}".format(b) for b in ticks]
+        # tick_labels[-1] = 'not converged'
+        # cbar = fig.colorbar(ax_im, ticks=ticks)
+        # cbar.ax.set_yticklabels(tick_labels)
+        # logger.add_figure(fig, 'val/upsample_iters', it)
 
 
 def compute_ordinal_depth_loss(masks, silhouettes, depths):

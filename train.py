@@ -1,5 +1,6 @@
 from copy import deepcopy
 from fileinput import filelineno
+import logging
 from pathlib import Path
 import hydra
 import hydra.utils as hydra_utils
@@ -210,6 +211,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     #-------------------
                     if is_master():
                         if i_val_mesh > 0 and (int_it % i_val_mesh == 0 or int_it in special_i_val_mesh) and it != 0:
+                            logging.info('vis camera pose')
                             print('validating camera pose!!!!!')
                             with torch.no_grad():
                                 extrinsics_list = []
@@ -229,18 +231,22 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     #-------------------
                     # NOTE: not validating mesh before 3k, as some of the instances of DTU for NeuS training will have no large enough mesh at the beginning.
                     if i_val > 0 and int_it % i_val == 0 or test_train or int_it in special_i_val_mesh:
+                        logging.info('vis tool_clip run_render')
                         one_time_loader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=mesh_utils.collate_meshes)
-                        file_list = tool_clip.run_render(
-                            one_time_loader, trainer, 
-                            os.path.join(logger.log_dir, 'nvs'), '%08d' % it, render_kwargs_surface)
+                        with torch.no_grad():
+                            file_list = tool_clip.run_render(
+                                one_time_loader, trainer, 
+                                os.path.join(logger.log_dir, 'nvs'), '%08d' % it, render_kwargs_surface)
                         for file in file_list:
                             name = os.path.basename(file)[9:-4]
                             logger.add_gif_files(file, 'nvs/' + name, it)
                         try:
-                            file_list = tool_clip.run(
-                                one_time_loader, trainer, 
-                                os.path.join(logger.log_dir, 'meshes'), '%08d' % it, 224, 224,
-                                N=64, volume_size=args.data.get('volume_size', 2.0))
+                            with torch.no_grad():
+                                file_list = tool_clip.run(
+                                    one_time_loader, trainer, 
+                                    os.path.join(logger.log_dir, 'meshes'), '%08d' % it, 224, 224,
+                                    N=64, volume_size=args.data.get('volume_size', 2.0))
+                                
                             for file in file_list:
                                 name = os.path.basename(file)[9:-4]
                                 logger.add_gif_files(file, 'render/' + name, it)

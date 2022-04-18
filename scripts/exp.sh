@@ -1,5 +1,27 @@
 --100doh
 
+PYTHONPATH=. python -m engine \
+    expname=100doh/cam\${camera.mode}_oTh\${oTh.mode} \
+    data=100doh camera=delta oTh=learn
+
+PYTHONPATH=. python -m engine \
+    expname=100doh/cam\${camera.mode}_oTh\${oTh.mode} \
+    data=100doh camera=gt oTh=gt \
+
+
+PYTHONPATH=. python -m engine \
+    expname=100doh/cam\${camera.mode}_oTh\${oTh.mode} \
+    data=100doh camera=gt oTh=learn \
+
+PYTHONPATH=. python -m engine \
+    expname=100doh/cam\${camera.mode}_oTh\${oTh.mode} \
+    data=100doh camera=learn oTh=gt
+
+PYTHONPATH=. python -m engine \
+    expname=100doh/cam\${camera.mode}_oTh\${oTh.mode} \
+    data=100doh camera=gt oTh=learn
+
+
 
 PYTHONPATH=. python -m engine \
     environment=dev \

@@ -74,7 +74,7 @@ def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_siz
     device = trainer.device
     if offset is None:
         offset = geom_utils.axis_angle_t_to_matrix(
-            torch.FloatTensor([[0, 0, 1]]).to(device), 
+            torch.FloatTensor([[0, 0, 2]]).to(device), 
             )
     rot_y = geom_utils.axis_angle_t_to_matrix(
         np.pi / 2 * torch.FloatTensor([[1, 0, 0]]).to(device), 
@@ -95,7 +95,7 @@ def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_siz
         jObj = mesh_utils.load_mesh(osp.join(save_dir, name + '_obj.ply')).cuda()
 
     # reconstruct  hand and render in normazlied frame
-    name_list = ['gt', 'viwe_0', 'view_1', 'view_j', 'view_h', 'view_hy', 'obj']
+    name_list = ['gt', 'view_0', 'view_1', 'view_j', 'view_h', 'view_hy', 'obj']
     image_list = [[] for _ in name_list]
     for (indices, model_input, ground_truth) in dataloader:
         hh = ww = int(np.sqrt(ground_truth['rgb'].size(1) ))
@@ -103,8 +103,8 @@ def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_siz
 
         jHand, jTc, jTh, intrinsics = trainer.get_jHand_camera(
             indices.to(device), model_input, ground_truth, H, W)
+        mesh_utils.dump_meshes([osp.join(save_dir, name + '_jHand', '%d' % indices[0].item())], jHand)
         hTj = geom_utils.inverse_rt(mat=jTh, return_mat=True)
-        
         image1, mask1 = render(renderer, jHand, jObj, jTc, intrinsics, H, W)
         
         cam_norm = mesh_utils.get_camera_dist(wTc=jTc)
@@ -121,10 +121,10 @@ def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_siz
             mesh_utils.apply_transform(jObj, rot_y@hTj), None, None, H, W)
 
         image_list[0].append(gt)
-        image_list[1].append(image_utils.blend_images(image1, gt, mask1))
-        image_list[2].append(image2)
-        image_list[3].append(image3)
-        image_list[4].append(image4)
+        image_list[1].append(image_utils.blend_images(image1, gt, mask1))  # view 0
+        image_list[2].append(image2)  # view 1
+        image_list[3].append(image3)  # view_j 
+        image_list[4].append(image4)  # view _h 
         image_list[5].append(image5)
 
     image_list[6] = mesh_utils.render_geom_rot(jObj, scale_geom=True)
@@ -177,11 +177,13 @@ def main_function(args):
 
     os.makedirs(save_dir, exist_ok=True)
 
-    # run(dataloader, trainer, save_dir, name, H=H, W=W, volume_size=args.volume_size)
+    with torch.no_grad():
+        run(dataloader, trainer, save_dir, name, H=H, W=W, volume_size=args.volume_size)
     render_kwargs_test['rayschunk'] = args.chunk
     render_kwargs_test['H'] = H  * 2 // 3
     render_kwargs_test['W'] = W  * 2 // 3
-    run_render(dataloader, trainer, save_dir, name, render_kwargs_test,)
+    with torch.no_grad():
+        run_render(dataloader, trainer, save_dir, name, render_kwargs_test,)
 
 
 def render(renderer, jHand, jObj, jTc, intrinsics, H, W, zfar=-1):
@@ -200,7 +202,7 @@ def render(renderer, jHand, jObj, jTc, intrinsics, H, W, zfar=-1):
             )
         image = iMesh['image']
         mask = iMesh['mask']
-    return image, mask
+    return image.cpu(), mask.cpu()
 
 
 if __name__ == "__main__":
@@ -210,7 +212,7 @@ if __name__ == "__main__":
     parser.add_argument('--N', type=int, default=64, help='resolution of the marching cube algo')
     parser.add_argument('--volume_size', type=float, default=6., help='voxel size to run marching cube')
     parser.add_argument("--load_pt", type=str, default=None, help='the trained model checkpoint .pt file')
-    parser.add_argument("--chunk", type=int, default=1024, help='net chunk when querying the network. change for smaller GPU memory.')
+    parser.add_argument("--chunk", type=int, default=256, help='net chunk when querying the network. change for smaller GPU memory.')
     parser.add_argument("--init_r", type=float, default=1.0, help='Optional. The init radius of the implicit surface.')
     args = parser.parse_args()
     

@@ -1,5 +1,5 @@
 defaults:
-  - environment: default
+  - environment: yoda
   - logging: default
   - hydra: default
   - data: ho3d
