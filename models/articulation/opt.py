@@ -1,8 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data.dataloader import DataLoader
-from jutils import mesh_utils
 
 from .gt import GTNet
 
@@ -30,7 +27,8 @@ class ArtNet(nn.Module):
         v = self.base(inds, model_input, gt)
         dv = self.value[inds] #torch.gather(self.value, 0, torch.stack([inds]*45, -1))
         
-        return v + dv
+        v = v + dv
+        return v
 
 
 def get_artnet(**kwargs):

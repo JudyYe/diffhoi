@@ -21,7 +21,7 @@ class SceneDataset(torch.utils.data.Dataset):
                  cam_file=None,
                  scale_radius=-1, args=dict()):
 
-        assert os.path.exists(data_dir), "Data directory is empty"
+        assert os.path.exists(data_dir), "Data directory is empty %s" % data_dir
 
         self.instance_dir = data_dir
         self.train_cameras = train_cameras

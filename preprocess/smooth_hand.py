@@ -1,3 +1,4 @@
+import os
 import pickle
 import numpy as np
 import scipy
@@ -15,6 +16,7 @@ from models.cameras.para import PoseNet
 from preprocess.inspect_100doh import vis_dataset, get_dataloader, vis_dir
 from jutils import image_utils, mesh_utils, geom_utils
 from utils.hand_utils import ManopthWrapper
+import tools.vis_camera as vis_cam
 
 seq = 'study_v_im0FA2X6fp0_frame000043_0'
 device='cuda:0'
@@ -39,13 +41,18 @@ def vis_hA(hA_list, fname, title='', D_list=None):
         ax1.set_xticklabels(())
 
     fig.tight_layout() # Or equivalently,  "plt.tight_layout()"
+    os.makedirs(osp.dirname(fname), exist_ok=True)
     plt.savefig(fname + '.png')
     return
 
 
-def vis_cTh(cTh_list):
-    return
-
+def vis_se3(se3_list, fname, title=''):
+    # list of [(4, 4), ]
+    se3_list = np.array(se3_list)
+    intr = np.eye(4)
+    intr[0, 0] = intr[1, 1] = 2000
+    vis_cam.visualize(intr, se3_list, fname, traj=True)
+    return 
 
 def vis_inp():
     dataloader = get_dataloader(seq)
@@ -217,9 +224,11 @@ def low_pass_filter_via_mat():
 
     vis_dataset(dataloader, 'rot_low_pass', torch.FloatTensor(hA_list))
 
-            
+
+
 if __name__ == '__main__':
     # optimize(wt=10)
     # low_pass_filter()
-    low_pass_filter_via_mat()
+    # low_pass_filter_via_mat()
     vis_inp()
+    # vis_model()

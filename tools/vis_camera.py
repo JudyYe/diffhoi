@@ -125,6 +125,49 @@ def create_board_model(extrinsics, board_width, board_height, square_size, draw_
     else:
         return [X_board]
 
+def draw_camera_traj(ax, camera_matrix, cam_width, cam_height, scale_focal,
+                extrinsics,
+                patternCentric=True,
+                annotation=True):
+    from matplotlib import cm
+
+    min_values = np.zeros((3, 1))
+    min_values = np.inf
+    max_values = np.zeros((3, 1))
+    max_values = -np.inf
+
+    X_moving = create_camera_model(
+        camera_matrix, cam_width, cam_height, scale_focal)
+
+    cm_subsection = linspace(0.0, 1.0, extrinsics.shape[0])
+    colors = [cm.jet(x) for x in cm_subsection]
+
+    X_list = []
+    for idx in range(extrinsics.shape[0]):
+        # R, _ = cv.Rodrigues(extrinsics[idx,0:3])
+        # cMo = np.eye(4,4)
+        # cMo[0:3,0:3] = R
+        # cMo[0:3,3] = extrinsics[idx,3:6]
+        cMo = extrinsics[idx]
+        i = 0
+        X = np.zeros(X_moving[i].shape)
+        for j in range(X_moving[i].shape[1]):
+            X[0:4, j] = transform_to_matplotlib_frame(
+                cMo, X_moving[i][0:4, j], patternCentric)
+        if i == 0:
+            X_list.append(X[:, 0])
+        min_values = np.minimum(min_values, X[0:3, :].min(1))
+        max_values = np.maximum(max_values, X[0:3, :].max(1))
+        # modified: add an annotation of number
+        if annotation:
+            X = transform_to_matplotlib_frame(
+                cMo, X_moving[0][0:4, 0], patternCentric)
+            ax.text(X[0], X[1], X[2], "{}".format(idx), color=colors[idx])
+
+    X_list = np.stack(X_list, -1)  # [3, T]
+    ax.plot3D(X_list[0, :], X_list[1, :], X_list[2, :], color='gray')
+    return min_values, max_values
+
 
 def draw_camera(ax, camera_matrix, cam_width, cam_height, scale_focal,
                 extrinsics,
@@ -143,6 +186,7 @@ def draw_camera(ax, camera_matrix, cam_width, cam_height, scale_focal,
     cm_subsection = linspace(0.0, 1.0, extrinsics.shape[0])
     colors = [cm.jet(x) for x in cm_subsection]
 
+    X_list = []
     for idx in range(extrinsics.shape[0]):
         # R, _ = cv.Rodrigues(extrinsics[idx,0:3])
         # cMo = np.eye(4,4)
@@ -154,6 +198,8 @@ def draw_camera(ax, camera_matrix, cam_width, cam_height, scale_focal,
             for j in range(X_moving[i].shape[1]):
                 X[0:4, j] = transform_to_matplotlib_frame(
                     cMo, X_moving[i][0:4, j], patternCentric)
+            if i == 0:
+                X_list.append(X[:, 0])
             ax.plot3D(X[0, :], X[1, :], X[2, :], color=colors[idx])
             min_values = np.minimum(min_values, X[0:3, :].min(1))
             max_values = np.maximum(max_values, X[0:3, :].max(1))
@@ -163,10 +209,12 @@ def draw_camera(ax, camera_matrix, cam_width, cam_height, scale_focal,
                 cMo, X_moving[0][0:4, 0], patternCentric)
             ax.text(X[0], X[1], X[2], "{}".format(idx), color=colors[idx])
 
+    X_list = np.stack(X_list, -1)  # [3, T]
+    ax.plot3D(X_list[0, :], X_list[1, :], X_list[2, :], color='gray')
     return min_values, max_values
 
 
-def visualize(camera_matrix, extrinsics, fname='../output/neurecon_out/camera.png'):
+def visualize(camera_matrix, extrinsics, fname='../output/neurecon_out/camera.png', traj=False):
 
     ########################    plot params     ########################
     cam_width = 0.064/2     # Width/2 of the displayed camera.
@@ -179,12 +227,17 @@ def visualize(camera_matrix, extrinsics, fname='../output/neurecon_out/camera.pn
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D  # pylint: disable=unused-variable
 
+    # fig = plt.figure(figsize=(20, 20))
     fig = plt.figure()
     ax = fig.gca(projection='3d')
     # ax.set_aspect("equal")
     ax.set_aspect("auto")
 
-    min_values, max_values = draw_camera(ax, camera_matrix, cam_width, cam_height,
+    if traj:
+        min_values, max_values = draw_camera_traj(ax, camera_matrix, cam_width, cam_height,
+                                         scale_focal, extrinsics, True)
+    else:
+        min_values, max_values = draw_camera(ax, camera_matrix, cam_width, cam_height,
                                          scale_focal, extrinsics, True)
 
     X_min = min_values[0]
@@ -194,7 +247,7 @@ def visualize(camera_matrix, extrinsics, fname='../output/neurecon_out/camera.pn
     Z_min = min_values[2]
     Z_max = max_values[2]
     max_range = np.array([X_max-X_min, Y_max-Y_min, Z_max-Z_min]).max() / 2.0
-    max_range = max(max_range, 2)
+    # max_range = max(max_range, 2)
 
     mid_x = (X_max+X_min) * 0.5
     mid_y = (Y_max+Y_min) * 0.5

@@ -175,7 +175,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     #-------------------
                     # validate
                     #-------------------
-                    if i_val > 0 and int_it % i_val == 0 or test_train or int_it in special_i_val_mesh:
+                    if i_val > 0 and int_it % i_val == 1 or test_train or int_it in special_i_val_mesh:
                         print('validation!!!!!')
                         test_train = 0
                         with torch.no_grad():
@@ -210,7 +210,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     # validate camera pose 
                     #-------------------
                     if is_master():
-                        if i_val_mesh > 0 and (int_it % i_val_mesh == 0 or int_it in special_i_val_mesh) and it != 0:
+                        if i_val_mesh > 0 and (int_it % i_val_mesh == 1 or int_it in special_i_val_mesh) and it != 0:
                             logging.info('vis camera pose')
                             print('validating camera pose!!!!!')
                             with torch.no_grad():
@@ -230,7 +230,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     # validate rendering
                     #-------------------
                     # NOTE: not validating mesh before 3k, as some of the instances of DTU for NeuS training will have no large enough mesh at the beginning.
-                    if i_val > 0 and int_it % i_val == 0 or test_train or int_it in special_i_val_mesh:
+                    if i_val > 0 and int_it % i_val == 1 or test_train or int_it in special_i_val_mesh:
                         logging.info('vis tool_clip run_render')
                         one_time_loader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=mesh_utils.collate_meshes)
                         with torch.no_grad():
@@ -257,7 +257,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     # validate mesh
                     #-------------------
                     if is_master():
-                        if i_val > 0 and int_it % i_val == 0 or test_train or int_it in special_i_val_mesh:
+                        if i_val > 0 and int_it % i_val == 1 or test_train or int_it in special_i_val_mesh:
                             print('validating mesh!!!!!')
                             with torch.no_grad():
                                 io_util.cond_mkdir(mesh_dir)
@@ -293,16 +293,34 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     losses = ret['losses']
                     extras = ret['extras']
 
+                    # all but contact 
                     for k, v in losses.items():
-                        # log.info("{}:{} - > {}".format(k, v.shape, v.mean().shape))
                         losses[k] = torch.mean(v)
                     
-                    optimizer.zero_grad()
-                    losses['total'].backward()
-                    # NOTE: check grad before optimizer.step()
-                    if True:
+                    if args.training.backward == 'twice':
+                        if it % 2 == 0:
+                            optimizer.zero_grad()
+                            if losses['contact'] > 0: 
+                                losses['contact'].backward()  # 
+                            else:
+                                losses['total'].backward()
+                            grad_norms = train_util.calc_grad_norm(model=model)
+                            train_util.zero_grad(optimizer.param_groups[0]['params'])
+                            optimizer.step()  # oTh
+                        else:
+                            optimizer.zero_grad()
+                            losses['total'].backward()  # gradient for everything but? contact
+                            grad_norms = train_util.calc_grad_norm(model=model)
+                            optimizer.step()
+
+
+                    elif args.training.backward == 'once':
+                        optimizer.zero_grad()
+                        losses['total'].backward()
+                        # NOTE: check grad before optimizer.step()
+
                         grad_norms = train_util.calc_grad_norm(model=model)
-                    optimizer.step()
+                        optimizer.step()
                     scheduler.step(it)  # NOTE: important! when world_size is not 1
 
                     #-------------------

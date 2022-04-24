@@ -4,6 +4,7 @@ import os.path as osp
 
 from tqdm import tqdm
 from models.frameworks.volsdf_hoi import MeshRenderer, VolSDFHoi
+from preprocess.smooth_hand import vis_hA, vis_se3
 from utils import io_util, mesh_util
 from utils.dist_util import is_master
 
@@ -69,6 +70,73 @@ def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_
 
     file_list = [osp.join(save_dir, name + '_%s.gif' % n) for n in name_list]
     return file_list
+
+
+
+def run_hA(dataloader, trainer, save_dir, name):
+    device = trainer.device
+    name_list = ['hHand', 'hHand_1']
+    image_list = [[] for _ in name_list]
+
+    hA_list, jTc_list, jTh_list = [], [], []
+    for (indices, model_input, ground_truth) in dataloader:        
+        for k, v in model_input.items():
+            try:
+                model_input[k] = v.to(device)
+            except AttributeError:
+                pass
+        jHand, jTc, jTh, intrinsics = trainer.get_jHand_camera(
+            indices.to(device), model_input, ground_truth, 200, 200)
+        hHand = mesh_utils.apply_transform(jHand, geom_utils.inverse_rt(mat=jTh, return_mat=True))
+        hA = trainer.model.hA_net(indices.to(device), model_input, None)
+        # gif = mesh_utils.render_geom_rot(hHand, time_len=3, scale_geom=True)
+        
+        hA_list.append(hA[0].cpu())
+        jTc_list.append(jTc[0].cpu().detach().numpy())
+        jTh_list.append(jTh[0].cpu().detach().numpy())
+
+        # image_list[0].append(gif[0])
+        # image_list[1].append(gif[1])
+
+    vis_se3(jTc_list, osp.join(save_dir, name + '_jTc'), 'jTc')
+    vis_se3(jTh_list, osp.join(save_dir, name + '_jTh'), 'jTh')
+    vis_hA(hA_list, osp.join(save_dir, name + '_hA'), 'hA', range(6))
+
+    # for n, img_list in zip(name_list, image_list):
+        # image_utils.save_gif(img_list, osp.join(save_dir, name + '_%s' % n))
+
+    file_list = [osp.join(save_dir, name + '_%s.gif' % n) for n in name_list]
+    return file_list
+
+def run_gt(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_size=6):
+    device = trainer.device
+
+    renderer = trainer.mesh_renderer
+
+    os.makedirs(save_dir, exist_ok=True)
+    # reconstruct  hand and render in normazlied frame
+    name_list = ['rgb', 'mask', 'sem_masks']
+    image_list = [[] for _ in name_list]
+    for (indices, model_input, ground_truth) in dataloader:
+        hh = ww = int(np.sqrt(ground_truth['rgb'].size(1) ))
+        gt = ground_truth['rgb'].reshape(1, hh, ww, 3).permute(0, 3, 1, 2)
+        hand_mask = model_input['hand_mask'].reshape(1, hh, ww, 1).permute(0, 3, 1, 2)
+        obj_mask = model_input['obj_mask'].reshape(1, hh, ww, 1).permute(0, 3, 1, 2)
+
+        sem_mask = torch.cat([hand_mask, obj_mask, torch.zeros_like(obj_mask)], 1)
+        mask = (hand_mask + obj_mask).clamp(max=1)
+
+        image_list[0].append(gt)
+        image_list[1].append(image_utils.blend_images(sem_mask, gt, mask))  # view 0
+        image_list[2].append(sem_mask)  # view 1
+        # toto: render novel view!
+    if is_master():
+        for n, im_list in zip(name_list, image_list):
+            image_utils.save_gif(im_list, osp.join(save_dir, name + '_%s' % n))
+
+    file_list = [osp.join(save_dir, name + '_%s.gif' % n) for n in name_list]
+    return file_list
+
 
 def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_size=6):
     device = trainer.device
@@ -153,7 +221,7 @@ def main_function(args):
 
     # build and load model 
     posenet, focal_net = get_camera(config, datasize=len(dataset)+1, H=dataset.H, W=dataset.W)
-    model, trainer, render_kwargs_train, render_kwargs_test, _, _ = get_model(config, data_size=len(dataset)+1, cam_norm=dataset.max_cam_norm)
+    model, trainer, render_kwargs_train, render_kwargs_test, _, _ = get_model(config, data_size=len(dataset)+1, cam_norm=dataset.max_cam_norm, device=[0])
 
     assert args.out is not None or args.load_pt is not None, 'Need to specify one of out / load_pt'
     
@@ -177,13 +245,22 @@ def main_function(args):
 
     os.makedirs(save_dir, exist_ok=True)
 
-    with torch.no_grad():
-        run(dataloader, trainer, save_dir, name, H=H, W=W, volume_size=args.volume_size)
-    render_kwargs_test['rayschunk'] = args.chunk
-    render_kwargs_test['H'] = H  * 2 // 3
-    render_kwargs_test['W'] = W  * 2 // 3
-    with torch.no_grad():
-        run_render(dataloader, trainer, save_dir, name, render_kwargs_test,)
+    if args.gt:
+        with torch.no_grad():
+            run_gt(dataloader, trainer, save_dir, name, H=H, W=W, volume_size=args.volume_size, N=args.N)
+    if args.surface:
+        with torch.no_grad():
+            run(dataloader, trainer, save_dir, name, H=H, W=W, volume_size=args.volume_size, N=args.N)
+    if args.nvs:
+        render_kwargs_test['rayschunk'] = args.chunk
+        render_kwargs_test['H'] = H  * 2 // 3
+        render_kwargs_test['W'] = W  * 2 // 3
+        with torch.no_grad():
+            run_render(dataloader, trainer, save_dir, name, render_kwargs_test,)
+    if args.hand:
+        with torch.no_grad():
+            save_dir = args.load_pt.split('/ckpts')[0] + '/hA/'
+            run_hA(dataloader, trainer, save_dir, name, )
 
 
 def render(renderer, jHand, jObj, jTc, intrinsics, H, W, zfar=-1):
@@ -214,6 +291,10 @@ if __name__ == "__main__":
     parser.add_argument("--load_pt", type=str, default=None, help='the trained model checkpoint .pt file')
     parser.add_argument("--chunk", type=int, default=256, help='net chunk when querying the network. change for smaller GPU memory.')
     parser.add_argument("--init_r", type=float, default=1.0, help='Optional. The init radius of the implicit surface.')
+    parser.add_argument("--hand", action='store_true')
+    parser.add_argument("--nvs", action='store_true')
+    parser.add_argument("--gt", action='store_true')
+    parser.add_argument("--surface", action='store_true')
     args = parser.parse_args()
     
     main_function(args)

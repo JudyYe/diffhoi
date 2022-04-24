@@ -252,8 +252,6 @@ class Trainer(nn.Module):
         # TODO: change here!
         oTh = self.model.oTh(indices.to(device), model_input, ground_truth)
         oTh_n = self.model.oTh(model_input['inds_n'].to(device), model_input, ground_truth)
-        # oTh = geom_utils.inverse_rt(mat=model_input['hTo'].to(device), return_mat=True)
-        # oTh_n = geom_utils.inverse_rt(mat=model_input['hTo_n'].to(device), return_mat=True)
 
         onTo = model_input['onTo'].to(device)
         onTo_n = model_input['onTo_n'].to(device)
@@ -264,7 +262,7 @@ class Trainer(nn.Module):
         # NOTE: the mesh / vol rendering needs to be in the same coord system (joint), in order to compare their depth!!
         if self.joint_frame == 'object_norm':
             jTh = onTo @ oTh
-            jTh_n = None
+            jTh_n = onTo_n @ oTh_n 
             jTc = onTo @ oTc # wTc
             jTc_n = onTo @ oTc_n # wTc_n
         elif self.joint_frame == 'hand_norm':
@@ -379,8 +377,17 @@ class Trainer(nn.Module):
         # 2.1 RENDER HAND
         # hand FK
         hA = self.model.hA_net(indices, model_input, None)
-        hHand, _ = self.hand_wrapper(None, hA, texture=self.model.uv_text)
+        hA_n = self.model.hA_net(model_input['inds_n'].to(device), model_input, None)
+        hHand, hJoints = self.hand_wrapper(None, hA, texture=self.model.uv_text)
         jHand = mesh_utils.apply_transform(hHand, jTh)
+        jJoints = mesh_utils.apply_transform(hJoints, jTh)
+        cJoints = mesh_utils.apply_transform(jJoints, geom_utils.inverse_rt(mat=jTc, return_mat=True))
+
+        hHand_n, hJoints_n = self.hand_wrapper(None, hA_n, texture=self.model.uv_text)
+        jJoints_n = mesh_utils.apply_transform(hJoints_n, jTh_n)
+        cJoints_n = mesh_utils.apply_transform(jJoints_n, geom_utils.inverse_rt(mat=jTc_n, return_mat=True))
+        
+
         iHand = self.mesh_renderer(
             geom_utils.inverse_rt(mat=jTc, return_mat=True), intrinsics, jHand, **render_kwargs_train
         )
@@ -502,6 +509,24 @@ class Trainer(nn.Module):
             sdf, hand_eik, _ = self.model.implicit_surface.forward_with_nablas(jVerts)
             losses['inter_sdf'] = args.training.w_sdf * torch.sum(F.relu(-sdf))
 
+        # contact loss
+        if args.training.w_contact > 0:
+            jVerts = jHand.verts_padded()            
+            losses['contact'] = 0
+            for i in range(6):
+                 inds = getattr(self.hand_wrapper, 'contact_index_%d' % i)  # (V1, )
+                 jContact = self.model.implicit_surface.forward(jVerts[:, inds])  # (N, V1, )
+                 loss = torch.sum(torch.min(jContact, dim=1)[0].clamp(min=0))
+                 losses['contact_%d' % i] = args.training.w_contact * loss
+                 losses['contact'] += losses['contact_%d' % i]
+        
+        # temporal smoothness loss
+        # jJoints, hJoints? 
+        if args.training.w_t_hand > 0:
+            jJonits_diff = ((jJoints - jJoints_n)**2).mean()
+            cJonits_diff = ((cJoints - cJoints_n)**2).mean()
+            losses['loss_dt_joint'] = 0.5 * args.training.w_t_hand * (jJonits_diff + cJonits_diff)
+        
         loss = 0
         for k, v in losses.items():
             loss += losses[k]
@@ -648,35 +673,6 @@ class Trainer(nn.Module):
         # logger.add_figure(fig, 'val/upsample_iters', it)
 
 
-def compute_ordinal_depth_loss(masks, silhouettes, depths):
-    """
-
-    Args:
-        masks (_type_): GT 
-        silhouettes (_type_): bools predicted silouettes
-        depths (_type_): predicted depth
-
-    Returns:
-        _type_: _description_
-    """
-    loss = torch.tensor(0.0).float().cuda()
-    num_pairs = 0
-    for i in range(len(silhouettes)):
-        for j in range(len(silhouettes)):
-            has_pred = silhouettes[i] & silhouettes[j]
-            if has_pred.sum() == 0:
-                continue
-            else:
-                num_pairs += 1
-            front_i_gt = masks[i] & (~masks[j])
-            front_j_pred = depths[j] < depths[i]
-            m = front_i_gt & front_j_pred & has_pred
-            if m.sum() == 0:
-                continue
-            dists = torch.clamp(depths[i] - depths[j], min=0.0, max=2.0)
-            loss += torch.sum(torch.log(1 + torch.exp(dists))[m])
-    loss /= num_pairs
-    return loss
 
 
 def get_model(args, data_size=-1, **kwargs):
@@ -735,6 +731,8 @@ def get_model(args, data_size=-1, **kwargs):
     render_kwargs_test['perturb'] = False
     render_kwargs_test['calc_normal'] = True
 
-    trainer = Trainer(model, args.device_ids, batched=render_kwargs_train['batched'], args=args)
+    devices = kwargs.get('device', args.device_ids)
+
+    trainer = Trainer(model, devices, batched=render_kwargs_train['batched'], args=args)
     
     return model, trainer, render_kwargs_train, render_kwargs_test, trainer.renderer, volume_render_flow

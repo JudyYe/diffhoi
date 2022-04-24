@@ -2,15 +2,17 @@ defaults:
   - environment: yoda
   - logging: default
   - hydra: default
-  - data: ho3d
-  - camera: gt
-  - oTh: gt
+  - data: 100doh
+  - camera: delta
+  - oTh: learn
   - training: default
 
 
 output: "/glusterfs/yufeiy2/vhoi/output/"
 expname: dev/tmp
 
+hA:
+  mode: 'learn'  # gt / learn
 
 ddp: ${environment.multiprocessing_distributed} # deprecated
 resume_dir: 
@@ -53,8 +55,6 @@ model:
 
   joint_frame: 'object_norm'  # object_norm / hand_norm
 
-hA:
-  mode: 'gt'  # gt / learn
 
 hand_text:
   size: 6

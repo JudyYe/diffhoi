@@ -1,5 +1,70 @@
 --100doh
 
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=contact/\${training.w_contact} data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training=contact training.w_contact=1. \
+    device_ids=[0,1]
+
+
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=contact/\${training.w_contact} data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training=contact training.w_contact=100. \
+    device_ids=[0,1]
+
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=contact/\${training.w_contact}_\${training.backward} data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training=contact training.w_contact=100. training.backward='once' \
+    device_ids=[0,1]
+
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=smooth_cam/\${data.index} \
+    data.index=packing_v__VKclLReM0Y_frame000352_0 device_ids=[0,1]
+    
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=smooth_cam/\${data.index} \
+    data.index=diy_v_Gwv7L53aONY_frame000080_0 device_ids=[2,3]
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=smooth_cam/\${data.index} \
+    data.index=diy_v_e-6TZF3jCDk_frame000089_1 device_ids=[0,1]
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=smooth_cam/\${data.index} \
+    data.index=study_v_fFyBlNmK1N8_frame000411_0 device_ids=[2,3]
+
+
+
+---
+PYTHONPATH=. python -m engine \
+    expname=smooth/cam\${camera.mode}_oTh\${oTh.mode}_hA\${hA.mode}\${training.w_t_hand}_f\${data.focal} \
+    data=100doh camera=delta oTh=learn hA.mode=learn training.w_t_hand=100. 
+
+
+
+PYTHONPATH=. python -m engine \
+    expname=smooth/cam\${camera.mode}_oTh\${oTh.mode}_hA\${hA.mode}\${training.w_t_hand} \
+    data=100doh camera=delta oTh=learn hA.mode=learn training.w_t_hand=100.
+
+
+
+PYTHONPATH=. python -m engine \
+    expname=smooth/cam\${camera.mode}_oTh\${oTh.mode}_hA\${hA.mode}\${training.w_t_hand} \
+    data=100doh camera=delta oTh=learn hA.mode=learn training.w_t_hand=10.
+
+
+PYTHONPATH=. python -m engine \
+    expname=smooth/cam\${camera.mode}_oTh\${oTh.mode}_hA\${hA.mode}\${training.w_t_hand} \
+    data=100doh camera=delta oTh=learn hA.mode=learn training.w_t_hand=1.
+
+
+
 PYTHONPATH=. python -m engine \
     expname=100doh/cam\${camera.mode}_oTh\${oTh.mode} \
     data=100doh camera=delta oTh=learn

@@ -9,6 +9,12 @@ def to_device(batch, device):
     return batch
 
 
+def zero_grad(parameters):
+    for p in list(parameters):
+        if p.requires_grad and p.grad is not None:
+            p.grad.data.zero_()
+
+
 def calc_grad_norm(norm_type=2.0, **named_models):
     gradient_norms = {'total': 0.0}
     for name, model in named_models.items():

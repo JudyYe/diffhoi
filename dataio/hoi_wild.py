@@ -1,6 +1,7 @@
 import os
 import os.path as osp
 from turtle import down
+import imageio
 import torch
 import numpy as np
 from glob import glob
@@ -23,6 +24,7 @@ class SceneDataset(Dataset):
 
         # seqname: str, data_dir='../data/'):
         super().__init__()
+        self.args = args
         self.data_dir, seqname = data_dir
         self.train_cameras = train_cameras
 
@@ -33,6 +35,8 @@ class SceneDataset(Dataset):
         self.hand_meta = osp.join(self.data_dir, 'VidAnnotations', seqname, 'hand_inds_side.pkl')
 
         self.H = self.W = 224 // downscale
+        tmp_rgb = imageio.imread(self.image_dir[0])
+        self.orig_size = max(tmp_rgb.shape[0], tmp_rgb.shape[1])
         self.downscale = downscale
         self.max_cam_norm = -1
 
@@ -137,7 +141,8 @@ class SceneDataset(Dataset):
             pred_cam, hand_bbox_tl, bbox_scale, new_center, new_size)
         s, tx, ty = cam
         
-        fx = 10
+        # fx = 10
+        fx = self.args.data.focal * self.orig_size / new_size
         f = torch.FloatTensor([fx, fx])
         p = torch.FloatTensor([0, 0])
 
