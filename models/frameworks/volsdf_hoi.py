@@ -1,4 +1,5 @@
 import functools
+import logging
 import os.path as osp
 import copy
 from statistics import mode
@@ -17,6 +18,7 @@ from pytorch3d.structures import Meshes
 from pytorch3d.renderer import PerspectiveCameras
 import pytorch3d.transforms.rotation_conversions as rot_cvt
 from pytorch3d.renderer.blending import BlendParams
+from pytorch3d.loss.chamfer import knn_points
 
 from models.articulation import get_artnet
 from models.cameras.gt import PoseNet
@@ -131,7 +133,8 @@ class MeshRenderer(nn.Module):
 
         # apply cameraTworld outside of rendering to support scaling.
         cMeshes = mesh_utils.apply_transform(meshes, cTw)  # to allow scaling                 
-        image = mesh_utils.render_soft(cMeshes, cameras, rgb_mode=True, depth_mode=True, out_size=max(H, W))
+        image = mesh_utils.render_soft(cMeshes, cameras, 
+            rgb_mode=True, depth_mode=True, xy_mode=True, out_size=max(H, W))
         # image = mesh_utils.render_mesh(cMeshes, cameras, rgb_mode=True, depth_mode=True, out_size=max(H, W))
         # apply cameraTworld for depth 
         # depth is in camera-view but is in another metric! 
@@ -486,13 +489,15 @@ class Trainer(nn.Module):
         else:
             raise NotImplementedError(args.training.occ_mask)
 
-        if args.training.w_depth > 0:
-            losses['loss_depth'] = args.training.w_depth * compute_ordinal_depth_loss(
-                [target_hand > 0.5, target_obj > 0.5],
-                [iHand['mask'] > 0.5, iObj['mask'] > 0.5],
-                [iHand['depth'], iObj['depth']]
-            )
+        # contour of hand masks
 
+        # gt to pred --> just wish gt to be covered
+        if args.training.w_contour > 0:
+            gt_cont = model_input['hand_contour'].to(device)
+            x_nn = knn_points(gt_cont, iHand['xy'][..., :2], K=1)
+            cham_x = x_nn.dists.mean()
+            losses['loss_contour'] = args.training.w_contour * cham_x
+        
         # convert mask from screen space to NDC space -- better bound the flow?? 
         # [0, H] -1, 1
         max_H = max(render_kwargs_train['H'], render_kwargs_train['W'])
@@ -529,6 +534,8 @@ class Trainer(nn.Module):
         
         loss = 0
         for k, v in losses.items():
+            if args.training.backward == 'pose' and 'contact' in k:
+                continue
             loss += losses[k]
         
         losses['total'] = loss

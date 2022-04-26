@@ -18,10 +18,11 @@ w_depth: 0.   # ordinal depth hurts!!
 w_rgb: 1. 
 w_flow: 0. 
 w_sdf: 0. 
-w_t_hand: 0. 
+w_t_hand: 100. 
+w_contour: 10. 
 
-w_contact: 10. 
-backward: 'twice'
+w_contact: 1. 
+backward: 'once'
 
 fg: 1
 occ_mask: label  # union | indp | label? 

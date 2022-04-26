@@ -126,7 +126,7 @@ class SceneDataset(Dataset):
     def get_obj_mask(self, idx, bbox, key='obj_mask'):
         obj_mask = self.anno[key][idx]
         obj_mask = image_utils.crop_resize(obj_mask, bbox,return_np=True, final_size=self.H)
-        return torch.FloatTensor((obj_mask > 0).reshape(-1))
+        return torch.FloatTensor((obj_mask > 0).reshape(-1)), obj_mask
 
     def get_image(self, idx, bbox):
         image = np.array(self.anno['image'][idx])
@@ -170,12 +170,13 @@ class SceneDataset(Dataset):
         sample['cTh'] = cTh
         sample['nTh'] = nTh
         sample['image'] = self.get_image(idx, sample['bbox'])
-        sample['obj_mask'] = self.get_obj_mask(idx, sample['bbox'])
-        sample['hand_mask'] = self.get_obj_mask(idx, sample['bbox'], 'hand_mask')
+        sample['obj_mask'], _ = self.get_obj_mask(idx, sample['bbox'])
+        sample['hand_mask'], hand_mask = self.get_obj_mask(idx, sample['bbox'], 'hand_mask')
         sample['hA'] = self.anno['hA'][idx]
         sample['translate'] = translate
 
         sample['rot'] = self.anno['rot'][idx]
+        sample['hand_contour'] = image_utils.sample_contour(hand_mask > 0).astype(np.float32) / self.H * 2 - 1
         return sample
     
     def get_K_pix(self, cam_f, cam_p):
@@ -192,6 +193,7 @@ class SceneDataset(Dataset):
         sample = {
             "obj_mask": out['obj_mask'],
             "hand_mask": out['hand_mask'],
+            "hand_contour": out['hand_contour'],
             "object_mask": (out['obj_mask'] + out['hand_mask']).clamp(max=1).reshape(-1),
             
             "hA": out['hA'],

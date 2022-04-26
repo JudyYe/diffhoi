@@ -1,26 +1,128 @@
 --100doh
 
+
+# together 
 PYTHONPATH=. python -m engine --config-name volsdf_nogt \
-    expname=contact/\${training.w_contact} data.index=study_v_fFyBlNmK1N8_frame000411_0 \
-    training=contact training.w_contact=1. \
+    expname=contact_contour/contact_\${training.w_contact}_contour\${training.w_contour}_lr\${training.lr.pose} \
+    training=contact  \
+    device_ids=[0,1]
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=contact_contour/contact_\${training.w_contact}_contour\${training.w_contour}_lr\${training.lr.pose} \
+    data.index=packing_v__VKclLReM0Y_frame000352_0 \
+    training=contact  \
+    device_ids=[0,1]
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=contact_contour/contact_\${training.w_contact}_contour\${training.w_contour}_lr\${training.lr.pose} \
+    data.index=diy_v_Gwv7L53aONY_frame000080_0 \
+    training=contact  \
+    device_ids=[0,1]
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=contact_contour/contact_\${training.w_contact}_contour\${training.w_contour}_lr\${training.lr.pose} \
+    data.index=diy_v_e-6TZF3jCDk_frame000089_1 \
+    training=contact  \
     device_ids=[0,1]
 
 
 
 
 PYTHONPATH=. python -m engine --config-name volsdf_nogt \
-    expname=contact/\${training.w_contact} data.index=study_v_fFyBlNmK1N8_frame000411_0 \
-    training=contact training.w_contact=100. \
+    expname=contact_contour/contact_\${training.w_contact}_contour\${training.w_contour}_lr\${training.lr.pose} \
+    data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training=contact training.w_contour=10 \
     device_ids=[0,1]
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=contact_contour/contact_\${training.w_contact}_contour\${training.w_contour}_lr\${training.lr.pose} \
+    data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training=contact \
+    device_ids=[0,1]
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=contact_contour/contact_\${training.w_contact}_contour\${training.w_contour}_lr\${training.lr.pose} \
+    data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training=contact \
+    training.lr.pose=5e-3 \
+    device_ids=[0,1]
+
+
+-    
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=contour/w_\${training.w_contour} data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    device_ids=[0,1]
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=contour/w_\${training.w_contour} data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training.w_contour=10. \
+    device_ids=[2,3]
+
+
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=contour/w_\${training.w_contour} data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training.w_contour=0. \
+    device_ids=[0,1]
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=contour/w_\${training.w_contour} data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training.w_contour=1000. \
+    device_ids=[2,3]
+
+
+--
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=debug_hand/\${training.w_contact} data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training.occ_mask=indp training.num_iters=10000 \
+    device_ids=[0,1]
+
+
+-
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=contact/\${training.w_contact}_\${training.backward} data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training=contact training.w_contact=1. training.backward='pose' training.w_contour=0 \
+    device_ids=[0,1]
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=contact/\${training.w_contact}_\${training.backward} data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training=contact training.w_contact=0.1 training.backward='pose' training.w_contour=0 \
+    device_ids=[0,1]
+
 
 
 
 PYTHONPATH=. python -m engine --config-name volsdf_nogt \
     expname=contact/\${training.w_contact}_\${training.backward} data.index=study_v_fFyBlNmK1N8_frame000411_0 \
-    training=contact training.w_contact=100. training.backward='once' \
+    training=contact training.w_contact=1. training.backward='once' \
     device_ids=[0,1]
 
 
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=contact/\${training.w_contact}_\${training.backward} data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training=contact training.w_contact=0.1 \
+    device_ids=[2,3]
+
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=contact/\${training.w_contact}_\${training.backward} data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training=contact training.w_contact=0.1 training.backward='once' \
+    device_ids=[0,1]
+
+---c
 
 PYTHONPATH=. python -m engine --config-name volsdf_nogt \
     expname=smooth_cam/\${data.index} \

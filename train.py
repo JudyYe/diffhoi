@@ -297,7 +297,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     for k, v in losses.items():
                         losses[k] = torch.mean(v)
                     
-                    if args.training.backward == 'twice':
+                    if args.training.backward in ['twice', 'pose']:
                         if it % 2 == 0:
                             optimizer.zero_grad()
                             if losses['contact'] > 0: 
@@ -305,7 +305,10 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                             else:
                                 losses['total'].backward()
                             grad_norms = train_util.calc_grad_norm(model=model)
-                            train_util.zero_grad(optimizer.param_groups[0]['params'])
+                            train_util.zero_grad(optimizer.param_groups[0]['params']) # model but oTh
+                            train_util.zero_grad(optimizer.param_groups[2]['params']) # textures
+                            train_util.zero_grad(optimizer.param_groups[3]['params']) # posenet
+                            train_util.zero_grad(optimizer.param_groups[4]['params']) # focalnet
                             optimizer.step()  # oTh
                         else:
                             optimizer.zero_grad()
@@ -359,6 +362,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                         logger.add('losses', k, v.data.cpu().numpy().item(), it)
                         # print losses
                     if it % args.training.print_freq == 0 and is_master():
+                        print(args.expname)
                         print('Iters [%04d] %f' % (it, losses['total']))
                         for k, v in losses.items():
                             if k != 'total':
