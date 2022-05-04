@@ -1,13 +1,14 @@
 defaults:
   - environment: yoda
-  - logging: default
+  - logging: wandb
   - hydra: default
   - data: 100doh
   - camera: delta
   - oTh: learn
   - training: default
+  - diffuse: null
 
-
+worker: 'train'
 output: "/glusterfs/yufeiy2/vhoi/output/"
 expname: dev/tmp
 

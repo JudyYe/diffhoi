@@ -19,8 +19,9 @@ w_rgb: 1.
 w_flow: 0. 
 w_sdf: 0. 
 w_t_hand: 100. 
+w_contour: 10. 
 w_contact: 0. 
-w_contour: 100. 
+w_diffuse: 0. 
 backward: 'once'
 
 fg: 1
@@ -39,7 +40,7 @@ ckpt_file: null # will be read by python as None
 ckpt_ignore_keys: []     # only change if you want to drop certain keys in the saved checkpionts.
 ckpt_only_use_keys: null # only change if you want to only use certain keys in the saved checkpionts.
 
-monitoring: wandb
+monitoring: ${logging.mode}
 
 i_save: 1000       # unit: seconds
 i_backup: 50000   # unit: itertation steps

@@ -44,7 +44,7 @@ def init_env(args, gpu=None, ngpus_per_node=None):
             dist.init_process_group(backend='nccl', 
             init_method="tcp://{}:{}".format("localhost", str(port)),
             rank=local_rank,        world_size = world_size)
-
+        dist.barrier()
         torch.cuda.set_device(local_rank)
         args.device_ids = [local_rank]
         print("=> Init Env @ DDP: rank={}, world_size={}, local_rank={}.\n\tdevice_ids set to {}".format(rank, world_size, local_rank, args.device_ids))

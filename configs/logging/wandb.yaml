@@ -11,6 +11,7 @@ submitit_dir: ${output}/${expname}/submitit_train_logs/
 result_dir: ${output}/${expname}/results/
 suffix: ''
 
+mode: 'wandb'
 # Logging
 log_tb: True
 use_wandb: True

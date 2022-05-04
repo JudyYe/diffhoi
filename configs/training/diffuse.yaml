@@ -20,9 +20,10 @@ w_flow: 0.
 w_sdf: 0. 
 w_t_hand: 100. 
 w_contour: 10. 
-w_contact: 1. 
-w_diffuse: 0. 
+w_contact: 0. 
 backward: 'once'
+w_diffuse: 1.   # diffusion model
+diffuse_ckpt: '/glusterfs/yufeiy2/vhoi/output_ddpm/condition/t100_100/ckpt/model-00025000.pt'
 
 fg: 1
 occ_mask: label  # union | indp | label? 

@@ -144,7 +144,10 @@ class ManopthWrapper(nn.Module):
             verts, joints, faces = self._forward_layer(art_pose, trans)
 
             if glb_se3 is not None:
-                mat_rt = geom_utils.se3_to_matrix(glb_se3)
+                if glb_se3.ndim == 3 and glb_se3.shape[-1] == 4:
+                    mat_rt = glb_se3
+                else:
+                    mat_rt = geom_utils.se3_to_matrix(glb_se3)
                 trans = Transform3d(matrix=mat_rt.transpose(1, 2))
                 verts = trans.transform_points(verts)
                 joints = trans.transform_points(joints)

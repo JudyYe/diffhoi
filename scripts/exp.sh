@@ -1,5 +1,222 @@
+python -m ddpm.test \
+    --ckpt /glusterfs/yufeiy2/vhoi/output_ddpm/mow/t1000_1000_condTrue/ckpt/model-00017500.pt \
+    --T 300 \
+    --data_dir /glusterfs/yufeiy2/vhoi/mow/ --split train_full
+    --q_sample 
+
+python -m ddpm.test \
+    --ckpt /glusterfs/yufeiy2/vhoi/output_ddpm/mow/t1000_1000_condTrue/ckpt/model-00017500.pt \
+    --T 300 \
+    --data_dir /glusterfs/yufeiy2/vhoi/mow/   --split train_full
+
+
+python -m ddpm.test \
+    --ckpt /glusterfs/yufeiy2/vhoi/output_ddpm/mow/t1000_1000_condTrue/ckpt/model-00017500.pt \
+    --T 100 \
+    --data_dir /glusterfs/yufeiy2/vhoi/mow/  --split train_full
+    --q_sample
+
+python -m ddpm.test \
+    --ckpt /glusterfs/yufeiy2/vhoi/output_ddpm/mow/t1000_1000_condTrue/ckpt/model-00017500.pt \
+    --T 100 \
+    --data_dir /glusterfs/yufeiy2/vhoi/mow/ --split train_full
+
+
+
+python -m ddpm.test \
+    --ckpt /glusterfs/yufeiy2/vhoi/output_ddpm/mow/t1000_1000_condTrue/ckpt/model-00017500.pt \
+    --T 500 \
+    --data_dir /glusterfs/yufeiy2/vhoi/mow/ --split train_full
+    --q_sample
+
+python -m ddpm.test \
+    --ckpt /glusterfs/yufeiy2/vhoi/output_ddpm/mow/t1000_1000_condTrue/ckpt/model-00017500.pt \
+    --T 500 \
+    --data_dir /glusterfs/yufeiy2/vhoi/mow/ --split train_full
+
+
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=mow/\${data.index}_\${training.w_diffuse}_100_1000 \
+    training=diffuse  \
+    data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training.w_diffuse=0. \
+    training.diffuse_ckpt=/glusterfs/yufeiy2/vhoi/output_ddpm/mow/t100_1000_condTrue/ckpt/model-00015000.pt \
+    device_ids=[0,1]
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=mow/\${data.index}_\${training.w_diffuse}_100_1000 \
+    training=diffuse  \
+    data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training.w_diffuse=10. \
+    training.diffuse_ckpt=/glusterfs/yufeiy2/vhoi/output_ddpm/mow/t100_1000_condTrue/ckpt/model-00015000.pt \
+    device_ids=[0,1]
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=mow/\${data.index}_\${training.w_diffuse}_1000_1000 \
+    training=diffuse  \
+    data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training.w_diffuse=10. \
+    training.diffuse_ckpt=/glusterfs/yufeiy2/vhoi/output_ddpm/mow/t1000_1000_condTrue/ckpt/model-00015000.pt \
+    device_ids=[0,1]
+
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=mow/\${data.index}_\${training.w_diffuse}_100_100 \
+    training=diffuse  \
+    data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training.w_diffuse=10. \
+    training.diffuse_ckpt=/glusterfs/yufeiy2/vhoi/output_ddpm/mow/t100_100_condTrue/ckpt/model-00015000.pt \
+    device_ids=[0,1]
+
+
+
+
+-
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm \
+    expname=mow/t\${time.start}_\${time.total}_cond\${unet_config.params.use_spatial_transformer} \
+    time.start=100 time.total=100 \
+    data_dir=/glusterfs/yufeiy2/vhoi/mow/ \
+    environment.multiprocessing_distributed=True
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm \
+    expname=mow/t\${time.start}_\${time.total}_cond\${unet_config.params.use_spatial_transformer} \
+    time.start=100 time.total=1000 \
+    data_dir=/glusterfs/yufeiy2/vhoi/mow/ \
+    environment.multiprocessing_distributed=True
+
+    CUDA_VISIBLE_DEVICES=2,3 PYTHONPATH=. python -m engine --config-name ddpm \
+        expname=mow/t\${time.start}_\${time.total}_cond\${unet_config.params.use_spatial_transformer} \
+        time.start=1000 time.total=1000 \
+        data_dir=/glusterfs/yufeiy2/vhoi/mow/ \
+        environment.multiprocessing_distributed=True
+
+
+--
+contact loss
+
+diffusion loss
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=try_diffuse/\${data.index}_\${training.w_diffuse} \
+    training=diffuse  \
+    data.index=packing_v__VKclLReM0Y_frame000352_0 \
+    training.w_diffuse=0. \
+    device_ids=[0,1]
+
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=try_diffuse/\${data.index}_\${training.w_diffuse} \
+    training=diffuse  \
+    training.w_diffuse=0. \
+    device_ids=[0,1]
+
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=try_diffuse/\${data.index}_\${training.w_diffuse} \
+    training=diffuse  \
+    data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    training.w_diffuse=10. \
+    device_ids=[0,1]
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=try_diffuse/\${data.index}_\${training.w_diffuse} \
+    training=diffuse  \
+    data.index=study_v_fFyBlNmK1N8_frame000411_0 \
+    device_ids=[0,1]
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=try_diffuse/\${data.index}_\${training.w_diffuse} \
+    training=diffuse  \
+    data.index=packing_v__VKclLReM0Y_frame000352_0 \
+    device_ids=[0,1]
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=try_diffuse/\${data.index}_\${training.w_diffuse} \
+    training=diffuse  \
+    data.index=study_v_im0FA2X6fp0_frame000043_0 \
+    device_ids=[0,1]
+
+
+no loss
+
+
+
+--
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm \
+    time.start=100 time.total=1000 \
+    unet_config=ddim_uncond  \
+    environment.multiprocessing_distributed=True 
+
+--
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm \
+    expname=condition/t\${time.start}_\${time.total}_cond\${unet_config.params.use_spatial_transformer} \
+    time.start=100 time.total=1000 \
+    unet_config=ddim_uncond  \
+    environment.multiprocessing_distributed=True
+
+CUDA_VISIBLE_DEVICES=2,3 PYTHONPATH=. python -m engine --config-name ddpm \
+    expname=condition/t\${time.start}_\${time.total}_cond\${unet_config.params.use_spatial_transformer} \
+    time.start=100 time.total=100 \
+    unet_config=ddim_uncond  \
+    environment.multiprocessing_distributed=True
+
+
+CUDA_VISIBLE_DEVICES=2,3 PYTHONPATH=. python -m engine --config-name ddpm \
+    expname=condition/t\${time.start}_\${time.total}_cond\${unet_config.params.use_spatial_transformer} \
+    time.start=1000 time.total=1000 \
+    unet_config=ddim_uncond  \
+    environment.multiprocessing_distributed=True
+
+--
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm \
+    expname=condition/t\${time.start}_\${time.total} \
+    time.start=100 time.total=1000 \
+    environment.multiprocessing_distributed=True
+
+CUDA_VISIBLE_DEVICES=2,3 PYTHONPATH=. python -m engine --config-name ddpm \
+    expname=condition/t\${time.start}_\${time.total} \
+    time.start=100 time.total=100 \
+    environment.multiprocessing_distributed=True
+
+
+CUDA_VISIBLE_DEVICES=2,3 PYTHONPATH=. python -m engine --config-name ddpm \
+    expname=condition/t\${time.start}_\${time.total} \
+    time.start=1000 time.total=1000 \
+    environment.multiprocessing_distributed=True
+
+
+
+
+PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=tmp \
+
+
 --100doh
 
+python -m ddpm.sdf_data --skip --gpu 0 --split all & 
+python -m ddpm.sdf_data --skip --gpu 0 --split all & 
+
+python -m ddpm.sdf_data --skip --gpu 1 --split all & 
+python -m ddpm.sdf_data --skip --gpu 1 --split all & 
+
+python -m ddpm.sdf_data --skip --gpu 2 --split all & 
+python -m ddpm.sdf_data --skip --gpu 2 --split all & 
+
+python -m ddpm.sdf_data --skip --gpu 3 --split all & 
+python -m ddpm.sdf_data --skip --gpu 3 --split all & 
 
 # together 
 PYTHONPATH=. python -m engine --config-name volsdf_nogt \

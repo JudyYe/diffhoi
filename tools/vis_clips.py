@@ -3,6 +3,8 @@ import os
 import os.path as osp
 
 from tqdm import tqdm
+from ddpm.data import SdfData
+from ddpm.main import load_diffusion_model
 from models.frameworks.volsdf_hoi import MeshRenderer, VolSDFHoi
 from preprocess.smooth_hand import vis_hA, vis_se3
 from utils import io_util, mesh_util
@@ -32,6 +34,7 @@ def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_
     # if W is not None:
     #     render_kwargs['W'] = W
     H, W = render_kwargs['H'], render_kwargs['W']
+    print(device, H, W)
     
     # reconstruct  hand and render
     name_list = ['gt', 'render_0', 'render_1', 'hand_0', 'hand_1', 'obj_0', 'obj_1', 'hand_front', 'obj_front']
@@ -71,6 +74,60 @@ def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_
     file_list = [osp.join(save_dir, name + '_%s.gif' % n) for n in name_list]
     return file_list
 
+
+def run_diffuse(dataloader, trainer, diffusion, save_dir, name, volume_size, N, T):
+    device = trainer.device
+    name_list = ['inp_lowres', 'recon', 'inp']
+    image_list = [[] for _ in name_list]
+    model = trainer.model
+    os.makedirs(save_dir, exist_ok=True)
+
+    if is_master():
+        mesh_util.extract_mesh(
+            model.implicit_surface, 
+            N=N,
+            filepath=osp.join(save_dir, name + '_obj.ply'),
+            volume_size=volume_size,
+        )
+        jObj = mesh_utils.load_mesh(osp.join(save_dir, name + '_obj.ply')).cuda()
+
+    for (indices, model_input, ground_truth) in dataloader:        
+        for k, v in model_input.items():
+            try:
+                model_input[k] = v.to(device)
+            except AttributeError:
+                pass
+        jHand, _, jTh, _ = trainer.get_jHand_camera(
+            indices.to(device), model_input, ground_truth, 200, 200)
+        hA = model.hA_net(indices.to(device), model_input, None)
+        hA = model_input['hA'].to(device)
+
+        nn = 32
+        jGrid = mesh_utils.make_grid(N=nn, halfsize=1, device=device, order='xyz')
+    
+        jSdf = model.implicit_surface(jGrid.reshape(1, -1, 3)).reshape(1, 1, nn, nn, nn)
+        jSdf_recon = diffusion.sample(1, img=jSdf, hA=hA, t=T - 1, q_sample=False)
+        jSdf_recon = mesh_utils.batch_grid_to_meshes(jSdf_recon.squeeze(1), 1)
+        jSdf = mesh_utils.batch_grid_to_meshes(jSdf.squeeze(1), 1)
+        
+        hoi = mesh_utils.join_scene([jHand, jSdf])
+        image_list[0] = mesh_utils.render_geom_rot(hoi)
+        hoi = mesh_utils.join_scene([jHand, jSdf_recon])
+        image_list[1] = mesh_utils.render_geom_rot(hoi)
+        hoi = mesh_utils.join_scene([jHand, jObj])
+        image_list[2] = mesh_utils.render_geom_rot(hoi)
+
+        mesh_utils.dump_meshes([osp.join(save_dir, name + '_lowres')], jSdf)
+        mesh_utils.dump_meshes([osp.join(save_dir, name + '_recon')], jSdf_recon)
+        mesh_utils.dump_meshes([osp.join(save_dir, name + '_hand')], jHand)
+        mesh_utils.dump_meshes([osp.join(save_dir, name + '_inp')], jObj)
+        break
+
+    for n, img_list in zip(name_list, image_list):
+        image_utils.save_gif(img_list, osp.join(save_dir, name + '_%s' % n))
+
+    file_list = [osp.join(save_dir, name + '_%s.gif' % n) for n in name_list]
+    return file_list
 
 
 def run_hA(dataloader, trainer, save_dir, name):
@@ -261,6 +318,14 @@ def main_function(args):
         with torch.no_grad():
             save_dir = args.load_pt.split('/ckpts')[0] + '/hA/'
             run_hA(dataloader, trainer, save_dir, name, )
+    
+    if args.diff_eval:
+        diffusion = load_diffusion_model(args.diff_ckpt)
+        diffusion.to(device)
+        diffusion.eval()
+        with torch.no_grad():
+            save_dir = args.load_pt.split('/ckpts')[0] + '/diff_eval/'
+            run_diffuse(dataloader, trainer, diffusion, save_dir, name, args.volume_size, N=args.N, T=args.T)
 
 
 def render(renderer, jHand, jObj, jTc, intrinsics, H, W, zfar=-1):
@@ -287,14 +352,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=str, default=None, help='output ply file name')
     parser.add_argument('--N', type=int, default=64, help='resolution of the marching cube algo')
+    parser.add_argument('--T', type=int, default=100, help='resolution of the marching cube algo')
     parser.add_argument('--volume_size', type=float, default=6., help='voxel size to run marching cube')
+
+    parser.add_argument("--diff_ckpt", type=str, default='', help='the trained model checkpoint .pt file')
     parser.add_argument("--load_pt", type=str, default=None, help='the trained model checkpoint .pt file')
-    parser.add_argument("--chunk", type=int, default=256, help='net chunk when querying the network. change for smaller GPU memory.')
     parser.add_argument("--init_r", type=float, default=1.0, help='Optional. The init radius of the implicit surface.')
     parser.add_argument("--hand", action='store_true')
+
     parser.add_argument("--nvs", action='store_true')
+    parser.add_argument("--chunk", type=int, default=256, help='net chunk when querying the network. change for smaller GPU memory.')
+
     parser.add_argument("--gt", action='store_true')
     parser.add_argument("--surface", action='store_true')
+    parser.add_argument("--diff_eval", action='store_true')
     args = parser.parse_args()
     
     main_function(args)

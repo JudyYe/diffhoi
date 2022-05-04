@@ -54,6 +54,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
     mesh_dir = os.path.join(exp_dir, 'meshes')
     
     device = torch.device('cuda', local_rank)
+    print('local ran', device)
 
 
     # logger

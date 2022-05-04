@@ -1,4 +1,5 @@
-from random import random
+from importlib import import_module
+import random
 from typing import Any
 
 from omegaconf import OmegaConf
@@ -50,10 +51,11 @@ class Worker:
         :returns: TODO
 
         """
-        import importlib
-        from train import main_function
+        main_function = import_module(origargs.worker)
+        # main_function = import_module('train')
+        # from train import main_function
 
-        main_worker = main_function
+        main_worker = main_function.main_function
         import numpy as np
         import torch.multiprocessing as mp
         import torch.utils.data.distributed
@@ -73,7 +75,7 @@ class Worker:
             main_args.environment.rank = job_env.global_rank
             main_args.environment.dist_url = f'tcp://{job_env.hostnames[0]}:{main_args.environment.port}'
         else:
-            # main_args.environment.port = random.randint(10000, 20000)
+            main_args.environment.port = random.randint(10000, 20000)
             main_args.environment.dist_url = f'tcp://{main_args.environment.node}:{main_args.environment.port}'
         print('Using url {}'.format(main_args.environment.dist_url))
 

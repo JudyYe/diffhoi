@@ -14,7 +14,7 @@ distributed: True
 seed:
 gpu:
 ngpu: 2
-workers: 80
+workers: 8
 mem_gb: 256
 
 slurm: False

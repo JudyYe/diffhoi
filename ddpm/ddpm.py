@@ -1,7 +1,12 @@
+import logging
+import os
+import shutil
+import numpy as np
 import math
 import copy
 import torch
-from torch import nn, einsum
+import torch.distributed as dist
+from torch import  nn, einsum
 import torch.nn.functional as F
 from inspect import isfunction
 from functools import partial
@@ -12,11 +17,16 @@ from torch.cuda.amp import autocast, GradScaler
 from pathlib import Path
 from torch.optim import Adam
 from torchvision import transforms, utils
+from torch.utils.data.distributed import DistributedSampler
 from PIL import Image
 
 from tqdm import tqdm
 from einops import rearrange
-from jutils import image_utils, geom_utils, mesh_utils
+from jutils import image_utils, geom_utils, mesh_utils, model_utils
+from utils import io_util
+from utils.checkpoints import CheckpointIO
+from utils.dist_util import get_world_size, is_master
+from utils.hand_utils import ManopthWrapper, get_nTh
 
 from utils.logger import Logger
 # helpers functions
@@ -97,8 +107,8 @@ class LayerNorm(nn.Module):
     def __init__(self, dim, eps = 1e-5):
         super().__init__()
         self.eps = eps
-        self.g = nn.Parameter(torch.ones(1, dim, 1, 1))
-        self.b = nn.Parameter(torch.zeros(1, dim, 1, 1))
+        self.g = nn.Parameter(torch.ones(1, dim, 1, 1, 1))
+        self.b = nn.Parameter(torch.zeros(1, dim, 1, 1, 1))
 
     def forward(self, x):
         var = torch.var(x, dim = 1, unbiased = False, keepdim = True)
@@ -275,7 +285,7 @@ class Unet(nn.Module):
         mid_dim = dims[-1]
         self.mid_block1 = ConvNextBlock3D(mid_dim, mid_dim, time_emb_dim = time_dim)
         self.mid_attn = Residual(PreNorm(mid_dim, Attention(mid_dim)))
-        self.mid_block2 = ConvNextBlock(mid_dim, mid_dim, time_emb_dim = time_dim)
+        self.mid_block2 = ConvNextBlock3D(mid_dim, mid_dim, time_emb_dim = time_dim)
 
         for ind, (dim_in, dim_out) in enumerate(reversed(in_out[1:])):
             is_last = ind >= (num_resolutions - 1)
@@ -337,7 +347,7 @@ def cosine_beta_schedule(timesteps, s = 0.008):
     """
     steps = timesteps + 1
     x = torch.linspace(0, timesteps, steps)
-    alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
+    alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * np.pi * 0.5) ** 2
     alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
     betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
     return torch.clip(betas, 0, 0.999)
@@ -351,6 +361,7 @@ class GaussianDiffusion(nn.Module):
         image_size,
         channels = 3,
         timesteps = 1000,
+        starttime = 1000,
         loss_type = 'l1'
     ):
         super().__init__()
@@ -365,6 +376,7 @@ class GaussianDiffusion(nn.Module):
         alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value = 1.)
 
         timesteps, = betas.shape
+        self.start_time = starttime
         self.num_timesteps = int(timesteps)
         self.loss_type = loss_type
 
@@ -401,6 +413,7 @@ class GaussianDiffusion(nn.Module):
         return mean, variance, log_variance
 
     def predict_start_from_noise(self, x_t, t, noise):
+        # output noise, not mean. 
         return (
             extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t -
             extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
@@ -415,8 +428,9 @@ class GaussianDiffusion(nn.Module):
         posterior_log_variance_clipped = extract(self.posterior_log_variance_clipped, t, x_t.shape)
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
-    def p_mean_variance(self, x, t, clip_denoised: bool):
-        x_recon = self.predict_start_from_noise(x, t=t, noise=self.denoise_fn(x, t))
+    def p_mean_variance(self, x, t, c, clip_denoised: bool):
+        # ??? conditionall??? 
+        x_recon = self.predict_start_from_noise(x, t=t, noise=self.denoise_fn(x, t, c))
 
         if clip_denoised:
             x_recon.clamp_(-1., 1.)
@@ -425,39 +439,45 @@ class GaussianDiffusion(nn.Module):
         return model_mean, posterior_variance, posterior_log_variance
 
     @torch.no_grad()
-    def p_sample(self, x, t, clip_denoised=True, repeat_noise=False):
+    def p_sample(self, x, t, c, clip_denoised=True, repeat_noise=False):
         b, *_, device = *x.shape, x.device
-        model_mean, _, model_log_variance = self.p_mean_variance(x=x, t=t, clip_denoised=clip_denoised)
+        model_mean, _, model_log_variance = self.p_mean_variance(x=x, t=t, c=c, clip_denoised=clip_denoised)
         noise = noise_like(x.shape, device, repeat_noise)
         # no noise when t == 0
         nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
         return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
 
     @torch.no_grad()
-    def p_sample_loop(self, shape, img=None):
+    def p_sample_loop(self, shape, img=None, context=None, t=None, q_sample=True):
         device = self.betas.device
-
+        t = default(t, self.num_timesteps - 1)
         b = shape[0]
-        if img is None:
+        if img is None:            
             img = torch.randn(shape, device=device)
         else:
+            # add nosie on img
+            b, *_, device = *img.shape, img.device
+            
+            t_batched = torch.stack([torch.tensor(t, device=device)] * b)
+            if q_sample:
+                img = self.q_sample(img, t=t_batched)
+
             assert b == len(img)
 
-        for i in tqdm(reversed(range(0, self.num_timesteps)), desc='sampling loop time step', total=self.num_timesteps):
-            img = self.p_sample(img, torch.full((b,), i, device=device, dtype=torch.long))
+        for i in tqdm(reversed(range(0, t + 1)), desc='sampling loop time step', total=self.num_timesteps):
+            img = self.p_sample(img, torch.full((b,), i, device=device, dtype=torch.long), context)
         return img
 
     @torch.no_grad()
-    def denoise_from(self, x):
+    def sample(self, batch_size = 16, **kwargs):
         image_size = self.image_size
         channels = self.channels
-        return self.p_sample_loop((len(x), channels, image_size, image_size, image_size), img=x)
 
-    @torch.no_grad()
-    def sample(self, batch_size = 16):
-        image_size = self.image_size
-        channels = self.channels
-        return self.p_sample_loop((batch_size, channels, image_size, image_size))
+        context = self.get_context(**kwargs)
+
+        return self.p_sample_loop((batch_size, channels, image_size, image_size, image_size),
+            img=kwargs.get('img', None), context=context, t=kwargs.get('t', None), 
+            q_sample=kwargs.get('q_sample', True))
 
     @torch.no_grad()
     def interpolate(self, x1, x2, t = None, lam = 0.5):
@@ -475,7 +495,9 @@ class GaussianDiffusion(nn.Module):
 
         return img
 
+    # for train
     def q_sample(self, x_start, t, noise=None):
+        # perturbe the Gaussian noise
         noise = default(noise, lambda: torch.randn_like(x_start))
 
         return (
@@ -483,12 +505,12 @@ class GaussianDiffusion(nn.Module):
             extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
         )
 
-    def p_losses(self, x_start, t, noise = None):
-        b, c, h, w = x_start.shape
+    def p_losses(self, x_start, t, noise = None, context=None):
+        b, c, d, h, w = x_start.shape
         noise = default(noise, lambda: torch.randn_like(x_start))
 
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        x_recon = self.denoise_fn(x_noisy, t)
+        x_recon = self.denoise_fn(x_noisy, t, context=context)
 
         if self.loss_type == 'l1':
             loss = (noise - x_recon).abs().mean()
@@ -499,36 +521,22 @@ class GaussianDiffusion(nn.Module):
 
         return loss
 
+    def get_context(self, **kwargs):
+        hA = kwargs.get('hA', None)
+        b = hA.shape[0]
+        context = geom_utils.axis_angle_t_to_matrix(hA.reshape(b, 15, 3), homo=False).reshape(b, 1, 15 * 9)
+        return context
+
     def forward(self, x, *args, **kwargs):
+        """
+        x: SDF in shape of (N, 1, D, H, W)
+        """
         b, c, d, h, w, device, img_size, = *x.shape, x.device, self.image_size
         assert d ==img_size and h == img_size and w == img_size, f'height and width of image must be {img_size}'
-        t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
-        return self.p_losses(x, t, *args, **kwargs)
+        t = torch.randint(0, self.start_time, (b,), device=device).long()
+        context = self.get_context(**kwargs)
+        return self.p_losses(x, t, context=context)
 
-# dataset classes
-
-class Dataset(data.Dataset):
-    def __init__(self, folder, image_size, exts = ['jpg', 'jpeg', 'png']):
-        super().__init__()
-        self.folder = folder
-        self.image_size = image_size
-        self.paths = [p for ext in exts for p in Path(f'{folder}').glob(f'**/*.{ext}')]
-
-        self.transform = transforms.Compose([
-            transforms.Resize(image_size),
-            transforms.RandomHorizontalFlip(),
-            transforms.CenterCrop(image_size),
-            transforms.ToTensor(),
-            transforms.Lambda(lambda t: (t * 2) - 1)
-        ])
-
-    def __len__(self):
-        return len(self.paths)
-
-    def __getitem__(self, index):
-        path = self.paths[index]
-        img = Image.open(path)
-        return self.transform(img)
 
 # trainer class
 
@@ -539,9 +547,11 @@ class Trainer(object):
         dataset,
         valset,
         *,
+        device_ids=[0,],
         ema_decay = 0.995,
-        image_size = 128,
         train_batch_size = 32,
+        test_batch_size=8,
+        start_time=1000,
         train_lr = 2e-5,
         train_num_steps = 100000,
         gradient_accumulate_every = 2,
@@ -554,6 +564,10 @@ class Trainer(object):
         args=dict(),
     ):
         super().__init__()
+        self.device = device_ids[0]
+        self.args = args
+        self.start_time = start_time
+        self.hand_wrapper = ManopthWrapper().to(self.device)
         self.model = diffusion_model
         self.ema = EMA(ema_decay)
         self.ema_model = copy.deepcopy(self.model)
@@ -563,14 +577,26 @@ class Trainer(object):
         self.save_and_sample_every = save_and_sample_every
 
         self.batch_size = train_batch_size
+        self.test_bs = test_batch_size
         self.image_size = diffusion_model.image_size
         self.gradient_accumulate_every = gradient_accumulate_every
         self.train_num_steps = train_num_steps
 
         self.ds = dataset
         self.val_ds = valset
-        self.dl = cycle(data.DataLoader(self.ds, batch_size = train_batch_size, shuffle=True, pin_memory=True))
-        self.val_dl = cycle(data.DataLoader(self.val_ds, batch_size = train_batch_size, shuffle=False, pin_memory=True))
+        if args.ddp:
+            train_sampler = DistributedSampler(dataset)
+            self.dl = cycle(data.DataLoader(self.ds, sampler=train_sampler, 
+                batch_size = train_batch_size, pin_memory=True, num_workers=args.environment.workers))
+            val_sampler = DistributedSampler(valset)
+            self.val_dl = cycle(data.DataLoader(self.val_ds,sampler=val_sampler, 
+                batch_size = test_batch_size,  pin_memory=True, num_workers=args.environment.workers))
+        else:
+            self.dl = cycle(data.DataLoader(self.ds, batch_size = train_batch_size, 
+                shuffle=True, pin_memory=True, num_workers=args.environment.workers))
+            self.val_dl = cycle(data.DataLoader(self.val_ds, batch_size = test_batch_size, 
+                shuffle=False, pin_memory=True, num_workers=args.environment.workers))
+
         self.opt = Adam(diffusion_model.parameters(), lr=train_lr)
 
         self.step = 0
@@ -584,6 +610,19 @@ class Trainer(object):
         self.reset_parameters()
         self.logger = logger
 
+        self.checkpoint_io = CheckpointIO(checkpoint_dir=results_folder, allow_mkdir=is_master())
+        if get_world_size() > 1:
+            dist.barrier()
+            
+        self.checkpoint_io.register_modules(
+            model=self.model,
+            ema=self.ema_model,
+            scaler=self.scaler,
+            opt=self.opt,
+        )
+        if is_master():
+            io_util.save_config(args, os.path.join(args.exp_dir, 'config.yaml'))
+
     def reset_parameters(self):
         self.ema_model.load_state_dict(self.model.state_dict())
 
@@ -594,58 +633,100 @@ class Trainer(object):
         self.ema.update_model_average(self.ema_model, self.model)
 
     def save(self, milestone):
-        data = {
-            'step': self.step,
-            'model': self.model.state_dict(),
-            'ema': self.ema_model.state_dict(),
-            'scaler': self.scaler.state_dict()
-        }
-        torch.save(data, str(self.results_folder / f'model-{milestone}.pt'))
+        self.checkpoint_io.save(filename='model-{:08d}.pt'.format(milestone), step=self.step + get_world_size())
+        os.system('rm %s' % str(self.results_folder / 'latest.pt'))
+        cmd = 'ln -s %s %s' % (str(self.results_folder / 'model-{:08d}.pt'.format(milestone)), str(self.results_folder / 'latest.pt'))
+        os.system(cmd)
 
-    def load(self, milestone):
-        data = torch.load(str(self.results_folder / f'model-{milestone}.pt'))
-
-        self.step = data['step']
-        self.model.load_state_dict(data['model'])
-        self.ema_model.load_state_dict(data['ema'])
-        self.scaler.load_state_dict(data['scaler'])
-
+    def load(self, milestone=None, **kwargs):
+        load_dict = self.checkpoint_io.load_file(milestone, **kwargs)
+        self.step = load_dict.get('step', 0)
+        
     def train(self):
+        special_ckpt = self.args.special_ckpt 
+        device = self.device
         valdata = next(self.val_dl)
-        while self.step < self.train_num_steps:
-            for i in range(self.gradient_accumulate_every):
-                data = next(self.dl).cuda()
+        with tqdm(range(self.train_num_steps), disable=not is_master()) as pbar:
+            if is_master():
+                pbar.update(self.step)
+            while self.step < self.train_num_steps:
+                for i in range(self.gradient_accumulate_every):
+                    data = next(self.dl)
 
-                with autocast(enabled = self.amp):
-                    loss = self.model(data)
-                    self.scaler.scale(loss / self.gradient_accumulate_every).backward()
+                    origin_sdf = data['nSdf']
+                    with autocast(enabled = self.amp):
+                        loss = self.model(data['nSdf'].to(device), hA=data['hA'].to(device))
+                        self.scaler.scale(loss / self.gradient_accumulate_every).backward()
 
-                print(f'{self.step}: {loss.item()}')
+                    self.logger.add('loss', 'total', loss, self.step)
 
-            self.scaler.step(self.opt)
-            self.scaler.update()
-            self.opt.zero_grad()
+                if is_master():
+                    pbar.set_postfix(loss_total=loss.item())
 
-            if self.step % self.update_ema_every == 0:
-                self.step_ema()
+                self.scaler.step(self.opt)
+                self.scaler.update()
+                self.opt.zero_grad()
 
-            if self.step != 0 and self.step % self.save_and_sample_every == 0:
-                milestone = self.step // self.save_and_sample_every
+                if self.step % self.update_ema_every == 0:
+                    self.step_ema()
 
-                all_points_list = self.ema_model.sample(valdata)
-                origin_sdf = valdata['nSdf']
-                meshes = mesh_utils.batch_grid_to_meshes(origin_sdf, len(origin_sdf))
-                image_list = mesh_utils.render_geom_rot(meshes, scale_geom=True)
-                self.logger.add_gifs(image_list, 'initial', self.step)
+                if self.step != 0 and self.step % self.args.n_eval_freq == 0 or self.step in special_ckpt:
+                    origin_sdf = valdata['nSdf'].to(device)
+                    nTh = get_nTh(hA=valdata['hA'].to(device), hand_wrapper=self.hand_wrapper)
+                    nHand, _ = self.hand_wrapper(nTh, valdata['hA'].to(device))
 
-                # marching cubes
-                meshes = mesh_utils.batch_grid_to_meshes(all_points_list, len(all_points_list))
-                image_list = mesh_utils.render_geom_rot(meshes, scale_geom=True)
-                self.logger.add_gifs(image_list, 'denoise', self.step)
+                    self.vis_sdf(origin_sdf, 'initial', nHand)
+                    noised_inp = self.ema_model.q_sample(origin_sdf, 
+                        t=torch.stack([torch.tensor(self.start_time - 1, device=device)] * self.test_bs))
+                    self.vis_sdf(noised_inp, 'initial_start', nHand)
+                    noised_inp = self.ema_model.q_sample(origin_sdf, 
+                        t=torch.stack([torch.tensor(self.start_time // 10, device=device)] * self.test_bs))
+                    self.vis_sdf(noised_inp, 'initial_start10perc', nHand)
 
-                self.save(milestone)
+                    all_points_list = self.ema_model.sample(
+                        self.test_bs, img=valdata['nSdf'].to(device), hA=valdata['hA'].to(device), 
+                        t=self.start_time - 1)
+                    self.vis_sdf(all_points_list, 'denoise_start', nHand)
 
-            self.step += 1
+                    all_points_list = self.ema_model.sample(
+                        self.test_bs, img=valdata['nSdf'].to(device), hA=valdata['hA'].to(device), 
+                        t=self.start_time // 10 - 1)
+                    self.vis_sdf(all_points_list, 'denoise_start10perc', nHand)
 
-        print('training completed')
+
+                    all_points_list = self.ema_model.sample(
+                        self.test_bs, hA=valdata['hA'].to(device), t=self.start_time - 1)
+                    self.vis_sdf(all_points_list, 'geenrate', nHand)
+
+                if is_master():
+                    if self.step != 0 and self.step % self.save_and_sample_every == 0 or self.step in special_ckpt:
+                    # if self.step % self.save_and_sample_every == 0:
+                        milestone = self.step 
+                        self.save(milestone)
+                self.step += get_world_size()
+                if is_master():
+                    pbar.update(get_world_size())
+
+            print('training completed')
+
+    def vis_sdf(self, sdf, name, nHand=None):
+        meshes = mesh_utils.batch_grid_to_meshes(sdf.squeeze(1), len(sdf))
+        if nHand is not None:
+            meshes = mesh_utils.join_scene([nHand, meshes])
+        image_list = mesh_utils.render_geom_rot(meshes, scale_geom=True)
+        self.logger.add_gifs(image_list, 'surface/%s' % name, self.step)
+        image_list = self.view_vol_as_gifs(sdf)
+        self.logger.add_gifs(image_list, 'slice/%s' % name, self.step)
+
+
+    def view_vol_as_gifs(self, sdfs):
+        """z
+        sdfs: (N, 1, D, H, W)
+        """
+        N = len(sdfs)
+        D = sdfs[0].shape[1]
+        image_list = []
+        for d in range(D):
+            image_list.append(sdfs[:, :, d])
+        return image_list
 

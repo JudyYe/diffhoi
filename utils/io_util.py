@@ -1,8 +1,6 @@
+import importlib
 import logging
 from typing import Union
-import re
-
-import omegaconf
 from omegaconf import DictConfig, OmegaConf
 from utils.print_fn import log
 
@@ -22,23 +20,32 @@ import torch
 import skimage
 from skimage.transform import rescale
 
+
+
+def instantiate_from_config(config):
+    if not "target" in config:
+        if config == '__is_first_stage__':
+            return None
+        elif config == "__is_unconditional__":
+            return None
+        raise KeyError("Expected key `target` to instantiate.")
+    return get_obj_from_str(config["target"])(**config.get("params", dict()))
+
+
+def get_obj_from_str(string, reload=False):
+    module, cls = string.rsplit(".", 1)
+    if reload:
+        module_imp = importlib.import_module(module)
+        importlib.reload(module_imp)
+    return getattr(importlib.import_module(module, package=None), cls)
+
+
 def glob_imgs(path):
     imgs = []
     for ext in ['*.png', '*.jpg', '*.JPEG', '*.JPG']:
         imgs.extend(glob.glob(os.path.join(path, ext)))
     return imgs
 
-# def find_files(dir, exts=['*.png', '*.jpg']):
-#     if os.path.isdir(dir):
-#         # types should be ['*.png', '*.jpg']
-#         files_grabbed = []
-#         for ext in exts:
-#             files_grabbed.extend(glob.glob(os.path.join(dir, ext)))
-#         if len(files_grabbed) > 0:
-#             files_grabbed = sorted(files_grabbed)
-#         return files_grabbed
-#     else:
-#         return []
 
 def load_rgb(path, downscale=1):
     img = imageio.imread(path)

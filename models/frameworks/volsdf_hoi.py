@@ -19,6 +19,7 @@ from pytorch3d.renderer import PerspectiveCameras
 import pytorch3d.transforms.rotation_conversions as rot_cvt
 from pytorch3d.renderer.blending import BlendParams
 from pytorch3d.loss.chamfer import knn_points
+from ddpm.main import load_diffusion_model
 
 from models.articulation import get_artnet
 from models.cameras.gt import PoseNet
@@ -28,7 +29,7 @@ from utils.dist_util import is_master
 from utils.logger import Logger
 
 from models.blending import hard_rgb_blend, softmax_rgb_blend, volumetric_rgb_blend
-from jutils import geom_utils, mesh_utils
+from jutils import geom_utils, mesh_utils, model_utils
 
 
 
@@ -164,6 +165,12 @@ class Trainer(nn.Module):
         self.posenet: nn.Module = None
         self.focalnet: nn.Module = None
         self.hand_wrapper = hand_utils.ManopthWrapper()
+
+        if args.training.w_diffuse > 0:
+            self.diffusion = load_diffusion_model(args.training.diffuse_ckpt)
+            self.diffusion.eval()
+            model_utils.freeze(self.diffusion)
+
 
     def init_hand_texture(self, dataloader):
         color_list = []
@@ -524,6 +531,22 @@ class Trainer(nn.Module):
                  loss = torch.sum(torch.min(jContact, dim=1)[0].clamp(min=0))
                  losses['contact_%d' % i] = args.training.w_contact * loss
                  losses['contact'] += losses['contact_%d' % i]
+
+        if args.training.w_diffuse > 0:
+            bs = args.data.batch_size
+            reso = 32
+            jGrid = mesh_utils.make_grid(reso, device=device, order='xyz')            
+            jSdf = self.model.implicit_surface(
+                jGrid.reshape(1, -1, 3)).reshape(
+                    1, 1, reso, reso, reso).repeat(bs, 1, 1, 1, 1)
+
+            # t = np.random.randint(0, self.diffusion.start_time)
+            t = torch.randint(0, self.diffusion.start_time, (bs,), device=device).long()
+            context = self.diffusion.get_context(hA=hA)
+
+            jSdf_recon = self.diffusion.p_sample(jSdf, t, context)
+            loss = F.mse_loss(jSdf_recon, jSdf)
+            losses['diffusion'] = args.training.w_diffuse * loss
         
         # temporal smoothness loss
         # jJoints, hJoints? 
@@ -739,7 +762,6 @@ def get_model(args, data_size=-1, **kwargs):
     render_kwargs_test['calc_normal'] = True
 
     devices = kwargs.get('device', args.device_ids)
-
     trainer = Trainer(model, devices, batched=render_kwargs_train['batched'], args=args)
     
     return model, trainer, render_kwargs_train, render_kwargs_test, trainer.renderer, volume_render_flow
