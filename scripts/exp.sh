@@ -1,3 +1,13 @@
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=dev/\${cf_prob} \
+    unet_config=film_embed \
+    environment.multiprocessing_distributed=True \
+    cf_prob=0.5 logging.mode=none
+
+
+
+
 python -m ddpm.test  -m  \
     T=1,100,200,500,700 idx=0,1,2,3,4,5,6,7 \
     common_dir=/glusterfs/yufeiy2/vhoi/output_ddpm/art/ \

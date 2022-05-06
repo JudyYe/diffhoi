@@ -109,6 +109,7 @@ class GaussianDiffusion(nn.Module):
         image_size,
         mode = 'attention', 
         art_para = None,
+        cond_drop_prob=0.1,
         channels = 3,
         timesteps = 1000,
         starttime = 1000,
@@ -119,6 +120,7 @@ class GaussianDiffusion(nn.Module):
         self.image_size = image_size
         self.denoise_fn = denoise_fn
         self.mode = mode
+        self.cond_drop_prob = cond_drop_prob
 
         if mode == 'art':
             self.art_embed = ArticulationEmb(**art_para)
@@ -182,9 +184,15 @@ class GaussianDiffusion(nn.Module):
         posterior_log_variance_clipped = extract(self.posterior_log_variance_clipped, t, x_t.shape)
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
-    def p_mean_variance(self, x, t, clip_denoised: bool, condition_kwargs):
+    def p_mean_variance(self, x, t, clip_denoised: bool, condition_kwargs, cond_scale=1):
         # ??? conditionall??? 
-        x_recon = self.predict_start_from_noise(x, t=t, noise=self.denoise_fn(x, t, **condition_kwargs))
+        # x_recon = self.predict_start_from_noise(x, t=t, noise=self.denoise_fn(x, t, **condition_kwargs))
+        x_recon = self.predict_start_from_noise(
+            x, 
+            t=t, 
+            noise=self.denoise_fn.forward_with_cond_scale(
+                x, t, **condition_kwargs, cond_scale=cond_scale),
+        )
 
         if clip_denoised:
             x_recon.clamp_(-1., 1.)
@@ -193,16 +201,17 @@ class GaussianDiffusion(nn.Module):
         return model_mean, posterior_variance, posterior_log_variance
 
     @torch.no_grad()
-    def p_sample(self, x, t, condition_kwargs, clip_denoised=True, repeat_noise=False):
+    def p_sample(self, x, t, condition_kwargs, clip_denoised=True, repeat_noise=False, cond_scale=1):
         b, *_, device = *x.shape, x.device
-        model_mean, _, model_log_variance = self.p_mean_variance(x=x, t=t, condition_kwargs=condition_kwargs, clip_denoised=clip_denoised)
+        model_mean, _, model_log_variance = self.p_mean_variance(
+            x=x, t=t, condition_kwargs=condition_kwargs, clip_denoised=clip_denoised, cond_scale=cond_scale)
         noise = noise_like(x.shape, device, repeat_noise)
         # no noise when t == 0
         nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
         return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
 
     @torch.no_grad()
-    def p_sample_loop(self, shape, img=None, t=None, condition_kwargs=None, q_sample=True, ):
+    def p_sample_loop(self, shape, img=None, t=None, condition_kwargs=None, q_sample=True, cond_scale=1):
         device = self.betas.device
         t = default(t, self.num_timesteps - 1)
         b = shape[0]
@@ -219,11 +228,12 @@ class GaussianDiffusion(nn.Module):
             assert b == len(img)
 
         for i in tqdm(reversed(range(0, t + 1)), desc='sampling loop time step', total=self.num_timesteps):
-            img = self.p_sample(img, torch.full((b,), i, device=device, dtype=torch.long), condition_kwargs)
+            img = self.p_sample(img, torch.full((b,), i, device=device, dtype=torch.long), 
+                condition_kwargs, cond_scale=cond_scale)
         return img
 
     @torch.no_grad()
-    def sample(self, batch_size = 16, **kwargs):
+    def sample(self, batch_size = 16, cond_scale=1, **kwargs):
         image_size = self.image_size
         channels = self.channels
 
@@ -233,6 +243,7 @@ class GaussianDiffusion(nn.Module):
             shape=(batch_size, channels, image_size, image_size, image_size), 
             t=kwargs.get('t', None), 
             condition_kwargs=condition_kwargs,
+            cond_scale=cond_scale,
             img=kwargs.get('img', None), 
             q_sample=kwargs.get('q_sample', True))
 
@@ -262,11 +273,11 @@ class GaussianDiffusion(nn.Module):
             extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
         )
 
-    def p_losses(self, x_start, t, noise = None, condition_kwargs={}):
+    def p_losses(self, x_start, t, noise = None, condition_kwargs={}, **kwargs):
         noise = default(noise, lambda: torch.randn_like(x_start))
 
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        x_recon = self.denoise_fn(x_noisy, t, **condition_kwargs)
+        x_recon = self.denoise_fn(x_noisy, t, **condition_kwargs, null_cond_prob=self.cond_drop_prob)
 
         if self.loss_type == 'l1':
             loss = (noise - x_recon).abs().mean()
@@ -292,7 +303,7 @@ class GaussianDiffusion(nn.Module):
                 hA.reshape(b, 15, 3), homo=False).reshape(b, 1, 15 * 9)
         return context_kwargs
 
-    def forward(self, x, *args, **kwargs):
+    def forward(self, x, cond_scale = 1., *args, **kwargs):
         """
         x: SDF in shape of (N, 1, D, H, W)
         """
@@ -300,7 +311,7 @@ class GaussianDiffusion(nn.Module):
         assert d ==img_size and h == img_size and w == img_size, f'height and width of image must be {img_size}'
         t = torch.randint(0, self.start_time, (b,), device=device).long()
         condition_kwargs = self.get_context(**kwargs)
-        return self.p_losses(x, t, condition_kwargs=condition_kwargs)
+        return self.p_losses(x, t, condition_kwargs=condition_kwargs, **kwargs)
 
 
 # trainer class
@@ -407,10 +418,21 @@ class Trainer(object):
         load_dict = self.checkpoint_io.load_file(milestone, **kwargs)
         self.step = load_dict.get('step', 0)
         
+    def _change_hand_fix_shape(self, ):
+        onedata = next(self.val_dl)
+        bs = onedata['nSdf'].shape[0]
+        first_shape = onedata['nSdf'][-2:-1].expand(*onedata['nSdf'].shape)
+        onedata['nSdf'] = first_shape
+        if hasattr(self.val_ds, 'special_hA'):
+            b = len(self.val_ds.special_hA)
+            onedata['hA'][:min(b, bs)] = self.val_ds.special_hA[:min(b, bs)]
+
     def train(self):
         special_ckpt = self.args.special_ckpt 
         device = self.device
         valdata = next(self.val_dl)
+        onedata = self._change_hand_fix_shape()
+        
         with tqdm(range(self.train_num_steps), disable=not is_master()) as pbar:
             if is_master():
                 pbar.update(self.step)
@@ -436,32 +458,77 @@ class Trainer(object):
                     self.step_ema()
 
                 if self.step != 0 and self.step % self.args.n_eval_freq == 0 or self.step in special_ckpt:
+                    # vary hand 
+                    origin_sdf = onedata['nSdf'].to(device)
+                    nTh = get_nTh(hA=onedata['hA'].to(device), hand_wrapper=self.hand_wrapper)
+                    nHand, _ = self.hand_wrapper(nTh, onedata['hA'].to(device))
+                    
+                    self.vis_sdf(origin_sdf, '0perc_hand/initial', nHand)
+                    noised_inp = self.ema_model.q_sample(origin_sdf, 
+                        t=torch.stack([torch.tensor(self.start_time // 10, device=device)] * self.test_bs))
+                    self.vis_sdf(noised_inp, '10perc_hand/initial', nHand)
+                    noised_inp = self.ema_model.q_sample(origin_sdf, 
+                        t=torch.stack([torch.tensor(self.start_time // 2, device=device)] * self.test_bs))
+                    self.vis_sdf(noised_inp, '50perc_hand/initial', nHand)
+
+                    all_points_list = self.ema_model.sample(
+                        self.test_bs, img=onedata['nSdf'].to(device), hA=onedata['hA'].to(device), 
+                        t=self.start_time // 10 - 1)
+                    self.vis_sdf(all_points_list, '10perc/denoise', nHand)
+
+                    all_points_list = self.ema_model.sample(
+                        self.test_bs, img=onedata['nSdf'].to(device), hA=onedata['hA'].to(device), 
+                        t=self.start_time // 2 - 1)
+                    self.vis_sdf(all_points_list, '50perc/denoise', nHand)
+
+                    all_points_list = self.ema_model.sample(
+                        self.test_bs, img=onedata['nSdf'].to(device), hA=onedata['hA'].to(device), 
+                        t=self.start_time // 10 - 1, cond_scale=2)
+                    self.vis_sdf(all_points_list, '10perc/denoise_s2', nHand)
+
+                    all_points_list = self.ema_model.sample(
+                        self.test_bs, img=onedata['nSdf'].to(device), hA=onedata['hA'].to(device), 
+                        t=self.start_time // 2 - 1, cond_scale=2)
+                    self.vis_sdf(all_points_list, '50perc/denoise_s2', nHand)
+
+
+                    # original data... 
                     origin_sdf = valdata['nSdf'].to(device)
                     nTh = get_nTh(hA=valdata['hA'].to(device), hand_wrapper=self.hand_wrapper)
                     nHand, _ = self.hand_wrapper(nTh, valdata['hA'].to(device))
 
-                    self.vis_sdf(origin_sdf, 'initial', nHand)
+                    self.vis_sdf(origin_sdf, '0perc/initial', nHand)
                     noised_inp = self.ema_model.q_sample(origin_sdf, 
                         t=torch.stack([torch.tensor(self.start_time - 1, device=device)] * self.test_bs))
-                    self.vis_sdf(noised_inp, 'initial_start', nHand)
+                    self.vis_sdf(noised_inp, '100perc/initial', nHand)
                     noised_inp = self.ema_model.q_sample(origin_sdf, 
                         t=torch.stack([torch.tensor(self.start_time // 10, device=device)] * self.test_bs))
-                    self.vis_sdf(noised_inp, 'initial_start10perc', nHand)
-
-                    all_points_list = self.ema_model.sample(
-                        self.test_bs, img=valdata['nSdf'].to(device), hA=valdata['hA'].to(device), 
-                        t=self.start_time - 1)
-                    self.vis_sdf(all_points_list, 'denoise_start', nHand)
+                    self.vis_sdf(noised_inp, '10perc/initial', nHand)
+                    noised_inp = self.ema_model.q_sample(origin_sdf, 
+                        t=torch.stack([torch.tensor(self.start_time // 2, device=device)] * self.test_bs))
+                    self.vis_sdf(noised_inp, '50perc/initial', nHand)
 
                     all_points_list = self.ema_model.sample(
                         self.test_bs, img=valdata['nSdf'].to(device), hA=valdata['hA'].to(device), 
                         t=self.start_time // 10 - 1)
-                    self.vis_sdf(all_points_list, 'denoise_start10perc', nHand)
-
+                    self.vis_sdf(all_points_list, '10perc/denoise', nHand)
 
                     all_points_list = self.ema_model.sample(
-                        self.test_bs, hA=valdata['hA'].to(device), t=self.start_time - 1)
-                    self.vis_sdf(all_points_list, 'geenrate', nHand)
+                        self.test_bs, img=valdata['nSdf'].to(device), hA=valdata['hA'].to(device), 
+                        t=self.start_time // 2 - 1)
+                    self.vis_sdf(all_points_list, '50perc/denoise', nHand)
+
+                    all_points_list = self.ema_model.sample(
+                        self.test_bs, img=valdata['nSdf'].to(device), hA=valdata['hA'].to(device), 
+                        t=self.start_time - 1)
+                    self.vis_sdf(all_points_list, '100perc/denoise', nHand)
+
+                    # vary hand!!
+                    
+
+                    # all_points_list = self.ema_model.sample(
+                    #     self.test_bs, hA=valdata['hA'].to(device), t=self.start_time - 1)
+                    # self.vis_sdf(all_points_list, 'geenrate', nHand)
 
                 if is_master():
                     if self.step != 0 and self.step % self.save_and_sample_every == 0 or self.step in special_ckpt:
@@ -479,9 +546,9 @@ class Trainer(object):
         if nHand is not None:
             meshes = mesh_utils.join_scene([nHand, meshes])
         image_list = mesh_utils.render_geom_rot(meshes, scale_geom=True)
-        self.logger.add_gifs(image_list, 'surface/%s' % name, self.step)
+        self.logger.add_gifs(image_list, 'surface_%s' % name, self.step)
         image_list = self.view_vol_as_gifs(sdf)
-        self.logger.add_gifs(image_list, 'slice/%s' % name, self.step)
+        self.logger.add_gifs(image_list, 'slice_%s' % name, self.step)
 
 
     def view_vol_as_gifs(self, sdfs):

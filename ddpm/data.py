@@ -1,5 +1,6 @@
 import numpy as np
 import os.path as osp
+import torch
 from torch.utils.data import Dataset
 
 
@@ -8,7 +9,11 @@ class SdfData(Dataset):
         super().__init__()
         self.sdf_dir = osp.join(data_dir, 'grid_sdf', '{}.npz')
         self.index_list = [line.strip() for line in open(osp.join(data_dir, '%s.txt' % split))]
-    
+
+        if osp.exists(osp.join(data_dir, 'center20.npy')):
+            special_hA = np.load(osp.join(data_dir, 'center20.npy'))[:4]
+            self.special_hA = torch.FloatTensor(special_hA)
+
     def __len__(self, ):
         return len(self.index_list)
 

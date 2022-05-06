@@ -262,11 +262,9 @@ def save_config(datadict: Union[ForceKeyErrorDict, DictConfig], path: str):
 
     if isinstance(datadict, DictConfig):
         logging.warning('to yaml ')
-        print(OmegaConf.to_yaml(datadict), datadict.logging.ckpt_dir)
-        OmegaConf.to_container(datadict)
+        datadict = OmegaConf.to_container(datadict, resolve=True)
         with open(path, 'w') as outfile:
             outfile.write('%s' %  OmegaConf.to_yaml(datadict))
-        assert False
     else:
         logging.warning('to dict ')
         datadict.training.pop('exp_dir')

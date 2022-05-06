@@ -29,6 +29,15 @@ from einops import rearrange, repeat
 
 
 
+def prob_mask_like(shape, prob, device):
+    if prob == 1:
+        return torch.ones(shape, device = device, dtype = torch.bool)
+    elif prob == 0:
+        return torch.zeros(shape, device = device, dtype = torch.bool)
+    else:
+        return torch.zeros(shape, device = device).float().uniform_(0, 1) < prob
+
+
 def exists(val):
     return val is not None
 
@@ -785,9 +794,14 @@ class UNetModel(nn.Module):
 
         if self.num_classes is not None:
             self.label_emb = nn.Embedding(num_classes, time_embed_dim)
+            self.null_cond_emb_cls = nn.Parameter(torch.randn(1, num_classes))
 
         if self.continuous_emb is not None:
             self.context_emb = nn.Linear(continuous_emb, time_embed_dim)
+            self.null_cond_emb_cont = nn.Parameter(torch.randn(1, continuous_emb))
+
+        if self.in_channels > 1:
+            self.null_cond_emb_x_cat = nn.Parameter(torch.randn(1, self.in_channels - 1, image_size, image_size, image_size))
 
         self.input_blocks = nn.ModuleList(
             [
@@ -983,12 +997,27 @@ class UNetModel(nn.Module):
         self.middle_block.apply(convert_module_to_f32)
         self.output_blocks.apply(convert_module_to_f32)
 
+    def forward_with_cond_scale(
+        self,
+        *args,
+        cond_scale = 2.,
+        **kwargs
+    ):
+        logits = self.forward(*args, null_cond_prob = 0., **kwargs)
+        if cond_scale == 1:
+            return logits
+
+        print('forward w conditional scale')
+        null_logits = self.forward(*args, null_cond_prob = 1., **kwargs)
+        return null_logits + (logits - null_logits) * cond_scale
+
     def forward(self, x, 
                 timesteps=None, 
                 context=None, # for cross attention
                 y=None,       # discrete 1D film-like embedding
                 z=None,       # continuous 1D film-like embedding
                 cat_x=None,   # additonal channels to x
+                null_cond_prob = 0.,
                 **kwargs):
         """
         Apply the model to an input batch.
@@ -1005,15 +1034,26 @@ class UNetModel(nn.Module):
         t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
         emb = self.time_embed(t_emb)
 
+        # classifier free guidance
+        batch, device = x.shape[0], x.device
+        mask = prob_mask_like((batch,), null_cond_prob, device = device)
+
         if self.num_classes is not None:
             assert y.shape == (x.shape[0],)
+            # classifier free guidance
+            y = torch.where(rearrange(mask, 'b -> b 1'), self.null_cond_emb_cls, y)
+
             emb = emb + self.label_emb(y)
 
         if self.continuous_emb is not None:
             assert z.shape[0] == x.shape[0], '%d %d' % (z.shape[0], x.shape[0])
+            # classifier free guidance
+            z = torch.where(rearrange(mask, 'b -> b 1'), self.null_cond_emb_cont, z)
             emb = emb + self.context_emb(z)
         
         if cat_x is not None:
+            # classifier free guidance
+            cat_x = torch.where(rearrange(mask, 'b -> b 1 1 1 1'), self.null_cond_emb_x_cat, cat_x)
             x = torch.cat([x, cat_x], dim=1)
 
         h = x.type(self.dtype)
