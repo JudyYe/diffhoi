@@ -723,6 +723,7 @@ class UNetModel(nn.Module):
         channel_mult=(1, 2, 4, 8),
         conv_resample=True,
         dims=2,
+        continuous_emb=None,
         num_classes=None,
         use_checkpoint=False,
         use_fp16=False,
@@ -767,6 +768,7 @@ class UNetModel(nn.Module):
         self.channel_mult = channel_mult
         self.conv_resample = conv_resample
         self.num_classes = num_classes
+        self.continuous_emb = continuous_emb
         self.use_checkpoint = use_checkpoint
         self.dtype = th.float16 if use_fp16 else th.float32
         self.num_heads = num_heads
@@ -783,6 +785,9 @@ class UNetModel(nn.Module):
 
         if self.num_classes is not None:
             self.label_emb = nn.Embedding(num_classes, time_embed_dim)
+
+        if self.continuous_emb is not None:
+            self.context_emb = nn.Linear(continuous_emb, time_embed_dim)
 
         self.input_blocks = nn.ModuleList(
             [
@@ -978,7 +983,13 @@ class UNetModel(nn.Module):
         self.middle_block.apply(convert_module_to_f32)
         self.output_blocks.apply(convert_module_to_f32)
 
-    def forward(self, x, timesteps=None, context=None, y=None,**kwargs):
+    def forward(self, x, 
+                timesteps=None, 
+                context=None, # for cross attention
+                y=None,       # discrete 1D film-like embedding
+                z=None,       # continuous 1D film-like embedding
+                cat_x=None,   # additonal channels to x
+                **kwargs):
         """
         Apply the model to an input batch.
         :param x: an [N x C x ...] Tensor of inputs.
@@ -997,6 +1008,13 @@ class UNetModel(nn.Module):
         if self.num_classes is not None:
             assert y.shape == (x.shape[0],)
             emb = emb + self.label_emb(y)
+
+        if self.continuous_emb is not None:
+            assert z.shape[0] == x.shape[0], '%d %d' % (z.shape[0], x.shape[0])
+            emb = emb + self.context_emb(z)
+        
+        if cat_x is not None:
+            x = torch.cat([x, cat_x], dim=1)
 
         h = x.type(self.dtype)
         for i, module in enumerate(self.input_blocks):

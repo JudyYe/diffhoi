@@ -1,3 +1,52 @@
+python -m ddpm.test  -m  \
+    T=1,100,200,500,700 idx=0,1,2,3,4,5,6,7 \
+    common_dir=/glusterfs/yufeiy2/vhoi/output_ddpm/art/ \
+    data_dir=/glusterfs/yufeiy2/ihoi ## TODO
+    ckpt=art/ckpt/model-00025000.pt,attention/ckpt/model-00025000.pt,film/ckpt/model-00025000.pt
+
+
+
+python -m ddpm.test  -m  \
+    T=1,100,200,500,700 idx=0,1,2,3,4,5,6,7 \
+    common_dir=/glusterfs/yufeiy2/vhoi/output_ddpm/art/ \
+    q_sample=True,False \
+    ckpt=art/ckpt/model-00025000.pt,attention/ckpt/model-00025000.pt,film/ckpt/model-00025000.pt
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm \
+    expname=dev/tmp3 \
+    unet_config=ddim_cond \
+    environment.multiprocessing_distributed=True    
+
+--
+python -m ddpm.test \
+    --ckpt /glusterfs/yufeiy2/vhoi/output_ddpm/art/art/ckpt/model-00020000.pt \
+    --T 300 \
+    --data_dir /glusterfs/yufeiy2/vhoi/mow/  \
+    --q_sample 
+
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm \
+    expname=art/\${unet_config.mode} \
+    unet_config=ddim_cond \
+    environment.multiprocessing_distributed=True
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm \
+    expname=art/\${unet_config.mode} \
+    unet_config=film_embed \
+    environment.multiprocessing_distributed=True
+
+
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm \
+    expname=art/\${unet_config.mode} \
+    unet_config=art_embed \
+    environment.multiprocessing_distributed=True
+
+
+
 python -m ddpm.test \
     --ckpt /glusterfs/yufeiy2/vhoi/output_ddpm/mow/t1000_1000_condTrue/ckpt/model-00017500.pt \
     --T 300 \

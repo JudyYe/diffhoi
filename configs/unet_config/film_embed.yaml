@@ -1,5 +1,6 @@
 target: ddpm.openai.UNetModel
-mode: attention
+mode: film
+art_para: null
 params:
   image_size: 32
   in_channels: 1
@@ -16,6 +17,6 @@ params:
   - 4
   num_head_channels: 32
   dims: 3
-  context_dim: 135
-  continuous_emb: null
-  use_spatial_transformer: True
+  context_dim: null
+  continuous_emb: 135 # 15 * 3 *3
+  use_spatial_transformer: False

@@ -9,6 +9,7 @@ from time import time
 
 from tqdm import tqdm
 from ddpm.mow import load_mow
+from ddpm.ycba import load_yucba
 
 from utils.hand_utils import ManopthWrapper, get_nTh
 os.environ['PYOPENGL_PLATFORM'] = 'egl'
@@ -158,11 +159,6 @@ def run_one(index, hand_wrapper, hMesh, hA):
         nHoi = mesh_utils.join_scene([nObj, nHand])
         vis_mesh(nHoi, osp.join(vis_dir, index) + '_mesh')
 
-        image_dir = osp.join(data_dir, 'images/{0}.jpg')
-        image = imageio.imread(image_dir.format(index))
-        imageio.imwrite(osp.join(vis_dir, index) + '.jpg', image)
-
-
     # (D, H, W), (D, H, W, 3) (45)
     np.savez_compressed(out_file, 
         nSdf=nSdf, nPoints=nPoints, hA=hA)
@@ -197,6 +193,8 @@ def main(split='test'):
             hMesh, hA = load_obman(index, hand_wrapper, split)
         elif args.data == 'mow':
             hMesh, hA = load_mow(annos[idx], hand_wrapper, data_dir, device)
+        elif args.data == 'ycba':
+            hMesh, hA = load_yucba(index, hand_wrapper, data_dir, device)
         # nSdf, nPoints, hA, nHand, nObj = preprocess_obman(index, hand_wrapper, split,)
 
         run_one(index, hand_wrapper, hMesh, hA)
@@ -235,7 +233,7 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', default='0')
     parser.add_argument('--split', default='test')
     parser.add_argument('--num', default=-1, type=int)
-    parser.add_argument('--data', default='mow', type=str)
+    parser.add_argument('--data', default='ycba', type=str)
     args = parser.parse_args()
     if args.data == 'obman':
         save_dir = '/glusterfs/yufeiy2/vhoi/obman/grid_sdf/'
@@ -247,6 +245,10 @@ if __name__ == '__main__':
         data_dir = '/glusterfs/yufeiy2/download_data/MOW/mow/' 
         with open(data_dir + '/poses.json', 'r') as f:
             annos = json.load(f)
+    elif args.data == 'ycba':
+        save_dir = '/glusterfs/yufeiy2/vhoi/ycba/grid_sdf/'
+        data_dir = '/glusterfs/yufeiy2/download_data/YCBAffordance/'
+
 
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     # vis()

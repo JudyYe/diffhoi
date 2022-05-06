@@ -18,6 +18,7 @@ resume_dir:         # single GPU / DP / DDP; run on all available GPUs;
 device_ids: -1        # single GPU / DP / DDP; run on all available GPUs; 
 
 
+
 data_dir: /glusterfs/yufeiy2/fair/data/obman/
 
 point_reso: 32
@@ -27,7 +28,7 @@ time:
   total: 1000
   start: 1000
 
-n_save_freq: 2500
+n_save_freq: 5000
 n_eval_freq: 2500
 special_ckpt: [10, 1000, 2000, 3000, 5000, 7500, 10000]
 

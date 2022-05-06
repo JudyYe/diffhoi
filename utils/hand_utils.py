@@ -16,7 +16,34 @@ from pytorch3d.io import load_obj
 
 from manopth.manolayer import ManoLayer
 from manopth.tensutils import th_with_zeros, th_posemap_axisang
-from jutils import geom_utils
+from jutils import geom_utils, mesh_utils
+
+
+
+def get_jsTn(hand_wrapper, hA):
+    hTjs = hand_wrapper.pose_to_transform(hA, False)  # (N, J, 4, 4)
+    N, num_j, _, _ = hTjs.size()
+    jsTh = geom_utils.inverse_rt(mat=hTjs, return_mat=True)
+    hTn = get_nTh(hA=hA, hand_wrapper=hand_wrapper, inverse=True)
+    hTx_exp = hTn.unsqueeze(1).repeat(1, num_j, 1, 1)
+    jsTx = jsTh @ hTx_exp        
+    return jsTx
+
+
+def transform_nPoints_to_js(hand_wrapper, hA, nPoints):
+    """
+    embed points to each joints
+    nPoints: (N, P, 3? )
+    jsPoints: (N, P, J, 3)
+    """
+    N, P, _ = nPoints.size()
+    jsTn = get_jsTn(hand_wrapper, hA)
+    
+    num_j = jsTn.size(1)
+    nPoints_exp = nPoints.view(N, 1, P, 3).expand(N, num_j, P, 3).reshape(N * num_j, P, 3)
+    jsPoints = mesh_utils.apply_transform(nPoints_exp, jsTn.reshape(N*num_j, 4, 4)).view(N, num_j, P, 3)
+    jsPoints = jsPoints.transpose(1, 2).reshape(N, P, num_j, 3) # N, P, J, 3
+    return jsPoints  # (N, P, J*3)
 
 
 def get_nTh(r=0.2, center=None, hA=None, hand_wrapper=None, inverse=False):
@@ -187,14 +214,16 @@ class ManopthWrapper(nn.Module):
         coeff = pose.mm(components.transpose(0, 1)) * scale.unsqueeze(0)
         return coeff
 
-    def pca_to_pose(self, pca):
+    def pca_to_pose(self, pca, add_mean=True):
         """
         :param pca: (N, Dpca)
         :return: articulated pose: (N, 45)
         """
         # Remove global rot coeffs
         ncomps = pca.size(-1)
-        theta = pca.mm(self.th_selected_comps[:ncomps]) + self.hand_mean
+        theta = pca.mm(self.th_selected_comps[:ncomps]) 
+        if add_mean:
+            theta += self.hand_mean
         return theta
 
     def cTh_transform(self, hJoints: torch.Tensor, cTh: torch.Tensor) -> Transform3d:
