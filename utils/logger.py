@@ -156,9 +156,10 @@ class Logger(object):
 
         # imgs = imgs / 2 + 0.5
         imgs = torchvision.utils.make_grid(imgs)
-        torchvision.utils.save_image(imgs.clone(), outfile, nrow=8)
         if is_master() and self.wandb:
             wandb.log({class_name: wandb.Image(imgs)}, step=it)
+        else:
+            torchvision.utils.save_image(imgs.clone(), outfile, nrow=8)
 
         if self.monitoring == 'tensorboard':
             self.tb.add_image(class_name, imgs, global_step=it)

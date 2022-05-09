@@ -5,7 +5,7 @@ defaults:
   - unet_config: ddim_cond
 
 worker: 'ddpm.main'
-output: "/glusterfs/yufeiy2/vhoi/output_ddpm/"
+output: "/scratch/yufeiy2/vhoi/output_ddpm/"
 exp_dir: ${output}/${expname}
 expname: dev/tmp
 
@@ -33,7 +33,7 @@ time:
 
 n_save_freq: 5000
 n_eval_freq: 2500
-special_ckpt: [1000, 2000, ]
+special_ckpt: [10, 1000, 2000, ]
 
 training:
   ckpt_file: None

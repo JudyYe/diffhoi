@@ -1,9 +1,77 @@
 
+
+
 CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
-    expname=dev/\${cf_prob} \
+    expname=2mode_scratch/\${unet_config.mode}_p\${cf_prob} \
     unet_config=film_embed \
     environment.multiprocessing_distributed=True \
-    cf_prob=0.5 logging.mode=none
+    cf_prob=0.5 \
+
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=2mode_scratch/\${unet_config.mode}_p\${cf_prob} \
+    unet_config=art_embed \
+    environment.multiprocessing_distributed=True \
+    cf_prob=0.5
+
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=2mode_scratch/\${unet_config.mode}_p\${cf_prob} \
+    unet_config=ddim_cond \
+    environment.multiprocessing_distributed=True \
+    cf_prob=0.5
+
+
+-
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=2mode_scratch/\${unet_config.mode}_p\${cf_prob} \
+    unet_config=film_embed \
+    environment.multiprocessing_distributed=True \
+    cf_prob=0.1
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=2mode_scratch/\${unet_config.mode}_p\${cf_prob} \
+    unet_config=art_embed \
+    environment.multiprocessing_distributed=True \
+    cf_prob=0.1
+
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=2mode_scratch/\${unet_config.mode}_p\${cf_prob} \
+    unet_config=ddim_cond \
+    environment.multiprocessing_distributed=True \
+    cf_prob=0.1
+-
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=2mode_scratch/\${unet_config.mode}_p\${cf_prob} \
+    unet_config=film_embed \
+    environment.multiprocessing_distributed=True \
+    cf_prob=0.
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=2mode_scratch/\${unet_config.mode}_p\${cf_prob} \
+    unet_config=art_embed \
+    environment.multiprocessing_distributed=True \
+    cf_prob=0.
+
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=2mode_scratch/\${unet_config.mode}_p\${cf_prob} \
+    unet_config=ddim_cond \
+    environment.multiprocessing_distributed=True \
+    cf_prob=0.
+
+====
+
+
 
 
 
