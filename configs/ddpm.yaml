@@ -20,7 +20,7 @@ device_ids: -1        # single GPU / DP / DDP; run on all available GPUs;
 
 train_split: 'train_full'
 test_split: 'test_full'
-data_dir: /glusterfs/yufeiy2/fair/data/obman/
+data_dir: /scratch/yufeiy2/vhoi/obman/ 
 
 point_reso: 32
 batch_size: 16

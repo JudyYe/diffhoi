@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 import os.path as osp
 import torch
@@ -13,6 +14,8 @@ class SdfData(Dataset):
         if osp.exists(osp.join(data_dir, 'center20.npy')):
             special_hA = np.load(osp.join(data_dir, 'center20.npy'))[:4]
             self.special_hA = torch.FloatTensor(special_hA)
+        else:
+            logging.warn('no %s/center20.npy' % data_dir)
 
     def __len__(self, ):
         return len(self.index_list)

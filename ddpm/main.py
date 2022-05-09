@@ -33,8 +33,9 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
     diffusion.to(device)
     
 
-    dataset = SdfData('train_full', data_dir=args.data_dir)
-    valset = SdfData('test_full', data_dir=args.data_dir)
+    dataset = SdfData(args.train_split, data_dir=args.data_dir)
+    valset = SdfData(args.test_split, data_dir=args.data_dir)
+    print('dataset', len(dataset), len(valset))
     trainer = Trainer(
         diffusion,
         dataset,
