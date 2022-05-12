@@ -9,7 +9,7 @@ port: 10001
 node: localhost
 
 
-multiprocessing_distributed: False
+multiprocessing_distributed: True
 distributed: True
 seed:
 gpu:

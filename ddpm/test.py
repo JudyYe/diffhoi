@@ -30,6 +30,7 @@ def test(args):
         if d == idx:
             break
     bs = args.bs
+    _1_batched = torch.stack([torch.tensor(args.T-1, device=device)] * 1)
     origin_sdf = data['nSdf'][0:1].repeat(args.bs, 1, 1, 1, 1).to(device)
     hA = data['hA'].to(device)
     nTh = get_nTh(hA=hA, hand_wrapper=hand_wrapper)
@@ -41,7 +42,11 @@ def test(args):
     image_utils.save_gif(image_list, osp.join(save_dir, '%02d_origin_%s' % (idx, args.split)))
 
     if args.T > 0:
-        sdf_recon = diffusion.sample(args.bs, img=origin_sdf, hA=hA, t=args.T-1, q_sample=args.q_sample)
+        if args.q_sample:
+            noised_sdf = diffusion.q_sample(data['nSdf'][0:1].to(device), _1_batched).repeat(bs, 1, 1, 1, 1)
+        else:
+            noised_sdf = origin_sdf
+        sdf_recon = diffusion.sample(args.bs, img=noised_sdf, hA=hA, t=args.T-1, q_sample=False)
 
         nObj = mesh_utils.batch_grid_to_meshes(sdf_recon.squeeze(1), bs)
         nHoi = mesh_utils.join_scene([nObj, nHand])

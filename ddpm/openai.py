@@ -27,6 +27,8 @@ import torch.nn.functional as F
 from torch import nn, einsum
 from einops import rearrange, repeat
 
+from ddpm.tutorial import SinusoidalPosEmb
+from jutils import mesh_utils
 
 
 def prob_mask_like(shape, prob, device):
@@ -107,24 +109,6 @@ def Normalize(in_channels):
     return torch.nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
 
 
-class LinearAttention(nn.Module):
-    def __init__(self, dim, heads=4, dim_head=32):
-        super().__init__()
-        self.heads = heads
-        hidden_dim = dim_head * heads
-        self.to_qkv = conv_nd(3, dim, hidden_dim * 3, 1, bias = False)
-        self.to_out = conv_nd(3, hidden_dim, dim, 1)
-
-    def forward(self, x):
-        b, c, d, h, w = x.shape
-        qkv = self.to_qkv(x)
-        q, k, v = rearrange(qkv, 'b (qkv heads c) d h w -> qkv b heads c (d h w)', heads = self.heads, qkv=3)
-        k = k.softmax(dim=-1)  
-        context = torch.einsum('bhdn,bhen->bhde', k, v)
-        out = torch.einsum('bhde,bhdn->bhen', context, q)
-        out = rearrange(out, 'b heads c (d h w) -> b (heads c) d h w', heads=self.heads, d=d, h=h, w=w)
-        return self.to_out(out)
-
 
 class SpatialSelfAttention(nn.Module):
     def __init__(self, in_channels):
@@ -177,6 +161,59 @@ class SpatialSelfAttention(nn.Module):
         h_ = self.proj_out(h_)
 
         return x+h_
+
+
+
+class CoordAttention(nn.Module):
+    def __init__(self, query_dim, out_dim=None, context_dim=None, heads=8, dim_head=64, dropout=0.):
+        super().__init__()
+        inner_dim = dim_head * heads
+        context_dim = default(context_dim, query_dim)
+
+        self.scale = dim_head ** -0.5
+        self.heads = heads
+
+        self.to_q = nn.Linear(query_dim, inner_dim, bias=False)
+        self.to_k = nn.Linear(context_dim, inner_dim, bias=False)
+        self.to_v = nn.Linear(context_dim, inner_dim, bias=False)
+
+        out_dim = query_dim if out_dim is None else out_dim
+        self.to_out = nn.Sequential(
+            nn.Linear(inner_dim, out_dim),
+            nn.Dropout(dropout)
+        )
+
+    def forward(self, x, context=None, mask=None):
+        """
+        for each cell, query J ctoken
+        :param x: (NDHW, 1, C1)
+        :param context: (NDHW, J, C2, )
+        :return (NDHW, 1, C1)
+        """
+        h = self.heads
+
+        q = self.to_q(x)
+        k = self.to_k(context)
+        v = self.to_v(context)
+        
+        # (batch_size, token_num, dim)
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))  
+
+        sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
+
+        if exists(mask):
+
+            mask = rearrange(mask, 'b ... -> b (...)')
+            max_neg_value = -torch.finfo(sim.dtype).max
+            mask = repeat(mask, 'b j -> (b h) () j', h=h)
+            sim.masked_fill_(~mask, max_neg_value)
+
+        # attention, what we cannot get enough of
+        attn = sim.softmax(dim=-1)
+
+        out = einsum('b i j, b j d -> b i d', attn, v)
+        out = rearrange(out, '(b h) n d -> b n (h d)', h=h)
+        return self.to_out(out)
 
 
 class CrossAttention(nn.Module):
@@ -361,6 +398,8 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
                 x = layer(x, emb)
             elif isinstance(layer, SpatialTransformer):
                 x = layer(x, context)
+            elif isinstance(layer, ResArtBlock):
+                x = layer(x, emb, context)
             else:
                 x = layer(x)
         return x
@@ -439,6 +478,151 @@ class Downsample(nn.Module):
         return self.op(x)
 
 
+class ResArtBlock(nn.Module):
+
+    def __init__(
+        self,
+        channels,
+        emb_channels,
+        dropout,
+        out_channels=None,
+        use_conv=False,
+        use_scale_shift_norm=False,
+        dims=2,
+        use_checkpoint=False,
+        up=False,
+        down=False,
+
+        context_dim=None,         
+        n_heads=0,
+        d_head=None,
+        use_coord=True,
+        pe_dim=10,
+    ):
+        super().__init__()
+        self.channels = channels
+        self.emb_channels = emb_channels
+        self.dropout = dropout
+        self.out_channels = out_channels or channels
+        self.use_conv = use_conv
+        self.use_checkpoint = use_checkpoint
+        self.use_scale_shift_norm = use_scale_shift_norm
+        self.use_coord = use_coord
+
+        self.in_layers = nn.Sequential(
+            normalization(channels),
+            nn.SiLU(),
+            conv_nd(dims, channels, self.out_channels, 3, padding=1),
+        )
+
+        self.updown = up or down
+
+        if up:
+            self.h_upd = Upsample(channels, False, dims)
+            self.x_upd = Upsample(channels, False, dims)
+        elif down:
+            self.h_upd = Downsample(channels, False, dims)
+            self.x_upd = Downsample(channels, False, dims)
+        else:
+            self.h_upd = self.x_upd = nn.Identity()
+
+        self.emb_layers = nn.Sequential(
+            nn.SiLU(),
+            linear(
+                emb_channels,
+                2 * self.out_channels if use_scale_shift_norm else self.out_channels,
+            ),
+        )
+        self.out_layers = nn.Sequential(
+            normalization(self.out_channels),
+            nn.SiLU(),
+            nn.Dropout(p=dropout),
+            zero_module(
+                conv_nd(dims, self.out_channels, self.out_channels, 3, padding=1)
+            ),
+        )
+
+        if self.out_channels == channels:
+            self.skip_connection = nn.Identity()
+        elif use_conv:
+            self.skip_connection = conv_nd(
+                dims, channels, self.out_channels, 3, padding=1
+            )
+        else:
+            self.skip_connection = conv_nd(dims, channels, self.out_channels, 1)
+
+        if use_coord:
+            self.pe_emb = SinusoidalPosEmb(pe_dim)
+            query_dim = self.out_channels + pe_dim * 3
+        else:
+            query_dim = self.out_channels
+        self.attn = CoordAttention(query_dim=query_dim, out_dim=self.out_channels, 
+                                   context_dim=context_dim,
+                                   heads=n_heads, dim_head=d_head, dropout=dropout)
+        # self.out_channels, )                                    
+
+    def forward(self, x, emb, context):
+        """
+        Apply the block to a Tensor, conditioned on a timestep embedding.
+        :param x: an [N x C x ...] Tensor of features.
+        :param emb: an [N x emb_channels] Tensor of timestep embeddings.
+        :param context: an [N x D x ...] Tensor of features.
+        :return: an [N x C x ...] Tensor of outputs.
+        """
+        return checkpoint(
+            self._forward, (x, emb, context), self.parameters(), self.use_checkpoint
+        )
+
+    # TODO: is it correct of xyz order??? is it in order of the nSDf and hand articulation?????? 
+    def _add_coord(self, x):
+        b, c, d, h, w = x.shape
+        xyz = mesh_utils.make_grid(w, device=x.device, order='xyz').unsqueeze(0).repeat(b, 1, 1, 1, 1)  # (N, D, H, W, 3)
+        xyz = self.pe_emb(xyz.reshape(-1))  # (B N**3 3, ) --> (B N**3 3, D)
+        xyz = rearrange(xyz, '(b d h w x) c -> b (x c) d h w', b=b, c=self.pe_emb.dim, d=d, h=h, w=w, x=3)
+        
+        x = torch.cat([x, xyz], dim=1)
+
+        return x
+
+    def _forward(self, x, emb, context):
+        if self.updown:
+            in_rest, in_conv = self.in_layers[:-1], self.in_layers[-1]
+            h = in_rest(x)
+            h = self.h_upd(h)
+            x = self.x_upd(x)
+            h = in_conv(h)
+        else:
+            h = self.in_layers(x)
+        
+        # attend to coordinate
+        b, c, d, hh, w = h.shape
+        context = context[w]
+        assert h.shape[-1] == context.shape[-1], 'h %s context %s' % (str(h.size()), str(context.size()))
+        context = rearrange(context, 'b j c d h w -> (b d h w) j c')
+
+        # add coordinate for h? 
+        if self.use_coord:
+            h = self._add_coord(h)
+        h = rearrange(h, 'b c d h w -> (b d h w) 1 c')
+        h = self.attn(h, context)
+        h = rearrange(h, '(b d h w) 1 c -> b c d h w', b=b, d=d,h=hh,w=w)
+
+        # attend to 1D embedding
+        emb_out = self.emb_layers(emb).type(h.dtype)
+        while len(emb_out.shape) < len(h.shape):
+            emb_out = emb_out[..., None]
+        if self.use_scale_shift_norm:
+            out_norm, out_rest = self.out_layers[0], self.out_layers[1:]
+            scale, shift = th.chunk(emb_out, 2, dim=1)
+            h = out_norm(h) * (1 + scale) + shift
+            h = out_rest(h)
+        else:
+            h = h + emb_out
+            h = self.out_layers(h)
+
+        return self.skip_connection(x) + h
+
+
 class ResBlock(TimestepBlock):
     """
     3D-ify
@@ -468,6 +652,7 @@ class ResBlock(TimestepBlock):
         use_checkpoint=False,
         up=False,
         down=False,
+        **kwargs,
     ):
         super().__init__()
         self.channels = channels
@@ -740,6 +925,10 @@ class UNetModel(nn.Module):
         num_head_channels=-1,
         num_heads_upsample=-1,
         use_scale_shift_norm=False,
+        use_res_attn=False, 
+        use_coord=True,
+        pe_dim=None, 
+        pe_inp=False,
         resblock_updown=False,
         use_new_attention_order=False,
         use_spatial_transformer=False,    # custom transformer support
@@ -753,7 +942,7 @@ class UNetModel(nn.Module):
             assert context_dim is not None, 'Fool!! You forgot to include the dimension of your cross-attention conditioning...'
 
         if context_dim is not None:
-            assert use_spatial_transformer, 'Fool!! You forgot to use the spatial transformer for your cross-attention conditioning...'
+            assert use_spatial_transformer or use_res_attn, 'Fool!! You forgot to use the spatial transformer for your cross-attention conditioning...'
             from omegaconf.listconfig import ListConfig
             if type(context_dim) == ListConfig:
                 context_dim = list(context_dim)
@@ -767,6 +956,14 @@ class UNetModel(nn.Module):
         if num_head_channels == -1:
             assert num_heads != -1, 'Either num_heads or num_head_channels has to be set'
 
+        if pe_inp:
+            self.pe_emb = SinusoidalPosEmb(pe_dim)
+            in_channels += pe_dim
+
+        if use_res_attn:
+            Resblock = ResArtBlock
+        else:
+            Resblock = ResBlock
         self.image_size = image_size
         self.in_channels = in_channels
         self.model_channels = model_channels
@@ -784,6 +981,7 @@ class UNetModel(nn.Module):
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
         self.predict_codebook_ids = n_embed is not None
+        self.pe_inp = pe_inp
 
         time_embed_dim = model_channels * 4
         self.time_embed = nn.Sequential(
@@ -791,6 +989,7 @@ class UNetModel(nn.Module):
             nn.SiLU(),
             linear(time_embed_dim, time_embed_dim),
         )
+            
 
         if self.num_classes is not None:
             self.label_emb = nn.Embedding(num_classes, time_embed_dim)
@@ -800,8 +999,8 @@ class UNetModel(nn.Module):
             self.context_emb = nn.Linear(continuous_emb, time_embed_dim)
             self.null_cond_emb_cont = nn.Parameter(torch.randn(1, continuous_emb))
 
-        if self.in_channels > 1:
-            self.null_cond_emb_x_cat = nn.Parameter(torch.randn(1, self.in_channels - 1, image_size, image_size, image_size))
+        if in_channels > 1:
+            self.null_cond_emb_x_cat = nn.Parameter(torch.randn(1, in_channels - 1, image_size, image_size, image_size))
 
         self.input_blocks = nn.ModuleList(
             [
@@ -816,24 +1015,31 @@ class UNetModel(nn.Module):
         ds = 1
         for level, mult in enumerate(channel_mult):
             for _ in range(num_res_blocks):
+                prev_ch = ch
+                ch = mult * model_channels
+                if num_head_channels == -1:
+                    dim_head = ch // num_heads
+                else:
+                    num_heads = ch // num_head_channels
+                    dim_head = num_head_channels
                 layers = [
-                    ResBlock(
-                        ch,
+                    Resblock(
+                        prev_ch,
                         time_embed_dim,
                         dropout,
-                        out_channels=mult * model_channels,
+                        out_channels=ch,
                         dims=dims,
                         use_checkpoint=use_checkpoint,
                         use_scale_shift_norm=use_scale_shift_norm,
+
+                        context_dim=context_dim,         
+                        n_heads=num_heads,
+                        d_head=dim_head,
+                        use_coord=use_coord,
+                        pe_dim=pe_dim,
                     )
                 ]
-                ch = mult * model_channels
                 if ds in attention_resolutions:
-                    if num_head_channels == -1:
-                        dim_head = ch // num_heads
-                    else:
-                        num_heads = ch // num_head_channels
-                        dim_head = num_head_channels
                     if legacy:
                         #num_heads = 1
                         dim_head = ch // num_heads if use_spatial_transformer else num_head_channels
@@ -855,7 +1061,7 @@ class UNetModel(nn.Module):
                 out_ch = ch
                 self.input_blocks.append(
                     TimestepEmbedSequential(
-                        ResBlock(
+                        Resblock(
                             ch,
                             time_embed_dim,
                             dropout,
@@ -864,6 +1070,12 @@ class UNetModel(nn.Module):
                             use_checkpoint=use_checkpoint,
                             use_scale_shift_norm=use_scale_shift_norm,
                             down=True,
+
+                            context_dim=context_dim,         
+                            n_heads=num_heads,
+                            d_head=dim_head,
+                            use_coord=use_coord,
+                            pe_dim=pe_dim,
                         )
                         if resblock_updown
                         else Downsample(
@@ -885,13 +1097,19 @@ class UNetModel(nn.Module):
             #num_heads = 1
             dim_head = ch // num_heads if use_spatial_transformer else num_head_channels
         self.middle_block = TimestepEmbedSequential(
-            ResBlock(
+            Resblock(
                 ch,
                 time_embed_dim,
                 dropout,
                 dims=dims,
                 use_checkpoint=use_checkpoint,
                 use_scale_shift_norm=use_scale_shift_norm,
+
+                context_dim=context_dim,         
+                n_heads=num_heads,
+                d_head=dim_head,
+                use_coord=use_coord,
+                pe_dim=pe_dim,
             ),
             AttentionBlock(
                 ch,
@@ -902,13 +1120,19 @@ class UNetModel(nn.Module):
             ) if not use_spatial_transformer else SpatialTransformer(
                             ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim
                         ),
-            ResBlock(
+            Resblock(
                 ch,
                 time_embed_dim,
                 dropout,
                 dims=dims,
                 use_checkpoint=use_checkpoint,
                 use_scale_shift_norm=use_scale_shift_norm,
+
+                context_dim=context_dim,         
+                n_heads=num_heads,
+                d_head=dim_head,
+                use_coord=use_coord,
+                pe_dim=pe_dim,
             ),
         )
         self._feature_size += ch
@@ -917,24 +1141,33 @@ class UNetModel(nn.Module):
         for level, mult in list(enumerate(channel_mult))[::-1]:
             for i in range(num_res_blocks + 1):
                 ich = input_block_chans.pop()
+
+                prev_ch = ch
+                ch = model_channels * mult
+                if num_head_channels == -1:
+                    dim_head = ch // num_heads
+                else:
+                    num_heads = ch // num_head_channels
+                    dim_head = num_head_channels
                 layers = [
-                    ResBlock(
-                        ch + ich,
+                    Resblock(
+                        prev_ch + ich,
                         time_embed_dim,
                         dropout,
                         out_channels=model_channels * mult,
                         dims=dims,
                         use_checkpoint=use_checkpoint,
                         use_scale_shift_norm=use_scale_shift_norm,
+
+                        context_dim=context_dim,         
+                        n_heads=num_heads,
+                        d_head=dim_head,
+                        use_coord=use_coord,
+                        pe_dim=pe_dim,
                     )
                 ]
-                ch = model_channels * mult
                 if ds in attention_resolutions:
-                    if num_head_channels == -1:
-                        dim_head = ch // num_heads
-                    else:
-                        num_heads = ch // num_head_channels
-                        dim_head = num_head_channels
+                    print('#######!!!!!!!!!!!', ds)
                     if legacy:
                         #num_heads = 1
                         dim_head = ch // num_heads if use_spatial_transformer else num_head_channels
@@ -952,7 +1185,7 @@ class UNetModel(nn.Module):
                 if level and i == num_res_blocks:
                     out_ch = ch
                     layers.append(
-                        ResBlock(
+                        Resblock(
                             ch,
                             time_embed_dim,
                             dropout,
@@ -1007,7 +1240,6 @@ class UNetModel(nn.Module):
         if cond_scale == 1:
             return logits
 
-        print('forward w conditional scale')
         null_logits = self.forward(*args, null_cond_prob = 1., **kwargs)
         return null_logits + (logits - null_logits) * cond_scale
 
@@ -1051,20 +1283,31 @@ class UNetModel(nn.Module):
             z = torch.where(rearrange(mask, 'b -> b 1'), self.null_cond_emb_cont, z)
             emb = emb + self.context_emb(z)
         
+        if self.pe_inp:
+            reso = x.shape[-1]
+            pe_x = rearrange(self.pe_emb(x.reshape(-1)), 
+                '(b d h w) c -> b c d h w', b=batch, d=reso, h=reso, w=reso)
+            x = torch.cat([x, pe_x], dim=1)
+
         if cat_x is not None:
             # classifier free guidance
             cat_x = torch.where(rearrange(mask, 'b -> b 1 1 1 1'), self.null_cond_emb_x_cat, cat_x)
             x = torch.cat([x, cat_x], dim=1)
 
+
         h = x.type(self.dtype)
         for i, module in enumerate(self.input_blocks):
             h = module(h, emb, context)
+            # print(i, len(self.input_blocks), h.size())
             hs.append(h)
         
+        # print('before middle', h.size())
         h = self.middle_block(h, emb, context)
-        for module in self.output_blocks:
+        # print('middle', h.size())
+        for i, module in enumerate(self.output_blocks):
             h = th.cat([h, hs.pop()], dim=1)
             h = module(h, emb, context)
+            # print(i, h.size())
         h = h.type(x.dtype)
         if self.predict_codebook_ids:
             return self.id_predictor(h)

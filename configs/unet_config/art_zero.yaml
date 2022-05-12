@@ -1,11 +1,13 @@
 target: ddpm.openai.UNetModel
-mode: attention
+mode: artzero
+art_para:
+  pe_dim: 10
+  reso: ${unet_config.params.image_size}
 params:
   image_size: 32
-  in_channels: 1
+  in_channels: 481 # 1 + (3*16) * 10?
   out_channels: 1
   model_channels: 64
-  use_scale_shift_norm: False
   attention_resolutions:
   - 16
   - 8
@@ -17,6 +19,6 @@ params:
   - 4
   num_head_channels: 32
   dims: 3
-  context_dim: 135
+  context_dim: null
   continuous_emb: null
-  use_spatial_transformer: True
+  use_spatial_transformer: False

@@ -70,6 +70,7 @@ class SinusoidalPosEmb(nn.Module):
         self.dim = dim
 
     def forward(self, x):
+        """(N, )"""
         device = x.device
         half_dim = self.dim // 2
         emb = math.log(10000) / (half_dim - 1)

@@ -2,11 +2,10 @@ from omegaconf import OmegaConf
 import torch
 import torch.distributed as dist
 import yaml
-from ddpm.data import SdfData
 from ddpm.openai import UNetModel, default
 from utils import dist_util, io_util
 from utils.dist_util import get_local_rank, get_rank, get_world_size, init_env, is_master
-from .ddpm import Trainer, GaussianDiffusion
+from .ddpm import GaussianDiffusion
 import os
 import os.path as osp
 from utils.logger import Logger
@@ -32,30 +31,67 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
 
     diffusion.to(device)
     
-
-    dataset = SdfData(args.train_split, data_dir=args.data_dir)
-    valset = SdfData(args.test_split, data_dir=args.data_dir)
+    dataset, valset = build_dataset(args)
     print('dataset', len(dataset), len(valset))
-    trainer = Trainer(
-        diffusion,
-        dataset,
-        valset,
-        start_time=args.time.start,
-        device_ids=args.device_ids,
-        train_batch_size = args.batch_size,
-        train_lr = 2e-5,
-        train_num_steps = 700000,         # total training steps
-        gradient_accumulate_every = 2,    # gradient accumulation steps
-        ema_decay = 0.995,                # exponential moving average decay
-        amp = True,                        # turn on mixed precision
-        args = args,
-        logger = logger,
-        results_folder=osp.join(exp_dir, 'ckpt'),
-        save_and_sample_every=args.n_save_freq
-    )
+
+    trainer = build_trainer(args, diffusion, dataset, valset, logger)
     trainer.load(None, map_location=device)
     dist.barrier()
     trainer.train()
+
+
+def build_trainer(args, diffusion, dataset, valset, logger):
+    if args.data_mode == 'sdf32':
+        from .ddpm import Trainer
+        trainer = Trainer(
+            diffusion,
+            dataset,
+            valset,
+            start_time=args.time.start,
+            device_ids=args.device_ids,
+            train_batch_size = args.batch_size,
+            train_lr = 2e-5,
+            train_num_steps = 700000,         # total training steps
+            gradient_accumulate_every = 2,    # gradient accumulation steps
+            ema_decay = 0.995,                # exponential moving average decay
+            amp = True,                        # turn on mixed precision
+            args = args,
+            logger = logger,
+            results_folder=osp.join(args.exp_dir, 'ckpt'),
+            save_and_sample_every=args.n_save_freq
+        )
+    elif args.data_mode == 'pc':
+        from .ddpm_pose import Trainer        
+        trainer = Trainer(
+            diffusion,
+            dataset,
+            valset,
+            start_time=args.time.start,
+            device_ids=args.device_ids,
+            train_batch_size = args.batch_size,
+            train_lr = 2e-5,
+            train_num_steps = 700000,         # total training steps
+            gradient_accumulate_every = 2,    # gradient accumulation steps
+            ema_decay = 0.995,                # exponential moving average decay
+            amp = True,                        # turn on mixed precision
+            args = args,
+            logger = logger,
+            results_folder=osp.join(args.exp_dir, 'ckpt'),
+            save_and_sample_every=args.n_save_freq
+        )        
+
+    return trainer
+        
+def build_dataset(args):
+    if args.data_mode == 'sdf32':
+        from ddpm.data import SdfData
+        dataset = SdfData(args.train_split, data_dir=args.data_dir)
+        valset = SdfData(args.test_split, data_dir=args.data_dir)
+    elif args.data_mode == 'pc':
+        from ddpm.pc_data import PCData
+        dataset = PCData(args.train_split, data_dir=args.data_dir)
+        valset = PCData(args.test_split, data_dir=args.data_dir)
+    return dataset, valset
 
 
 def build_model(args):
@@ -81,6 +117,7 @@ def build_model(args):
         timesteps = args.time.total,   # number of steps
         loss_type = 'l2'    # L1 or L2
     )
+    print(model)
     return diffusion
 
 

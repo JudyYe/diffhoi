@@ -80,16 +80,24 @@ class ArticulationEmb(nn.Module):
     def __init__(self, reso, pe_dim):
         super().__init__()
         self.reso = reso
+        self.pe_dim = pe_dim
         self.pe_emb = SinusoidalPosEmb(pe_dim)
         self.register_buffer('grid', mesh_utils.make_grid(reso, order='xyz').unsqueeze(0)) # (1, D, H, W, 3)
         self.hand_wrapper = ManopthWrapper()
+        self.J = 16
 
-    def forward(self, hA):
+    def forward(self, hA, h=None):
+        """
+        return: (N, J*3*D, D, H, W)
+        """
         b = hA.shape[0]
-        P = self.reso ** 3
-        h = self.reso
+        h = self.reso if h is None else h
+        P = h**3
 
-        nPoints = self.grid.repeat(b, 1, 1, 1, 1)
+        if h == self.reso:
+            nPoints = self.grid.repeat(b, 1, 1, 1, 1)
+        else:
+            nPoints = mesh_utils.make_grid(h, device=hA.device, order='xyz').unsqueeze(0).repeat(b, 1, 1, 1, 1)
         cat_x = hand_utils.transform_nPoints_to_js(
             self.hand_wrapper, hA, nPoints.reshape(b, P, 3))  
         j = cat_x.shape[-2]
@@ -98,6 +106,21 @@ class ArticulationEmb(nn.Module):
         d = cat_x.shape[-1]
         out = rearrange(cat_x, '(b h1 h2 h3 j) d -> b (j d) h1 h2 h3  ', 
             h1=h, h2=h, h3=h, b=b, j=j*3, d=d)  # (B, 16*3*10=480, D, D, D)
+        return out
+
+class ArtZero(nn.Module):
+    def __init__(self, reso, pe_dim):
+        super().__init__()
+        self.reso = reso
+        self.D = pe_dim * 16 * 3
+
+    def forward(self, hA):
+        b = hA.shape[0]
+        P = self.reso ** 3
+        h = self.reso
+
+        out = torch.zeros([b, self.D, h, h, h]).to(hA)
+
         return out
 
 
@@ -122,8 +145,11 @@ class GaussianDiffusion(nn.Module):
         self.mode = mode
         self.cond_drop_prob = cond_drop_prob
 
-        if mode == 'art':
+        if mode in ['art', 'artattn']:
             self.art_embed = ArticulationEmb(**art_para)
+        elif mode == 'artzero':
+            self.art_embed = ArtZero(**art_para)
+
 
         betas = cosine_beta_schedule(timesteps)
 
@@ -296,8 +322,21 @@ class GaussianDiffusion(nn.Module):
         if self.mode == 'film':
             context_kwargs['z'] = geom_utils.axis_angle_t_to_matrix(
                 hA.reshape(b, 15, 3), homo=False).reshape(b, 15 * 9)
-        elif self.mode == 'art':
+        elif self.mode in ['art', 'artzero']:
             context_kwargs['cat_x'] = self.art_embed(hA)
+        elif self.mode in ['artattn']:
+            # build pyramid
+            reso = self.art_embed.reso
+            J = self.art_embed.J 
+            pe = self.art_embed.pe_dim * 3
+
+            context = {}
+            for i in range(4):
+                # 32, 16, 8, 4
+                context[reso] = self.art_embed(hA, reso).reshape(b, J, pe, reso, reso, reso)
+                reso //= 2
+            context_kwargs['context'] = context
+
         elif self.mode == 'attention':
             context_kwargs['context'] = geom_utils.axis_angle_t_to_matrix(
                 hA.reshape(b, 15, 3), homo=False).reshape(b, 1, 15 * 9)
@@ -310,7 +349,7 @@ class GaussianDiffusion(nn.Module):
         b, c, d, h, w, device, img_size, = *x.shape, x.device, self.image_size
         assert d ==img_size and h == img_size and w == img_size, f'height and width of image must be {img_size}'
         t = torch.randint(0, self.start_time, (b,), device=device).long()
-        condition_kwargs = self.get_context(**kwargs)
+        condition_kwargs = self.get_context(x=x, **kwargs)
         return self.p_losses(x, t, condition_kwargs=condition_kwargs, **kwargs)
 
 

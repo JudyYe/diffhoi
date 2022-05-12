@@ -1,4 +1,65 @@
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=transformer_art/coord\${unet_config.params.use_coord}_pe\${unet_config.params.pe_inp} \
+    unet_config=art_attn     batch_size=4 \
+    unet_config.params.use_coord=True unet_config.params.pe_inp=True \
 
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=transformer_art/coord\${unet_config.params.use_coord}_pe\${unet_config.params.pe_inp} \
+    unet_config=art_attn     batch_size=4 \
+    unet_config.params.use_coord=False unet_config.params.pe_inp=False \
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=transformer_art/coord\${unet_config.params.use_coord}_pe\${unet_config.params.pe_inp} \
+    unet_config=art_attn     batch_size=4 \
+    unet_config.params.use_coord=False unet_config.params.pe_inp=True \
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=transformer_art/coord\${unet_config.params.use_coord}_pe\${unet_config.params.pe_inp} \
+    unet_config=art_attn     batch_size=4 \
+    unet_config.params.use_coord=True unet_config.params.pe_inp=False \
+
+-
+-
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=film/\${unet_config.mode}_p\${cf_prob} \
+    unet_config=film_embed \
+    environment.multiprocessing_distributed=True \
+    unet_config.params.use_scale_shift_norm=True \
+
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=film/\${unet_config.mode}_p\${cf_prob} \
+    unet_config=art_embed \
+    environment.multiprocessing_distributed=True \
+    unet_config.params.use_scale_shift_norm=True \
+
+
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=film/\${unet_config.mode}_p\${cf_prob} \
+    unet_config=ddim_cond \
+    environment.multiprocessing_distributed=True \
+    unet_config.params.use_scale_shift_norm=True \
+
+
+
+-
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=dev/\${unet_config.mode} \
+    unet_config=ddim_cond \
+    environment.multiprocessing_distributed=True logging.mode=none \
+    
+-
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
+    expname=2mode/\${unet_config.mode}_p\${cf_prob} \
+    unet_config=art_zero \
+    environment.multiprocessing_distributed=True \
+    cf_prob=0. \
+
+
+--
 
 
 CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
