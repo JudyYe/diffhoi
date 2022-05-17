@@ -50,7 +50,7 @@ def build_trainer(args, diffusion, dataset, valset, logger):
             start_time=args.time.start,
             device_ids=args.device_ids,
             train_batch_size = args.batch_size,
-            train_lr = 2e-5,
+            train_lr = args.lr,
             train_num_steps = 700000,         # total training steps
             gradient_accumulate_every = 2,    # gradient accumulation steps
             ema_decay = 0.995,                # exponential moving average decay
@@ -60,6 +60,25 @@ def build_trainer(args, diffusion, dataset, valset, logger):
             results_folder=osp.join(args.exp_dir, 'ckpt'),
             save_and_sample_every=args.n_save_freq
         )
+    elif args.data_mode == 'osdf': 
+        from .ddpm import UncondTrainer as Trainer
+        trainer = Trainer(
+            diffusion,
+            dataset,
+            valset,
+            start_time=args.time.start,
+            device_ids=args.device_ids,
+            train_batch_size = args.batch_size,
+            train_lr = 2e-5,
+            train_num_steps = 700000,         # total training steps
+            gradient_accumulate_every = 2,    # gradient accumulation steps
+            ema_decay = 0.995,                # exponential moving average decay
+            amp = True,                        # turn on mixed precision
+            args = args,
+            logger = logger,
+            results_folder=osp.join(args.exp_dir, 'ckpt'),
+            save_and_sample_every=args.n_save_freq
+        )        
     elif args.data_mode == 'pc':
         from .ddpm_pose import Trainer        
         trainer = Trainer(
@@ -88,9 +107,13 @@ def build_dataset(args):
         dataset = SdfData(args.train_split, data_dir=args.data_dir)
         valset = SdfData(args.test_split, data_dir=args.data_dir)
     elif args.data_mode == 'pc':
-        from ddpm.pc_data import PCData
-        dataset = PCData(args.train_split, data_dir=args.data_dir)
-        valset = PCData(args.test_split, data_dir=args.data_dir)
+        from ddpm.data import PCData
+        dataset = PCData(args.train_split, data_dir=args.data_dir, train=True, args=args)
+        valset = PCData(args.test_split, data_dir=args.data_dir, train=False, args=args)
+    elif args.data_mode == 'osdf':
+        from ddpm.data import SdfFly
+        dataset = SdfFly(args.train_split, data_dir=args.data_dir,)
+        valset = SdfFly(args.test_split, data_dir=args.data_dir, )
     return dataset, valset
 
 
@@ -106,7 +129,7 @@ def build_model(args):
         )
     else:
         raise NotImplementedError(args.unet_config.target)
-
+    print(model)
     diffusion = GaussianDiffusion(
         model,
         image_size = args.point_reso,  # point size
@@ -117,7 +140,6 @@ def build_model(args):
         timesteps = args.time.total,   # number of steps
         loss_type = 'l2'    # L1 or L2
     )
-    print(model)
     return diffusion
 
 

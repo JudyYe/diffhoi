@@ -226,6 +226,26 @@ def make_list():
                 fp.write('%s\n' % index_list[i])
     return 
     
+
+
+def osdf():
+    data_dir = '/glusterfs/yufeiy2/fair/mesh_sdf/'
+    split = 'obman'
+    index_list = json.load(open(osp.join(data_dir, split + '_all.json')))[split]['all']
+    sdf_dir = osp.join(data_dir, 'SdfSamples/obman/all/{}.npz')
+    for cad_index in tqdm(index_list):
+        npz_file = sdf_dir.format(cad_index)
+        sdf = unpack_sdf_samples(npz_file)
+        grid = mesh_utils.make_grid(32, 0.5, 'cpu', order='xyz').reshape(1, -1, 3)
+        _, idx, _ = op_3d.knn_points(grid, sdf[None,:, :3], return_nn=True)
+        idx = idx.squeeze(0).squeeze(-1)
+        h = 32
+        sdf_grid = sdf[idx, -1].reshape(h, h, h)
+
+        np.savez_compressed(out_file, 
+            nSdf=sdf_grid, nPoints=grid,)
+        
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--skip', action='store_true')
@@ -252,6 +272,8 @@ if __name__ == '__main__':
 
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     # vis()
-    main(args.split)
+    # main(args.split)
     # make_mini_list()
     # make_list()     
+
+    osdf()

@@ -61,9 +61,10 @@ class Worker:
         import torch.utils.data.distributed
         import torch.backends.cudnn as cudnn
         cudnn.benchmark = True
-        mp.set_start_method('spawn')
 
         main_args = copy.deepcopy(origargs)
+        if main_args.environment.multiprocessing_distributed:
+            mp.set_start_method('spawn')
         np.set_printoptions(precision=3)
         socket_name = os.popen(
             "ip r | grep default | awk '{print $5}'").read().strip('\n')

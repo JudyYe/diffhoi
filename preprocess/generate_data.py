@@ -1,3 +1,4 @@
+import json
 import imageio
 import cv2
 import numpy as np
@@ -10,6 +11,8 @@ import torch
 import pytorch3d
 from pytorch3d.renderer.cameras import look_at_view_transform, PerspectiveCameras
 from pytorch3d.structures import Pointclouds
+from tqdm import tqdm
+from ddpm.data import unpack_sdf_samples
 from torchmetrics import ScaleInvariantSignalNoiseRatio
 from models.frameworks.volsdf_hoi import MeshRenderer
 
@@ -356,7 +359,6 @@ def rerender():
 
     mesh_utils.dump_meshes([osp.join(save_dir, 'tmp/hHand')], hHand)
     image_utils.save_images(iHand['image'], osp.join(save_dir, 'tmp/image'))
-    
 
 
 def parser_default():
@@ -369,5 +371,6 @@ if __name__ == '__main__':
     args = parser_default().parse_args()
 
     # render(args.seq)
-    render_save_for_cTh(args.seq)
+    # render_save_for_cTh(args.seq)
     # rerender()
+    osdf()

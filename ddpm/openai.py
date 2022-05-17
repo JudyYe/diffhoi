@@ -1167,7 +1167,7 @@ class UNetModel(nn.Module):
                     )
                 ]
                 if ds in attention_resolutions:
-                    print('#######!!!!!!!!!!!', ds)
+                    # print('#######!!!!!!!!!!!', ds) 
                     if legacy:
                         #num_heads = 1
                         dim_head = ch // num_heads if use_spatial_transformer else num_head_channels

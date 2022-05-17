@@ -1,4 +1,5 @@
 target: ddpm.openai.UNetModel
+mode: none
 params:
   image_size: 32
   in_channels: 1
@@ -17,3 +18,5 @@ params:
   dims: 3
   context_dim: 
   use_spatial_transformer: False
+  use_scale_shift_norm: True
+  

@@ -16,6 +16,7 @@ params:
   channel_mult:
   - 1
   - 2
+  - 2
   - 4
   num_head_channels: 32
   dims: 3

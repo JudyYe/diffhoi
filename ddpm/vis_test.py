@@ -4,11 +4,11 @@ from glob import glob
 from jutils import web_utils
 
 def vis_eval_hand():
-    base_dir = '/glusterfs/yufeiy2/vhoi/output_ddpm/art/'
-    html_root = base_dir + 'vis_eval_hand'
-    samp = [0, 1]
-    # html_root = base_dir + 'vis_eval_hand_sample'
-    # samp = [1]
+    base_dir = '/glusterfs/yufeiy2/vhoi/output_ddpm/film/'
+    # html_root = base_dir + 'vis_eval_hand'
+    # samp = [0, 1]
+    html_root = base_dir + 'vis_eval_hand_sample'
+    samp = [1]
 
     exp_list = glob(osp.join(base_dir, '*/eval_vary_hand'))
     T = [1, 100, 200, 500, 700,]

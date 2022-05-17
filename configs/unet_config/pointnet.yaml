@@ -1,0 +1,4 @@
+target: ddpm.pointnet.PointNet2ClassificationSSG
+params:
+  out_dim: 9
+  use_xyz: True

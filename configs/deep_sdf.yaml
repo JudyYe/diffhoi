@@ -2,9 +2,9 @@ defaults:
   - environment: yoda
   - logging: wandb
   - hydra: default
-  - unet_config: pointnet
+  - deepsdf: default
 
-worker: 'ddpm.ddpm_pose'  # .main_function
+worker: 'models.deepsdf.deepsdf'
 output: "/glusterfs/yufeiy2/vhoi/output_ddpm/"
 exp_dir: ${output}/${expname}
 expname: dev/tmp
@@ -18,36 +18,24 @@ resume_dir:         # single GPU / DP / DDP; run on all available GPUs;
 device_ids: -1        # single GPU / DP / DDP; run on all available GPUs; 
 
 
-train_split: 'train_mode'
-test_split: 'test_mode'
-data_dir: /glusterfs/yufeiy2/fair/data/obman/
-shape_dir: '/glusterfs/yufeiy2/download_data/ShapeNetCore.v2/'
+train_split: 'obman'
+test_split: 'obman'
+data_dir: '/glusterfs/yufeiy2/fair/mesh_sdf/' 
+data_mode: 'sdf'
+frame: 'oSdf'
 
-data_mode: 'pc'
+point_reso: 16384
+batch_size: 8
 
-point_reso: 4096
-batch_size: 16
 
-xyz_std: 1
-theta_std: 3
+TrainSplit : examples/splits/sv2_chairs_train.json
+TestSplit : examples/splits/sv2_chairs_test.json
 
-DB:
-  JITTER_XYZ: 0.01
-  MAX_DROPOUT: 0.5 
-
-cf_prob: 0.
-
-time: 
-  total: 100
-  start: 100
-
-# TODO may need range of noise 
 
 n_save_freq: 5000
-n_eval_freq: 2500
+n_eval_freq: 5000
+max_step: 100000
 special_ckpt: [10, 1000, 2000, 3000, 5000, 7500, 10000]
 
-
-# dumb
 training:
   ckpt_file: None

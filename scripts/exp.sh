@@ -1,21 +1,47 @@
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name deep_sdf \
+    expname=sdf/\${frame} \
+    environment.multiprocessing_distributed=True \
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_shapenet \
+    expname=canonical/vanila \
+    environment.multiprocessing_distributed=True \
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_shapenet \
+    expname=canonical/vanila_lr\${lr} \
+    environment.multiprocessing_distributed=True \
+    lr=1e-4
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_shapenet \
+    expname=canonical/vanila_lr\${lr} \
+    environment.multiprocessing_distributed=True \
+    lr=1e-3
+
+
+
+
+
 CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
-    expname=transformer_art/coord\${unet_config.params.use_coord}_pe\${unet_config.params.pe_inp} \
-    unet_config=art_attn     batch_size=4 \
+    expname=transformer_art1224/coord\${unet_config.params.use_coord}_pe\${unet_config.params.pe_inp} \
+    unet_config=art_attn batch_size=12 \
     unet_config.params.use_coord=True unet_config.params.pe_inp=True \
 
 CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
-    expname=transformer_art/coord\${unet_config.params.use_coord}_pe\${unet_config.params.pe_inp} \
-    unet_config=art_attn     batch_size=4 \
+    expname=transformer_art1224/coord\${unet_config.params.use_coord}_pe\${unet_config.params.pe_inp} \
+    unet_config=art_attn batch_size=12\
     unet_config.params.use_coord=False unet_config.params.pe_inp=False \
 
 CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
-    expname=transformer_art/coord\${unet_config.params.use_coord}_pe\${unet_config.params.pe_inp} \
-    unet_config=art_attn     batch_size=4 \
+    expname=transformer_art1224/coord\${unet_config.params.use_coord}_pe\${unet_config.params.pe_inp} \
+    unet_config=art_attn batch_size=12\
     unet_config.params.use_coord=False unet_config.params.pe_inp=True \
 
 CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_2mode \
-    expname=transformer_art/coord\${unet_config.params.use_coord}_pe\${unet_config.params.pe_inp} \
-    unet_config=art_attn     batch_size=4 \
+    expname=transformer_art1224/coord\${unet_config.params.use_coord}_pe\${unet_config.params.pe_inp} \
+    unet_config=art_attn batch_size=12\
     unet_config.params.use_coord=True unet_config.params.pe_inp=False \
 
 -

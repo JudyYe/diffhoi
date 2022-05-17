@@ -1,6 +1,7 @@
 import logging
 import os
 import shutil
+from time import time
 from turtle import forward
 import numpy as np
 import math
@@ -14,6 +15,7 @@ from functools import partial
 
 from torch.utils import data
 from torch.cuda.amp import autocast, GradScaler
+import pytorch3d.ops as op3d
 
 from pathlib import Path
 from torch.optim import Adam
@@ -188,12 +190,6 @@ class GaussianDiffusion(nn.Module):
         self.register_buffer('posterior_mean_coef1', betas * torch.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod))
         self.register_buffer('posterior_mean_coef2', (1. - alphas_cumprod_prev) * torch.sqrt(alphas) / (1. - alphas_cumprod))
 
-    def q_mean_variance(self, x_start, t):
-        mean = extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
-        variance = extract(1. - self.alphas_cumprod, t, x_start.shape)
-        log_variance = extract(self.log_one_minus_alphas_cumprod, t, x_start.shape)
-        return mean, variance, log_variance
-
     def predict_start_from_noise(self, x_t, t, noise):
         # output noise, not mean. 
         return (
@@ -314,9 +310,10 @@ class GaussianDiffusion(nn.Module):
 
         return loss
 
-    def get_context(self, **kwargs):
+    def get_context(self,**kwargs):
         hA = kwargs.get('hA', None)
-        b = hA.shape[0]
+        if hA is not None:
+            b = hA.shape[0]
 
         context_kwargs = {}
         if self.mode == 'film':
@@ -346,8 +343,9 @@ class GaussianDiffusion(nn.Module):
         """
         x: SDF in shape of (N, 1, D, H, W)
         """
-        b, c, d, h, w, device, img_size, = *x.shape, x.device, self.image_size
-        assert d ==img_size and h == img_size and w == img_size, f'height and width of image must be {img_size}'
+        b = len(x)
+        device = x.device
+        
         t = torch.randint(0, self.start_time, (b,), device=device).long()
         condition_kwargs = self.get_context(x=x, **kwargs)
         return self.p_losses(x, t, condition_kwargs=condition_kwargs, **kwargs)
@@ -400,6 +398,7 @@ class Trainer(object):
         self.ds = dataset
         self.val_ds = valset
         if args.ddp:
+            print('ddp')
             train_sampler = DistributedSampler(dataset)
             self.dl = cycle(data.DataLoader(self.ds, sampler=train_sampler, 
                 batch_size = train_batch_size, pin_memory=True, num_workers=args.environment.workers))
@@ -407,6 +406,7 @@ class Trainer(object):
             self.val_dl = cycle(data.DataLoader(self.val_ds,sampler=val_sampler, 
                 batch_size = test_batch_size,  pin_memory=True, num_workers=args.environment.workers))
         else:
+            print('not ddp')
             self.dl = cycle(data.DataLoader(self.ds, batch_size = train_batch_size, 
                 shuffle=True, pin_memory=True, num_workers=args.environment.workers))
             self.val_dl = cycle(data.DataLoader(self.val_ds, batch_size = test_batch_size, 
@@ -470,8 +470,8 @@ class Trainer(object):
     def train(self):
         special_ckpt = self.args.special_ckpt 
         device = self.device
-        valdata = next(self.val_dl)
-        onedata = self._change_hand_fix_shape()
+        self.valdata = next(self.val_dl)
+        self.onedata = self._change_hand_fix_shape()
         
         with tqdm(range(self.train_num_steps), disable=not is_master()) as pbar:
             if is_master():
@@ -479,10 +479,10 @@ class Trainer(object):
             while self.step < self.train_num_steps:
                 for i in range(self.gradient_accumulate_every):
                     data = next(self.dl)
+                    inputs = self.set_input(data)
 
-                    origin_sdf = data['nSdf']
                     with autocast(enabled = self.amp):
-                        loss = self.model(data['nSdf'].to(device), hA=data['hA'].to(device))
+                        loss = self.model(**inputs)
                         self.scaler.scale(loss / self.gradient_accumulate_every).backward()
 
                     self.logger.add('loss', 'total', loss, self.step)
@@ -498,80 +498,7 @@ class Trainer(object):
                     self.step_ema()
 
                 if self.step != 0 and self.step % self.args.n_eval_freq == 0 or self.step in special_ckpt:
-                    # vary hand 
-                    one_sdf = onedata['nSdf'].to(device)
-                    nTh = get_nTh(hA=onedata['hA'].to(device), hand_wrapper=self.hand_wrapper)
-                    nHand, _ = self.hand_wrapper(nTh, onedata['hA'].to(device))
-                    
-                    self.vis_sdf(one_sdf, '0perc_hand/initial', nHand)
-                    noised_inp = self.ema_model.q_sample(one_sdf, 
-                        t=torch.stack([torch.tensor(self.start_time // 10, device=device)] * self.test_bs))
-                    self.vis_sdf(noised_inp, '10perc_hand/initial', nHand)
-                    noised_inp = self.ema_model.q_sample(one_sdf, 
-                        t=torch.stack([torch.tensor(self.start_time // 2, device=device)] * self.test_bs))
-                    self.vis_sdf(noised_inp, '50perc_hand/initial', nHand)
-
-                    # original data... 
-                    origin_sdf = valdata['nSdf'].to(device)
-                    nTh = get_nTh(hA=valdata['hA'].to(device), hand_wrapper=self.hand_wrapper)
-                    nHand, _ = self.hand_wrapper(nTh, valdata['hA'].to(device))
-
-                    # initial
-                    self.vis_sdf(origin_sdf, '0perc/initial', nHand)
-                    noised_inp = self.ema_model.q_sample(origin_sdf, 
-                        t=torch.stack([torch.tensor(self.start_time - 1, device=device)] * self.test_bs))
-                    self.vis_sdf(noised_inp, '100perc/initial', nHand)
-                    noised_inp = self.ema_model.q_sample(origin_sdf, 
-                        t=torch.stack([torch.tensor(self.start_time // 10, device=device)] * self.test_bs))
-                    self.vis_sdf(noised_inp, '10perc/initial', nHand)
-                    noised_inp = self.ema_model.q_sample(origin_sdf, 
-                        t=torch.stack([torch.tensor(self.start_time // 2, device=device)] * self.test_bs))
-                    self.vis_sdf(noised_inp, '50perc/initial', nHand)
-
-                    # 10 perc
-                    all_points_list = self.ema_model.sample(
-                        self.test_bs, img=onedata['nSdf'].to(device), hA=onedata['hA'].to(device), 
-                        t=self.start_time // 10 - 1)
-                    self.vis_sdf(all_points_list, '10perc_hand/denoise', nHand)
-
-                    all_points_list = self.ema_model.sample(
-                        self.test_bs, img=onedata['nSdf'].to(device), hA=onedata['hA'].to(device), 
-                        t=self.start_time // 10 - 1, cond_scale=2)
-                    self.vis_sdf(all_points_list, '10perc_hand/denoise_s2', nHand)
-
-                    all_points_list = self.ema_model.sample(
-                        self.test_bs, img=valdata['nSdf'].to(device), hA=valdata['hA'].to(device), 
-                        t=self.start_time // 10 - 1)
-                    self.vis_sdf(all_points_list, '10perc/denoise', nHand)
-
-                    # 50 perc
-                    all_points_list = self.ema_model.sample(
-                        self.test_bs, img=onedata['nSdf'].to(device), hA=onedata['hA'].to(device), 
-                        t=self.start_time // 2 - 1)
-                    self.vis_sdf(all_points_list, '50perc_hand/denoise', nHand)
-
-                    all_points_list = self.ema_model.sample(
-                        self.test_bs, img=onedata['nSdf'].to(device), hA=onedata['hA'].to(device), 
-                        t=self.start_time // 2 - 1, cond_scale=2)
-                    self.vis_sdf(all_points_list, '50perc_hand/denoise_s2', nHand)
-
-                    all_points_list = self.ema_model.sample(
-                        self.test_bs, img=valdata['nSdf'].to(device), hA=valdata['hA'].to(device), 
-                        t=self.start_time // 2 - 1)
-                    self.vis_sdf(all_points_list, '50perc/denoise', nHand)
-
-                    # 100 perc
-                    all_points_list = self.ema_model.sample(
-                        self.test_bs, img=valdata['nSdf'].to(device), hA=valdata['hA'].to(device), 
-                        t=self.start_time - 1)
-                    self.vis_sdf(all_points_list, '100perc/denoise', nHand)
-
-                    # vary hand!!
-                    
-
-                    # all_points_list = self.ema_model.sample(
-                    #     self.test_bs, hA=valdata['hA'].to(device), t=self.start_time - 1)
-                    # self.vis_sdf(all_points_list, 'geenrate', nHand)
+                    self.vis_step()
 
                 if is_master():
                     if self.step != 0 and self.step % self.save_and_sample_every == 0 or self.step in special_ckpt:
@@ -592,7 +519,10 @@ class Trainer(object):
         self.logger.add_gifs(image_list, 'surface_%s' % name, self.step)
         image_list = self.view_vol_as_gifs(sdf)
         self.logger.add_gifs(image_list, 'slice_%s' % name, self.step)
-
+    
+    def set_input(self, data):
+        inputs = {"x": data['nSdf'].to(self.device), 'hA': data['hA'].to(self.device)}
+        return inputs
 
     def view_vol_as_gifs(self, sdfs):
         """z
@@ -605,3 +535,111 @@ class Trainer(object):
             image_list.append(sdfs[:, :, d])
         return image_list
 
+    def vis_step(self, ):
+        onedata = self.onedata
+        valdata = self.valdata
+        device = self.device
+
+
+        # vary hand 
+        one_sdf = onedata['nSdf'].to(device)
+        nTh = get_nTh(hA=onedata['hA'].to(device), hand_wrapper=self.hand_wrapper)
+        nHand, _ = self.hand_wrapper(nTh, onedata['hA'].to(device))
+        
+        self.vis_sdf(one_sdf, '0perc_hand/initial', nHand)
+        noised_inp = self.ema_model.q_sample(one_sdf, 
+            t=torch.stack([torch.tensor(self.start_time // 10, device=device)] * self.test_bs))
+        self.vis_sdf(noised_inp, '10perc_hand/initial', nHand)
+        noised_inp = self.ema_model.q_sample(one_sdf, 
+            t=torch.stack([torch.tensor(self.start_time // 2, device=device)] * self.test_bs))
+        self.vis_sdf(noised_inp, '50perc_hand/initial', nHand)
+
+        # original data... 
+        origin_sdf = valdata['nSdf'].to(device)
+        nTh = get_nTh(hA=valdata['hA'].to(device), hand_wrapper=self.hand_wrapper)
+        nHand, _ = self.hand_wrapper(nTh, valdata['hA'].to(device))
+
+        # initial
+        self.vis_sdf(origin_sdf, '0perc/initial', nHand)
+        noised_inp = self.ema_model.q_sample(origin_sdf, 
+            t=torch.stack([torch.tensor(self.start_time - 1, device=device)] * self.test_bs))
+        self.vis_sdf(noised_inp, '100perc/initial', nHand)
+        noised_inp = self.ema_model.q_sample(origin_sdf, 
+            t=torch.stack([torch.tensor(self.start_time // 10, device=device)] * self.test_bs))
+        self.vis_sdf(noised_inp, '10perc/initial', nHand)
+        noised_inp = self.ema_model.q_sample(origin_sdf, 
+            t=torch.stack([torch.tensor(self.start_time // 2, device=device)] * self.test_bs))
+        self.vis_sdf(noised_inp, '50perc/initial', nHand)
+
+        # 10 perc
+        all_points_list = self.ema_model.sample(
+            self.test_bs, img=onedata['nSdf'].to(device), hA=onedata['hA'].to(device), 
+            t=self.start_time // 10 - 1)
+        self.vis_sdf(all_points_list, '10perc_hand/denoise', nHand)
+
+        all_points_list = self.ema_model.sample(
+            self.test_bs, img=onedata['nSdf'].to(device), hA=onedata['hA'].to(device), 
+            t=self.start_time // 10 - 1, cond_scale=2)
+        self.vis_sdf(all_points_list, '10perc_hand/denoise_s2', nHand)
+
+        all_points_list = self.ema_model.sample(
+            self.test_bs, img=valdata['nSdf'].to(device), hA=valdata['hA'].to(device), 
+            t=self.start_time // 10 - 1)
+        self.vis_sdf(all_points_list, '10perc/denoise', nHand)
+
+        # 50 perc
+        all_points_list = self.ema_model.sample(
+            self.test_bs, img=onedata['nSdf'].to(device), hA=onedata['hA'].to(device), 
+            t=self.start_time // 2 - 1)
+        self.vis_sdf(all_points_list, '50perc_hand/denoise', nHand)
+
+        all_points_list = self.ema_model.sample(
+            self.test_bs, img=onedata['nSdf'].to(device), hA=onedata['hA'].to(device), 
+            t=self.start_time // 2 - 1, cond_scale=2)
+        self.vis_sdf(all_points_list, '50perc_hand/denoise_s2', nHand)
+
+        all_points_list = self.ema_model.sample(
+            self.test_bs, img=valdata['nSdf'].to(device), hA=valdata['hA'].to(device), 
+            t=self.start_time // 2 - 1)
+        self.vis_sdf(all_points_list, '50perc/denoise', nHand)
+
+        # 100 perc
+        all_points_list = self.ema_model.sample(
+            self.test_bs, img=valdata['nSdf'].to(device), hA=valdata['hA'].to(device), 
+            t=self.start_time - 1)
+        self.vis_sdf(all_points_list, '100perc/denoise', nHand)
+
+
+class UncondTrainer(Trainer):
+    def vis_step(self):
+        valdata = self.valdata
+        device = self.device
+        origin_sdf = self.set_input(valdata)['x']
+
+        self.vis_sdf(origin_sdf, 'initial')
+        deoised = self.ema_model.sample(self.test_bs)
+        self.vis_sdf(deoised, 'generate')
+
+    def set_input(self, data):
+        sdf = data['nSdf'].to(self.device)
+
+        bs = len(sdf)
+        h = self.image_size
+        grid = mesh_utils.make_grid(
+            h, 0.5, self.device, order='xyz').reshape(1, h**3, 3).repeat(bs, 1, 1)
+        t = time()
+        with torch.no_grad():
+            _, idx, _ = op3d.knn_points(grid, sdf[..., :3], return_nn=True)
+            # print('knn', time() - t)
+            idx = idx.squeeze(-1)
+            sdf_value = sdf[..., -1]
+            sdf_grid = torch.gather(sdf_value, 1, idx) 
+            sdf_grid = sdf_grid.reshape(bs, 1, h, h, h)
+
+        inputs = {"x": sdf_grid}
+
+        # inputs = {"x": sdf}
+        return inputs
+
+    def _change_hand_fix_shape(self, ):
+        return 

@@ -2,9 +2,9 @@ defaults:
   - environment: yoda
   - logging: wandb
   - hydra: default
-  - unet_config: pointnet
+  - unet_config: ddim_uncond
 
-worker: 'ddpm.ddpm_pose'  # .main_function
+worker: 'ddpm.main'
 output: "/glusterfs/yufeiy2/vhoi/output_ddpm/"
 exp_dir: ${output}/${expname}
 expname: dev/tmp
@@ -18,36 +18,25 @@ resume_dir:         # single GPU / DP / DDP; run on all available GPUs;
 device_ids: -1        # single GPU / DP / DDP; run on all available GPUs; 
 
 
-train_split: 'train_mode'
-test_split: 'test_mode'
-data_dir: /glusterfs/yufeiy2/fair/data/obman/
-shape_dir: '/glusterfs/yufeiy2/download_data/ShapeNetCore.v2/'
+train_split: 'obman'
+test_split: 'obman'
+data_dir: '/glusterfs/yufeiy2/fair/mesh_sdf/' 
+data_mode: 'osdf'
 
-data_mode: 'pc'
-
-point_reso: 4096
+point_reso: 32
 batch_size: 16
 
-xyz_std: 1
-theta_std: 3
-
-DB:
-  JITTER_XYZ: 0.01
-  MAX_DROPOUT: 0.5 
+lr: 1e-4
 
 cf_prob: 0.
 
 time: 
-  total: 100
-  start: 100
-
-# TODO may need range of noise 
+  total: 1000
+  start: 1000
 
 n_save_freq: 5000
 n_eval_freq: 2500
 special_ckpt: [10, 1000, 2000, 3000, 5000, 7500, 10000]
 
-
-# dumb
 training:
   ckpt_file: None
