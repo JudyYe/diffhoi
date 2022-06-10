@@ -14,13 +14,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
 import yaml
-from dataio.sdf import Sdf
+from dataio.sdf import Sdf, SdfHand
 from ddpm.ddpm_pose import build_dataset
 from utils import dist_util, io_util
 from utils.dist_util import get_local_rank, get_rank, get_world_size, init_env, is_master
 import os
 import os.path as osp
 from utils.logger import Logger
+from utils.hand_utils import ManopthWrapper, transform_nPoints_to_js
 from jutils import model_utils, mesh_utils, image_utils
 
 
@@ -192,11 +193,13 @@ class Decoder(pl.LightningModule):
         xyz_in_all=None,
         use_tanh=False,
         latent_dropout=False,
+        xyz_dim=3,
     ):
         super(Decoder, self).__init__()
 
 
-        dims = [latent_size + 3] + list(dims) + [1]
+        dims = [latent_size + xyz_dim] + list(dims) + [1]
+        self.xyz_dim = xyz_dim
 
         self.num_layers = len(dims)
         self.norm_layers = norm_layers
@@ -214,7 +217,7 @@ class Decoder(pl.LightningModule):
             else:
                 out_dim = dims[layer + 1]
                 if self.xyz_in_all and layer != self.num_layers - 2:
-                    out_dim -= 3
+                    out_dim -= self.xyz_dim
 
             if weight_norm and layer in self.norm_layers:
                 setattr(
@@ -243,10 +246,10 @@ class Decoder(pl.LightningModule):
 
     # input: N x (L+3)
     def forward(self, input):
-        xyz = input[:, -3:]
+        xyz = input[:, -self.xyz_dim:]
 
         if input.shape[1] > 3 and self.latent_dropout:
-            latent_vecs = input[:, :-3]
+            latent_vecs = input[:, :-self.xyz_dim]
             latent_vecs = F.dropout(latent_vecs, p=0.2, training=self.training)
             x = torch.cat([latent_vecs, xyz], 1)
         else:
@@ -278,15 +281,79 @@ class Decoder(pl.LightningModule):
             x = self.th(x)
 
         return x
+    
+    def get_inputs(self, z, hA, xyz):
+        return torch.cat([z, xyz], 1)
+
+    def sdf(self, x, latent, **kwargs):
+        """
+        :param x: (N, P, 3)
+        :param latent: (N, D)? 
+        :param output: (N, P, 1)
+        """
+        N, P, _3 = x.shape
+        N, D = latent.shape
+        latent = latent.unsqueeze(1).repeat(1, P, 1)
+        inputs = torch.cat([latent, x], dim=-1).reshape(N * P, _3 + D)
+        pred = self(inputs)
+        pred = pred.reshape(N, P, 1)
+        return pred
+
+
+class ArtCondDecoder(nn.Module):
+    def __init__(self, **surface_kwargs):
+        super().__init__()
+        self.net = Decoder(**surface_kwargs)
+        self.hand_wrapper = ManopthWrapper()
+
+    def get_jsPoints(self, nPoints, hA):
+        # --> (P, 1, J, 3)
+        jsPoints = transform_nPoints_to_js(self.hand_wrapper, hA, nPoints.unsqueeze(1))
+        
+        P, _ = nPoints.size()
+        jsPoints= jsPoints.reshape([P, -1])
+        return jsPoints  # (N, P, J)
+
+    def get_inputs(self, z, hA, xPoints):
+        P, _ = xPoints.size()
+
+        jsPoints = self.get_jsPoints(hA, xPoints)  # (P, NJ)
+        
+        points = torch.cat([z, jsPoints, xPoints])
+        return points
+
+    def forward(self, inputs):
+        """
+        :param z: (P, D)
+        :param hA: (P, 45)
+        :param xPoints: (P, 3)
+        :return: (P, )
+        """
+        sdf_value = self.net(inputs)
+        return sdf_value
+
+    def sdf(self, x, latent, hA):
+        """
+        :param x: (N, P, 3)
+        :param latent: (N, D)? 
+        :param output: (N, P, 1)
+        """
+        N, P, _3 = x.shape
+        N, D = latent.shape
+
+        latent = latent.unsqueeze(1).repeat(1, P, 1)
+        hA = hA.unsqueeze(1).repeat(1, P, 1)
+        pred = self(latent, hA, x)
+        pred = pred.reshape(N, P, 1)
+        return pred
 
 
 class AutoDecoder(pl.LightningModule):
     def __init__(self, decoder_mode, surface_kwargs, train_kwargs, args, **kwargs):
         super().__init__()
         self.args = args
-        if decoder_mode == 'models.deepsdf.deepsdf.Decoder':
-            latent_size = train_kwargs.CodeLength
-            self.decoder = Decoder(**surface_kwargs)
+        Dec = getattr(import_module('.'.join(decoder_mode.split('.')[:-1])), decoder_mode.split('.')[-1])
+        self.decoder = Dec(**surface_kwargs)
         self.embedding : nn.Embedding = None
         self.train_kwargs = train_kwargs
         self.minT, self.maxT = -train_kwargs.ClampingDistance, train_kwargs.ClampingDistance
@@ -312,7 +379,7 @@ class AutoDecoder(pl.LightningModule):
             dl = data.DataLoader(dset, sampler=train_sampler, 
                     batch_size = train_batch_size, pin_memory=True, num_workers=args.environment.workers)
         else:
-            dl = data.DataLoader(self.ds, batch_size = train_batch_size, 
+            dl = data.DataLoader(dset, batch_size = train_batch_size, 
                 shuffle=True, pin_memory=True, num_workers=args.environment.workers)
 
         num_scenes = len(dset)
@@ -348,11 +415,13 @@ class AutoDecoder(pl.LightningModule):
         lat_vecs = self.embedding
         decoder = self.decoder
 
-        sdf_data = batch[self.args.frame]  # (B, P, 4)
+        sdf_data = batch[self.args.frame]  # (N, P, 4)
+        hA = batch['hA']  # (N, 45)
         indices = batch['indices']
+        N, P, _ = sdf_data.shape
 
         # Process the input data
-        sdf_data = sdf_data.reshape(-1, 4)
+        sdf_data = sdf_data.reshape(-1, 4)  # (NP, 4)
 
         num_sdf_samples = sdf_data.shape[0]
 
@@ -372,6 +441,9 @@ class AutoDecoder(pl.LightningModule):
 
         sdf_gt = torch.chunk(sdf_gt, batch_split)
 
+        hA = hA.unsqueeze(1).repeat(1, P, 1).reshape(N*P, -1)
+        hA = torch.chunk(hA, batch_split)
+
         batch_loss = 0.0
 
         # optimizer_all.zero_grad()
@@ -379,8 +451,10 @@ class AutoDecoder(pl.LightningModule):
         for i in range(batch_split):
 
             batch_vecs = lat_vecs(indices[i])
+            # pred_sdf = decoder(batch_vecs, hA, xyz[i])
 
-            input = torch.cat([batch_vecs, xyz[i]], dim=1)
+            # input = torch.cat([batch_vecs, xyz[i]], dim=1)
+            input = decoder.get_inputs(batch_vecs, hA[i], xyz[i])
 
             # NN optimization
             pred_sdf = decoder(input)
@@ -422,19 +496,6 @@ class AutoDecoder(pl.LightningModule):
 
         return super().training_step_end(*args, **kwargs)
 
-    def sdf(self, x, latent):
-        """
-        :param x: (N, P, 3)
-        :param latent: (N, D)? 
-        :param output: (N, P, 1)
-        """
-        N, P, _3 = x.shape
-        N, D = latent.shape
-        latent = latent.unsqueeze(1).repeat(1, P, 1)
-        inputs = torch.cat([latent, x], dim=-1).reshape(N * P, _3 + D)
-        pred = self.decoder(inputs)
-        pred = pred.reshape(N, P, 1)
-        return pred
 
     def validation_step(self, batch, batch_idx):
         # vis
@@ -445,7 +506,7 @@ class AutoDecoder(pl.LightningModule):
         if self.embedding is not None:
             indices = torch.randint(0, len(self.valset), [bs], device=self.device)
             latent = self.embedding(indices)
-            sdf = functools.partial(self.sdf, latent=latent)
+            sdf = functools.partial(self.decoder.sdf, latent=latent, hA=batch['hA'])
             meshes = mesh_utils.batch_sdf_to_meshes(sdf, self.args.batch_size, )
             if not meshes.isempty():
                 image_list = mesh_utils.render_geom_rot(meshes, scale_geom=True)
@@ -473,6 +534,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
     world_size = get_world_size()
 
     device = torch.device('cuda', get_local_rank())
+    print('device: ', device)
 
     exp_dir = args.exp_dir
     logger = Logger(
@@ -497,7 +559,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
     print(ckpt, filepath)
 
     trainer = pl.Trainer(
-        gpus=[gpu],
+        gpus=[local_rank],
         gradient_clip_val=args.deepsdf.TrainSpecs.GradientClipNorm,
         num_sanity_val_steps=1,
         limit_val_batches=2,
@@ -508,7 +570,8 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
         resume_from_checkpoint=ckpt,
         enable_progress_bar=is_master(),
     )
-    dist.barrier()
+    if args.environment.multiprocessing_distributed:
+        dist.barrier()
 
     trainer.fit(model)
 
@@ -524,4 +587,6 @@ def build_model(args):
 def build_dataset(args, train=False):
     if args.data_mode == 'sdf':
         dataset = Sdf(args.train_split, data_dir=args.data_dir, train=train, args=args)
+    elif args.data_mode == 'sdfhand':
+        dataset = SdfHand('train', data_dir='/glusterfs/yufeiy2/fair/data/obman', train=train, args=args)
     return dataset

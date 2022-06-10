@@ -1,5 +1,13 @@
 
 
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name deep_sdf \
+    expname=dev/tmp \
+    environment.multiprocessing_distributed=True \
+    deepsdf=art_cond data_mode=sdfhand train_split=train_mode frame=nSdf logging.mode=none
+
+
+
 CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name deep_sdf \
     expname=sdf/\${frame} \
     environment.multiprocessing_distributed=True \

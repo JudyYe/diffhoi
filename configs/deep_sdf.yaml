@@ -18,18 +18,20 @@ resume_dir:         # single GPU / DP / DDP; run on all available GPUs;
 device_ids: -1        # single GPU / DP / DDP; run on all available GPUs; 
 
 
+data_mode: 'sdf'
 train_split: 'obman'
 test_split: 'obman'
 data_dir: '/glusterfs/yufeiy2/fair/mesh_sdf/' 
-data_mode: 'sdf'
+shape_dir: '/glusterfs/yufeiy2/download_data/ShapeNetCore.v2/'
+
 frame: 'oSdf'
+
+# data_mode: 'sdfhand'
+# train_split: 'train_mode'
 
 point_reso: 16384
 batch_size: 8
 
-
-TrainSplit : examples/splits/sv2_chairs_train.json
-TestSplit : examples/splits/sv2_chairs_test.json
 
 
 n_save_freq: 5000
