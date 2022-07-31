@@ -1,3 +1,4 @@
+from importlib.machinery import OPTIMIZED_BYTECODE_SUFFIXES
 import json
 import logging
 from time import time
@@ -12,7 +13,6 @@ import pytorch3d.ops as op_3d
 import torch
 from torch.utils.data import Dataset
 from jutils import geom_utils, mesh_utils
-import yaml
 from utils.hand_utils import ManopthWrapper, get_nTh
 
 
@@ -48,6 +48,96 @@ class Sdf(Dataset):
         sample['oSdf'] = oSdf
         sample['indices'] = index
         return sample
+
+
+
+
+class GenericSdfHand(Dataset):
+    """SDF Wrapper of datasets"""
+    def __init__(self, anno, obj2mesh, train=False, args=dict()):
+        super().__init__()
+        self.cfg = args
+        self.train = train
+        self.subsample = args.point_reso
+        self.hand_wrapper = ManopthWrapper().to('cpu')
+
+        # 'index': [],  # per grasp
+        # 'sdf_file': [],  # per grasp
+        # 'cad_index': [],
+        # 'hA': [],   # torch.Float (45? )
+        # 'hTo': [],  # torch Float (4, 4)
+        self.anno = anno
+        self.obj2mesh = obj2mesh
+        self.mode = args.data.mode
+
+    def __len__(self):
+        return len(self.anno['index'])
+
+    def __getitem__(self, idx):
+        # load SDF
+        filename = self.anno['sdf_file'][idx]
+
+        oPos_sdf, oNeg_sdf = unpack_sdf_samples(filename, None)
+        hTo = torch.FloatTensor(self.anno['hTo'][idx])
+        hA = torch.FloatTensor(self.anno['hA'][idx])
+        nTh = get_nTh(hand_wrapper=self.hand_wrapper, hA=hA[None])[0]
+
+        nPos_sdf = norm_points_sdf(oPos_sdf, nTh @ hTo) 
+        nNeg_sdf = norm_points_sdf(oNeg_sdf, nTh @ hTo) 
+
+        if self.mode == 'occ':
+            oPos_sdf[..., -1] = 0
+            oNeg_sdf[..., -1] = 1
+            
+            nPos_sdf[..., -1] = 0
+            nNeg_sdf[..., -1] = 1  # inside
+        elif self.mode == 'sdf':
+            pass
+        else:
+            raise NotImplementedError(self.mode)
+
+        oSdf = torch.cat([
+                sample_points(oPos_sdf, self.subsample),
+                sample_points(oNeg_sdf, self.subsample),
+            ], dim=0)
+        
+        sample = {}
+        sample['hA'] = hA
+        sample['hTo'] = hTo
+
+        sample['oSdf'] = oSdf
+        nPos_sdf = sample_unit_cube(nPos_sdf, self.subsample)
+        nNeg_sdf = sample_unit_cube(nNeg_sdf, self.subsample)
+        nSdf = torch.cat([nPos_sdf, nNeg_sdf], dim=0)
+        sample['nSdf'] = nSdf
+
+        # add object point cloud
+        cad_index = self.anno['cad_index'][idx]
+        mesh = self.obj2mesh[cad_index]
+        
+        oObj = op_3d.sample_points_from_meshes(mesh, 2*self.subsample)
+        nObj = mesh_utils.apply_transform(oObj, (nTh @ hTo).unsqueeze(0))
+        cfg = self.cfg.data
+        # if self.train:
+        nObj = rdn_xyz_noise(nObj, cfg.jitter_xyz)
+        mat = geom_utils.get_jitter_trans(cfg.jitter_trans, cfg.jitter_rot, cfg.jitter_scale)
+        nObj = mesh_utils.apply_transform(nObj, mat)
+
+        nObj = sample_unit_cube(nObj[0], self.subsample)
+        sample['nObj'] = nObj
+        return sample   
+
+
+
+
+def rdn_xyz_noise(xyz, jitter_xyz):
+    """give iid Gaussian jitter to point xyz"""
+    stdev = jitter_xyz
+    jitter = torch.randn_like(xyz) * stdev
+    jitter = np.clip(jitter, -stdev * 2, stdev * 2)
+    xyz += jitter
+    return xyz
+
 
 
 class SdfHand(Dataset):
@@ -149,83 +239,86 @@ class SdfHand(Dataset):
         hA = torch.FloatTensor(self.anno['hA'][idx])
         nTh = get_nTh(self.hand_wrapper, hA[None], self.cfg.DB.RADIUS)[0]
 
-        nPos_sdf = self.norm_points_sdf(oPos_sdf, nTh @ hTo) 
-        nNeg_sdf = self.norm_points_sdf(oNeg_sdf, nTh @ hTo) 
+        nPos_sdf = norm_points_sdf(oPos_sdf, nTh @ hTo) 
+        nNeg_sdf = norm_points_sdf(oNeg_sdf, nTh @ hTo) 
+
+        if self.mode == 'occ':
+            oPos_sdf[..., -1] = 0
+            oNeg_sdf[..., -1] = 1
+
+            nPos_sdf[..., -1] = 0
+            nNeg_sdf[..., -1] = 1  # inside
+        elif self.mode == 'sdf':
+            pass
+        else:
+            raise NotImplementedError(self.mode)
 
         oSdf = torch.cat([
-                self.sample_points(oPos_sdf, self.subsample),
-                self.sample_points(oNeg_sdf, self.subsample),
+                sample_points(oPos_sdf, self.subsample),
+                sample_points(oNeg_sdf, self.subsample),
             ], dim=0)
+
         sample['oSdf'] = oSdf
 
-        nPos_sdf = self.sample_unit_cube(nPos_sdf, self.subsample)
-        nNeg_sdf = self.sample_unit_cube(nNeg_sdf, self.subsample)
+        nPos_sdf = sample_unit_cube(nPos_sdf, self.subsample)
+        nNeg_sdf = sample_unit_cube(nNeg_sdf, self.subsample)
         nSdf = torch.cat([nPos_sdf, nNeg_sdf], dim=0)
         sample['nSdf'] = nSdf
 
         sample['hA'] = hA
 
         sample['indices'] = idx + self.base_idx
-        sample['index'] = self.get_index(idx)
         return sample   
 
-    def norm_points_sdf(self, obj, nTh):
-        """
-        :param obj: (P, 4)
-        :param nTh: (4, 4)
-        :return:
-        """
-        D = 4
+def norm_points_sdf(obj, nTh):
+    """
+    :param obj: (P, 4)
+    :param nTh: (4, 4)
+    :return:
+    """
+    D = 4
 
-        xyz, sdf = obj[None].split([3, D - 3], dim=-1)  # (N, Q, 3)
-        nXyz = mesh_utils.apply_transform(xyz, nTh[None])  # (N, Q, 3)
-        _, _, scale = geom_utils.homo_to_rt(nTh)  # (N, 3)
-        # print(scale)  # only (5 or 1???)
-        sdf = sdf * scale[..., 0:1, None]  # (N, Q, 1) -> (N, 3)
-        nObj = torch.cat([nXyz, sdf], dim=-1)
-        return nObj[0]
+    xyz, sdf = obj[None].split([3, D - 3], dim=-1)  # (N, Q, 3)
+    nXyz = mesh_utils.apply_transform(xyz, nTh[None])  # (N, Q, 3)
+    _, _, scale = geom_utils.homo_to_rt(nTh)  # (N, 3)
+    # print(scale)  # only (5 or 1???)
+    sdf = sdf * scale[..., 0:1, None]  # (N, Q, 1) -> (N, 3)
+    nObj = torch.cat([nXyz, sdf], dim=-1)
+    return nObj[0]
 
-    def sample_points(self, points, num_points):
-        """
-        Args:
-            points ([type]): (P, D)
-        Returns:
-            sampled points: (num_points, D)
-        """
-        P, D = points.size()
-        ones = torch.ones([P])
-        inds = torch.multinomial(ones, num_points, replacement=True).unsqueeze(-1)  # (P, 1)
-        points = torch.gather(points, 0, inds.repeat(1, D))
-        return points
+def sample_points(points, num_points):
+    """
+    Args:
+        points ([type]): (P, D)
+    Returns:
+        sampled points: (num_points, D)
+    """
+    P, D = points.size()
+    ones = torch.ones([P])
+    inds = torch.multinomial(ones, num_points, replacement=True).unsqueeze(-1)  # (P, 1)
+    points = torch.gather(points, 0, inds.repeat(1, D))
+    return points
 
-    def sample_unit_cube(self, hObj, num_points, r=1):
-        """
-        Args:
-            points (P, 4): Description
-            num_points ( ): Description
-            r (int, optional): Description
-        
-        Returns:
-            sampled points: (num_points, 4)
-        """
-        D = hObj.size(-1)
-        points = hObj[..., :3]
-        prob = (torch.sum((torch.abs(points) < r), dim=-1) == 3).float()
-        if prob.sum() == 0:
-            prob = prob + 1
-            print('oops')
-        inds = torch.multinomial(prob, num_points, replacement=True).unsqueeze(-1)  # (P, 1)
+def sample_unit_cube(hObj, num_points, r=1):
+    """
+    Args:
+        points (P, 4): Description
+        num_points ( ): Description
+        r (int, optional): Description
+    
+    Returns:
+        sampled points: (num_points, 4)
+    """
+    D = hObj.size(-1)
+    points = hObj[..., :3]
+    prob = (torch.sum((torch.abs(points) < r), dim=-1) == 3).float()
+    if prob.sum() == 0:
+        prob = prob + 1
+        print('oops')
+    inds = torch.multinomial(prob, num_points, replacement=True).unsqueeze(-1)  # (P, 1)
 
-        handle = torch.gather(hObj, 0, inds.repeat(1, D))
-        return handle
-
-    def get_index(self, idx):
-        index =  self.anno['index'][idx]
-        if isinstance(index, tuple) or isinstance(index, list):
-
-            index = '/'.join(index)
-        return index
-
+    handle = torch.gather(hObj, 0, inds.repeat(1, D))
+    return handle
 
 
 
@@ -235,7 +328,8 @@ def unpack_sdf_samples(filename, subsample=None):
     neg_tensor = remove_nans(torch.from_numpy(npz["neg"]))
 
     if subsample is None:
-        return torch.cat([pos_tensor, neg_tensor], 0)
+        return pos_tensor, neg_tensor
+        # return torch.cat([pos_tensor, neg_tensor], 0)
 
     # split the sample into half
     half = int(subsample / 2)
@@ -246,16 +340,14 @@ def unpack_sdf_samples(filename, subsample=None):
     sample_pos = torch.index_select(pos_tensor, 0, random_pos)
     sample_neg = torch.index_select(neg_tensor, 0, random_neg)
 
-    samples = torch.cat([sample_pos, sample_neg], 0)
-
-    return samples
+    # samples = torch.cat([sample_pos, sample_neg], 0)
+    return sample_pos, sample_neg
+    # return samples
 
 
 def remove_nans(tensor):
     tensor_nan = torch.isnan(tensor[:, 3])
     return tensor[~tensor_nan, :]
-
-
 
 
 
