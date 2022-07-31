@@ -1,4 +1,95 @@
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name blind_prior \
+    environment.multiprocessing_distributed=False \
+    data=ihoi_mow \
+    expname=occ_ft/\${mode}_\${deepsdf.inp_mode}_\${deepsdf.pe}_\${deepsdf.inv} \
+    training.ckpt_file=\${output}/occ/\${mode}_\${deepsdf.inp_mode}_\${deepsdf.pe}_\${deepsdf.inv}/lightning_logs/version_0/checkpoints/last.ckpt
 
+
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name blind_prior \
+    environment.multiprocessing_distributed=False \
+    expname=occ/\${mode}_\${deepsdf.inp_mode}_\${deepsdf.pe}_\${deepsdf.inv} \
+    deepsdf.inp_mode=coord deepsdf.pe=True deepsdf.inv=False
+
+CUDA_VISIBLE_DEVICES=2,3 PYTHONPATH=. python -m engine --config-name blind_prior \
+    environment.multiprocessing_distributed=False \
+    expname=occ/\${mode}_\${deepsdf.inp_mode}_\${deepsdf.pe}_\${deepsdf.inv} \
+    deepsdf.inp_mode=coord deepsdf.pe=False deepsdf.inv=False
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name blind_prior \
+    environment.multiprocessing_distributed=False \
+    expname=occ/\${mode}_\${deepsdf.inp_mode}_\${deepsdf.pe}_\${deepsdf.inv} \
+    deepsdf.inp_mode=dist deepsdf.pe=True deepsdf.inv=False
+
+CUDA_VISIBLE_DEVICES=2,3 PYTHONPATH=. python -m engine --config-name blind_prior \
+    environment.multiprocessing_distributed=False \
+    expname=occ/\${mode}_\${deepsdf.inp_mode}_\${deepsdf.pe}_\${deepsdf.inv} \
+    deepsdf.inp_mode=dist deepsdf.pe=False deepsdf.inv=False
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name blind_prior \
+    environment.multiprocessing_distributed=False \
+    expname=occ/\${mode}_\${deepsdf.inp_mode}_\${deepsdf.pe}_\${deepsdf.inv} \
+    deepsdf.inp_mode=dist deepsdf.pe=True deepsdf.inv=True
+
+CUDA_VISIBLE_DEVICES=2,3 PYTHONPATH=. python -m engine --config-name blind_prior \
+    environment.multiprocessing_distributed=False \
+    expname=occ/\${mode}_\${deepsdf.inp_mode}_\${deepsdf.pe}_\${deepsdf.inv} \
+    deepsdf.inp_mode=dist deepsdf.pe=False deepsdf.inv=True
+
+
+--    
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name blind_prior \
+    environment.multiprocessing_distributed=False \
+    expname=occ/\${deepsdf.inp_mode}_\${deepsdf.pe}_\${deepsdf.inv} \
+    deepsdf.inp_mode=coord deepsdf.pe=True deepsdf.inv=False
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name blind_prior \
+    environment.multiprocessing_distributed=False \
+    expname=occ/\${deepsdf.inp_mode}_\${deepsdf.pe}_\${deepsdf.inv} \
+    deepsdf.inp_mode=coord deepsdf.pe=False deepsdf.inv=False
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name blind_prior \
+    environment.multiprocessing_distributed=False \
+    expname=occ/\${deepsdf.inp_mode}_\${deepsdf.pe}_\${deepsdf.inv} \
+    deepsdf.inp_mode=dist deepsdf.pe=True deepsdf.inv=False
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name blind_prior \
+    environment.multiprocessing_distributed=False \
+    expname=occ/\${deepsdf.inp_mode}_\${deepsdf.pe}_\${deepsdf.inv} \
+    deepsdf.inp_mode=dist deepsdf.pe=False deepsdf.inv=False
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name blind_prior \
+    environment.multiprocessing_distributed=False \
+    expname=occ/\${deepsdf.inp_mode}_\${deepsdf.pe}_\${deepsdf.inv} \
+    deepsdf.inp_mode=dist deepsdf.pe=True deepsdf.inv=True
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name blind_prior \
+    environment.multiprocessing_distributed=False \
+    expname=occ/\${deepsdf.inp_mode}_\${deepsdf.pe}_\${deepsdf.inv} \
+    deepsdf.inp_mode=dist deepsdf.pe=False deepsdf.inv=True
+
+
+--
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_shapenet \
+    expname=vox/lr_\${lr} \
+    lr=1e-5
+
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_shapenet \
+    expname=vox/lr_\${lr} \
+    lr=2e-5
+
+CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name ddpm_shapenet \
+    expname=vox/lr_\${lr} \
+    lr=1e-4
 
 
 CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name deep_sdf \

@@ -93,6 +93,14 @@ class Logger(object):
         else:
             raise print('Monitoring tool "%s" not supported!'
                                       % monitoring)
+    
+    def log_metrics(self, metrics, step):
+        if is_master() and self.wandb:
+            wandb.log(metrics, step=step)
+        elif not self.wandb:
+            print('[Step %04d]' % step)
+            for k, v in metrics.items():
+                print('\t%08s: %.4f' % (k, v))
 
     def add(self, category, k, v, it):
         if category not in self.stats:
