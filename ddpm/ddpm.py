@@ -516,9 +516,9 @@ class Trainer(object):
         if nHand is not None:
             meshes = mesh_utils.join_scene([nHand, meshes])
         image_list = mesh_utils.render_geom_rot(meshes, scale_geom=True)
-        self.logger.add_gifs(image_list, 'surface_%s' % name, self.step)
+        self.logger.add_gifs(image_list, 'surface/%s' % name, self.step)
         image_list = self.view_vol_as_gifs(sdf)
-        self.logger.add_gifs(image_list, 'slice_%s' % name, self.step)
+        self.logger.add_gifs(image_list, 'slice/%s' % name, self.step)
     
     def set_input(self, data):
         inputs = {"x": data['nSdf'].to(self.device), 'hA': data['hA'].to(self.device)}
@@ -616,11 +616,16 @@ class UncondTrainer(Trainer):
         device = self.device
         origin_sdf = self.set_input(valdata)['x']
 
+        # high reso
+        self.vis_sdf(valdata['vox128'], 'high_reso')
         self.vis_sdf(origin_sdf, 'initial')
         deoised = self.ema_model.sample(self.test_bs)
         self.vis_sdf(deoised, 'generate')
+        # inpainting? 
+        
 
     def set_input(self, data):
+        return {'x': data['nSdf'].to(self.device)}
         sdf = data['nSdf'].to(self.device)
 
         bs = len(sdf)
@@ -643,3 +648,12 @@ class UncondTrainer(Trainer):
 
     def _change_hand_fix_shape(self, ):
         return 
+
+    def vis_sdf(self, sdf, name, nHand=None):
+        super().vis_sdf(sdf, name, nHand)
+        meshes = mesh_utils.cubify(-sdf, 0).cuda()
+        if nHand is not None:
+            meshes = mesh_utils.join_scene([nHand, meshes])
+        image_list = mesh_utils.render_geom_rot(meshes, scale_geom=True)
+        self.logger.add_gifs(image_list, 'voxel/%s' % name, self.step)
+

@@ -60,7 +60,7 @@ def build_trainer(args, diffusion, dataset, valset, logger):
             results_folder=osp.join(args.exp_dir, 'ckpt'),
             save_and_sample_every=args.n_save_freq
         )
-    elif args.data_mode == 'osdf': 
+    elif args.data_mode in ['osdf', 'vox']: 
         from .ddpm import UncondTrainer as Trainer
         trainer = Trainer(
             diffusion,
@@ -88,7 +88,7 @@ def build_trainer(args, diffusion, dataset, valset, logger):
             start_time=args.time.start,
             device_ids=args.device_ids,
             train_batch_size = args.batch_size,
-            train_lr = 2e-5,
+            train_lr = args.lr,
             train_num_steps = 700000,         # total training steps
             gradient_accumulate_every = 2,    # gradient accumulation steps
             ema_decay = 0.995,                # exponential moving average decay
@@ -98,7 +98,8 @@ def build_trainer(args, diffusion, dataset, valset, logger):
             results_folder=osp.join(args.exp_dir, 'ckpt'),
             save_and_sample_every=args.n_save_freq
         )        
-
+    else:
+        raise NotImplementedError(args.data_mode)
     return trainer
         
 def build_dataset(args):
@@ -114,6 +115,10 @@ def build_dataset(args):
         from ddpm.data import SdfFly
         dataset = SdfFly(args.train_split, data_dir=args.data_dir,)
         valset = SdfFly(args.test_split, data_dir=args.data_dir, )
+    elif args.data_mode == 'vox':
+        from ddpm.data import Voxel
+        dataset = Voxel(args.train_split, data_dir=args.data_dir,)
+        valset = Voxel(args.test_split, data_dir=args.data_dir, )
     return dataset, valset
 
 

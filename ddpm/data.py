@@ -12,6 +12,7 @@ import pytorch3d.ops as op_3d
 import torch
 from torch.utils.data import Dataset
 from jutils import geom_utils, mesh_utils
+from trimesh.exchange.binvox import load_binvox
 import yaml
 from utils.hand_utils import ManopthWrapper, get_nTh
 
@@ -193,6 +194,7 @@ class PCData(Dataset):
     
 
 
+
 class SdfFly(Dataset):
     def __init__(self, split, data_dir='/glusterfs/yufeiy2/fair/mesh_sdf/', args=dict()) -> None:
         super().__init__()
@@ -219,7 +221,7 @@ class SdfFly(Dataset):
     def __getitem__(self, index):
         """
         Return: 
-            nSdf: (1, D, H, W)
+            nSdf: (P, 4)
             hA: (45, )
         """
         oSdf = self.load_sdf(index)
@@ -259,6 +261,78 @@ def remove_nans(tensor):
 
 
 
+# taken from https://github.com/optas/latent_3d_points/blob/8e8f29f8124ed5fc59439e8551ba7ef7567c9a37/src/in_out.py
+synsetid_to_cate = {
+    '02691156': 'airplane', '02773838': 'bag', '02801938': 'basket',
+    '02808440': 'bathtub', '02818832': 'bed', '02828884': 'bench',
+    '02876657': 'bottle', '02880940': 'bowl', '02924116': 'bus',
+    '02933112': 'cabinet', '02747177': 'can', '02942699': 'camera',
+    '02954340': 'cap', '02958343': 'car', '03001627': 'chair',
+    '03046257': 'clock', '03207941': 'dishwasher', '03211117': 'monitor',
+    '04379243': 'table', '04401088': 'telephone', '02946921': 'tin_can',
+    '04460130': 'tower', '04468005': 'train', '03085013': 'keyboard',
+    '03261776': 'earphone', '03325088': 'faucet', '03337140': 'file',
+    '03467517': 'guitar', '03513137': 'helmet', '03593526': 'jar',
+    '03624134': 'knife', '03636649': 'lamp', '03642806': 'laptop',
+    '03691459': 'speaker', '03710193': 'mailbox', '03759954': 'microphone',
+    '03761084': 'microwave', '03790512': 'motorcycle', '03797390': 'mug',
+    '03928116': 'piano', '03938244': 'pillow', '03948459': 'pistol',
+    '03991062': 'pot', '04004475': 'printer', '04074963': 'remote_control',
+    '04090263': 'rifle', '04099429': 'rocket', '04225987': 'skateboard',
+    '04256520': 'sofa', '04330267': 'stove', '04530566': 'vessel',
+    '04554684': 'washer', '02992529': 'cellphone',
+    '02843684': 'birdhouse', '02871439': 'bookshelf',
+    # '02858304': 'boat', no boat in our dataset, merged into vessels
+    # '02834778': 'bicycle', not in our taxonomy
+}
+cate_to_synsetid = {v: k for k, v in synsetid_to_cate.items()}
+
+class Voxel(Dataset):
+    def __init__(self, split, data_dir='/ShapeNet.Core.v2/', 
+                 cats=['bottle', 'bowl', 'can', 'jar', 'knife', 'cellphone', 'camera', 'remote_control'], 
+                 args=dict()) -> None:
+        super().__init__()
+        self.data = data_dir
+        cats = [cate_to_synsetid[e] for e in cats]
+        self.index_list = []
+        for cat in cats:
+            index_list = [osp.join(cat, line.strip()) for line in open(osp.join(data_dir, cat, split + '.txt'))]
+            self.index_list += index_list
+        np.random.seed(123)
+        np.random.shuffle(self.index_list)
+        
+        self.vox_dir = osp.join(data_dir, '{}/models/model_normalized.solid.binvox')
+        self.reso = 32
+                
+    def __len__(self):
+        return len(self.index_list)
+
+    def __getitem__(self, index):
+        """
+        Return: 
+            nSdf: (1?, D, H, W)
+            hA: (45, )
+        """
+        with open(self.vox_dir.format(self.index_list[index]), 'rb') as fp:
+            vox = load_binvox(fp)
+
+        vox128 = np.array(vox.matrix).astype(np.float32)
+        H = self.reso
+        vox32 = (np.resize(vox128, (H, H, H)) > H / 128 * 2).astype(np.float32)
+        # vox32 = np.array(vox.revoxelized((H, H, H)).matrix)
+
+        vox128 = self.vox_to_pseudosdf(vox128)
+        vox32 = self.vox_to_pseudosdf(vox32)
+        sample = {}
+        sample['vox128'] = vox128[None]
+        sample['nSdf'] = vox32[None]
+        sample['hA'] = np.zeros([45,])
+        sample['index'] = self.index_list[index]
+        return sample
+
+    def vox_to_pseudosdf(self, vox):
+        vox = vox.astype(np.float32) - 0.5
+        return -vox * 2
 
 
 if __name__ == '__main__':
@@ -285,6 +359,11 @@ if __name__ == '__main__':
         # image_list = mesh_utils.render_geom_rot(hoi, scale_geom=True)
         # image_utils.save_gif(image_list, osp.join(save_dir, '%d' % (i)))
         mesh_utils.dump_meshes(osp.join(save_dir, '%d' % i), hoi, )
+        print(batch['nSdf'].shape)
+        H = 32
+        sdf = -batch['nSdf'].reshape(bs, 1, H, H, H)
+        vox = mesh_utils.cubify(sdf, th=0)
+        mesh_utils.dump_meshes(osp.join(save_dir, '%d_vox' % i), vox)
 
         if i > 5:
             break
