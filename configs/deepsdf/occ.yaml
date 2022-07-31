@@ -1,0 +1,42 @@
+inp_mode: coord  # [coord, dist]
+pe_mul: 10
+inv: False
+pe: False
+inv_th: 0.001
+
+NetworkSpecs : 
+  latent_size: ${z_dim}
+  dims: 
+    - 512 
+    - 512 
+    - 512 
+    - 512 
+    - 512 
+    - 512 
+    - 512 
+    - 512
+  dropout : 
+    - 0 
+    - 1 
+    - 2 
+    - 3 
+    - 4 
+    - 5 
+    - 6 
+    - 7
+  dropout_prob : 0.2
+  norm_layers : 
+    - 0 
+    - 1 
+    - 2 
+    - 3 
+    - 4 
+    - 5 
+    - 6 
+    - 7
+  latent_in : 
+    - 4
+  xyz_in_all : false
+  use_tanh : false
+  latent_dropout : false
+  weight_norm : true
