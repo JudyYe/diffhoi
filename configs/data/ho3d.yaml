@@ -6,6 +6,7 @@ noise: 0
 scale_radius: 3  # what does this do 
 val_rayschunk: 10000
 volume_size: 6
+len: 100
 
 batch_size: 1       # one batch, one image
 pin_memory: True

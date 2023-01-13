@@ -279,14 +279,14 @@ def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_siz
 
     os.makedirs(save_dir, exist_ok=True)
     # reconstruct object
-    if is_master():
-        mesh_util.extract_mesh(
+    # if is_master():
+    mesh_util.extract_mesh(
             model.implicit_surface, 
             N=N,
             filepath=osp.join(save_dir, name + '_obj.ply'),
             volume_size=volume_size,
         )
-        jObj = mesh_utils.load_mesh(osp.join(save_dir, name + '_obj.ply')).cuda()
+    jObj = mesh_utils.load_mesh(osp.join(save_dir, name + '_obj.ply')).cuda()
 
     # reconstruct  hand and render in normazlied frame
     name_list = ['gt', 'view_0', 'view_1', 'view_j', 'view_h', 'view_hy', 'obj']

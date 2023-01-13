@@ -178,37 +178,39 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     #-------------------
                     # validate
                     #-------------------
-                    if i_val > 0 and int_it % i_val == 1 or test_train or int_it in special_i_val_mesh:
-                        print('validation!!!!!')
-                        test_train = 0
-                        with torch.no_grad():
-                            (val_ind, val_in, val_gt) = next(iter(valloader))
-                            
-                            trainer.eval()
-                            val_ind = val_ind.to(device)
-                            loss_extras = trainer(args, val_ind, val_in, val_gt, render_kwargs_test, 0)
- 
-                            target_rgb = val_gt['rgb'].to(device)    
-                            target_mask = val_in['object_mask'].to(device)
-                            target_flow = val_in['flow_fw'].to(device)
- 
-                            ret = loss_extras['extras']
+                    if is_master():
 
-                            to_img = functools.partial(
-                                rend_util.lin2img, 
-                                H=render_kwargs_test['H'], W=render_kwargs_test['W'],
-                                batched=render_kwargs_test['batched'])
-                            logger.add_imgs(to_img(target_rgb), 'gt/gt_rgb', it)
-                            logger.add_imgs(to_img(target_mask.unsqueeze(-1).float()), 'gt/gt_mask', it)
-                            logger.add_imgs(to_img(flow_util.batch_flow_to_image(target_flow)), 'gt/gt_flo_fw', it)
+                        if i_val > 0 and int_it % i_val == 1 or test_train or int_it in special_i_val_mesh:
+                            print('validation!!!!!')
+                            test_train = 0
+                            with torch.no_grad():
+                                (val_ind, val_in, val_gt) = next(iter(valloader))
+                                
+                                trainer.eval()
+                                val_ind = val_ind.to(device)
+                                loss_extras = trainer(args, val_ind, val_in, val_gt, render_kwargs_test, 0)
+    
+                                target_rgb = val_gt['rgb'].to(device)    
+                                target_mask = val_in['object_mask'].to(device)
+                                target_flow = val_in['flow_fw'].to(device)
+    
+                                ret = loss_extras['extras']
 
-                            if hasattr(trainer, 'val'):
-                                if args.ddp:
-                                    trainer.module.val(logger, ret, to_img, it, render_kwargs_test)
-                                else:
-                                    trainer.val(logger, ret, to_img, it, render_kwargs_test)
-                            
-                            logger.add_imgs(to_img(ret['normals_volume']/2.+0.5), 'obj/predicted_normals', it)
+                                to_img = functools.partial(
+                                    rend_util.lin2img, 
+                                    H=render_kwargs_test['H'], W=render_kwargs_test['W'],
+                                    batched=render_kwargs_test['batched'])
+                                logger.add_imgs(to_img(target_rgb), 'gt/gt_rgb', it)
+                                logger.add_imgs(to_img(target_mask.unsqueeze(-1).float()), 'gt/gt_mask', it)
+                                logger.add_imgs(to_img(flow_util.batch_flow_to_image(target_flow)), 'gt/gt_flo_fw', it)
+
+                                if hasattr(trainer, 'val'):
+                                    if args.ddp:
+                                        trainer.module.val(logger, ret, to_img, it, render_kwargs_test)
+                                    else:
+                                        trainer.val(logger, ret, to_img, it, render_kwargs_test)
+                                
+                                logger.add_imgs(to_img(ret['normals_volume']/2.+0.5), 'obj/predicted_normals', it)
                     #-------------------
                     # validate camera pose 
                     #-------------------

@@ -36,7 +36,7 @@ class SceneDataset(torch.utils.data.Dataset):
         bw_dir = '{0}/FlowBW'.format(self.instance_dir)
         bw_paths = sorted(glob(os.path.join(bw_dir, '*.npz')))
 
-        self.n_images = len(image_paths)
+        self.n_images = min(len(image_paths), args.data.setdefault('len', 10000))
         
         # determine width, height
         self.downscale = downscale
