@@ -229,7 +229,8 @@ def visualize(camera_matrix, extrinsics, fname='../output/neurecon_out/camera.pn
 
     # fig = plt.figure(figsize=(20, 20))
     fig = plt.figure()
-    ax = fig.gca(projection='3d')
+    ax = fig.add_subplot(projection='3d')
+    # ax = fig.gca(projection='3d')
     # ax.set_aspect("equal")
     ax.set_aspect("auto")
 

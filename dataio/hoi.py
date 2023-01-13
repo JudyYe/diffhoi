@@ -7,11 +7,12 @@ from tqdm import tqdm
 from glob import glob
 
 from utils.io_util import load_flow, load_mask, load_rgb, glob_imgs
-from jutils import mesh_utils, geom_utils
+from jutils import geom_utils, image_utils
 
 
 class SceneDataset(torch.utils.data.Dataset):
-    # NOTE: jianfei: modified from IDR.   https://github.com/lioryariv/idr/blob/main/code/datasets/scene_dataset.py
+    # NOTE: for HO3D
+    # jianfei: modified from IDR.   https://github.com/lioryariv/idr/blob/main/code/datasets/scene_dataset.py
     """Dataset for a class of objects, where each datapoint is a SceneInstanceDataset."""
 
     def __init__(self,
@@ -27,7 +28,6 @@ class SceneDataset(torch.utils.data.Dataset):
         self.train_cameras = train_cameras
 
         image_dir = '{0}/image'.format(self.instance_dir)
-        print(image_dir)
         image_paths = sorted(glob_imgs(image_dir))
         mask_dir = '{0}/mask'.format(self.instance_dir)
         mask_paths = sorted(glob_imgs(mask_dir))
@@ -66,7 +66,7 @@ class SceneDataset(torch.utils.data.Dataset):
             cam_center_norms.append(np.linalg.norm(wTc[:3,3].detach().numpy()))
         max_cam_norm = max(cam_center_norms)
         self.max_cam_norm = max_cam_norm  # in camera metric??? 
-        print(self.max_cam_norm)
+        print('max cam norm', self.max_cam_norm)
 
         # TODO: crop??!!!
         self.rgb_images = []
@@ -117,10 +117,14 @@ class SceneDataset(torch.utils.data.Dataset):
             self.obj_masks.append(torch.from_numpy(object_mask).to(dtype=torch.bool))
 
         self.hand_masks = []
+        self.hand_contours = []
         for path in hand_paths:
             object_mask = load_mask(path, downscale)
+            hand_c = image_utils.sample_contour(object_mask > 0).astype(np.float32) / object_mask.shape[0] * 2 - 1
+            self.hand_contours.append(hand_c)
             object_mask = object_mask.reshape(-1)
             self.hand_masks.append(torch.from_numpy(object_mask).to(dtype=torch.bool))
+
 
     def __len__(self):
         return self.n_images - 1
@@ -159,6 +163,7 @@ class SceneDataset(torch.utils.data.Dataset):
 
         sample['obj_mask'] = self.obj_masks[idx]
         sample['hand_mask'] = self.hand_masks[idx]
+        sample['hand_contour'] = self.hand_contours[idx]
         sample['hA'] = self.hA_inp[idx]
         sample['hA_n'] = self.hA_inp[idx_n]
 

@@ -1,0 +1,14 @@
+type: HOI
+data_dir: /home/yufeiy2/scratch/result/syn_data/${data.index}
+index:
+downscale: 1
+noise: 0
+scale_radius: 3  # what does this do 
+val_rayschunk: 10000
+volume_size: 6
+
+batch_size: 1       # one batch, one image
+pin_memory: True
+N_rays: 1024        # N_rays for training
+surface_downscale: 1
+surface_rayschunk: 1024

@@ -3,14 +3,17 @@ hydra-core
 submitit
 addict
 imageio
-scikit-image 
 matplotlib 
 imageio 
 plotly 
 opencv-python
-pytorch_lightning
+# pytorch_lightning
 einops
 trimesh
 wandb
 chumpy
 setuptools==59.5.0
+git+https://github.com/hassony2/manopth.git
+smplx
+plyfile
+# scikit-image 

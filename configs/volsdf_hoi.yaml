@@ -22,10 +22,10 @@ device_ids: -1        # single GPU / DP / DDP; run on all available GPUs;
 
 test_train: 0
 
-
 model:
   framework: VolSDFHOI
   obj_bounding_radius: 3.0  # scene sphere, as in the VolSDF paper
+  N_samples: 64  # half the original size
   
   outside_scene: "builtin"  # [builtin, nerf++]
   max_upsample_iter: 6      # up sample iteratioms, as in the VolSDF paper

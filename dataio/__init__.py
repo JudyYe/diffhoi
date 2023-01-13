@@ -1,3 +1,4 @@
+import os.path as osp
 def get_data(args, return_val=False, val_downscale=4.0, **overwrite_cfgs):
     dataset_type = args.data.get('type', 'DTU')
     cfgs = {
@@ -16,11 +17,13 @@ def get_data(args, return_val=False, val_downscale=4.0, **overwrite_cfgs):
         cfgs['data_dir'] = (args.data.data_dir, args.data.index)
 
     elif dataset_type == 'HOI':
+        # for HO3D
         from .hoi import SceneDataset
         cfgs['args'] = args
         cfgs['cam_file'] = args.data.get('cam_file', None)
     elif dataset_type == 'HOI_dtu':
         from .hoi_dtu import SceneDataset
+        cfgs['data_dir'] = osp.join(args.data.data_dir, args.data.index)
         cfgs['cam_file'] = args.data.get('cam_file', None)
     elif dataset_type == 'custom':
         from .custom import SceneDataset

@@ -17,7 +17,7 @@ from utils.logger import Logger
 from utils.checkpoints import CheckpointIO
 from dataio import get_data
 
-from jutils import web_utils, slurm_utils, mesh_utils, slurm_wrapper
+from jutils import slurm_utils, mesh_utils
 import os
 import sys
 import time
@@ -78,9 +78,9 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
     bs = args.data.get('batch_size', None)
     if args.ddp:
         train_sampler = DistributedSampler(dataset)
-        dataloader = DataLoader(dataset, sampler=train_sampler, batch_size=bs, collate_fn=mesh_utils.collate_meshes)
+        dataloader = DataLoader(dataset, sampler=train_sampler, batch_size=bs) #, collate_fn=mesh_utils.collate_meshes)
         val_sampler = DistributedSampler(val_dataset)
-        valloader = DataLoader(val_dataset, sampler=val_sampler, batch_size=bs, collate_fn=mesh_utils.collate_meshes)
+        valloader = DataLoader(val_dataset, sampler=val_sampler, batch_size=bs , collate_fn=mesh_utils.collate_meshes)
     else:
         dataloader = DataLoader(dataset,
             batch_size=bs,
@@ -105,7 +105,9 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
     log.info(model)
     log.info("=> Nerf params: " + str(train_util.count_trainable_parameters(model)))
     log.info("=> Camera params: " + str(train_util.count_trainable_parameters(posenet) + train_util.count_trainable_parameters(focal_net)))
-
+    
+    trainer.H = dataset.H
+    trainer.W = dataset.W
     render_kwargs_train['H'] = dataset.H
     render_kwargs_train['W'] = dataset.W
     render_kwargs_test['H'] = val_dataset.H
@@ -231,7 +233,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     # validate rendering
                     #-------------------
                     # NOTE: not validating mesh before 3k, as some of the instances of DTU for NeuS training will have no large enough mesh at the beginning.
-                    if i_val > 0 and int_it % i_val == 1 or test_train or int_it in special_i_val_mesh:
+                    if is_master() and i_val > 0 and int_it % i_val == 1 or test_train or int_it in special_i_val_mesh:
                         logging.info('vis tool_clip run_render')
                         one_time_loader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=mesh_utils.collate_meshes)
                         with torch.no_grad():

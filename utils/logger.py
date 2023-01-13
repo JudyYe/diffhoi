@@ -57,7 +57,7 @@ class Logger(object):
         if not (monitoring is None or monitoring == 'none'):
             self.setup_monitoring(monitoring, monitoring_dir)
 
-
+    
     def setup_monitoring(self, monitoring, monitoring_dir):
         self.monitoring = monitoring
         self.monitoring_dir = monitoring_dir
@@ -96,7 +96,7 @@ class Logger(object):
     
     def log_metrics(self, metrics, step):
         if is_master() and self.wandb:
-            wandb.log(metrics, step=step)
+            wandb.log(metrics, step=step, )
         elif not self.wandb:
             print('[Step %04d]' % step)
             for k, v in metrics.items():

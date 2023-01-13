@@ -1,6 +1,7 @@
 log_root_dir: ${output}
 exp_dir: ${training.log_root_dir}/${expname}
 
+render_full_frame: True
 beta_init: 0.1
 speed_factor: 10.0
 

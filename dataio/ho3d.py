@@ -11,7 +11,6 @@ import tqdm
 from PIL import Image
 import pandas as pd
 import torch
-from pytorch3d.transforms.transform3d import Rotate, Scale, Translate
 
 from jutils import mesh_utils, geom_utils
 from jutils.hand_utils import ManopthWrapper, cvt_axisang_t_i2o

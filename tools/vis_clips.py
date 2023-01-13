@@ -1,9 +1,9 @@
 import numpy as np
 import os
 import os.path as osp
-
+from time import time
 from tqdm import tqdm
-from ddpm.data import SdfData
+from torch.nn.parallel import DistributedDataParallel
 from ddpm.main import load_diffusion_model
 from models.frameworks.volsdf_hoi import MeshRenderer, VolSDFHoi
 from preprocess.smooth_hand import vis_hA, vis_se3
@@ -18,9 +18,70 @@ import torch
 from torch.utils.data.dataloader import DataLoader
 from jutils import image_utils, geom_utils, mesh_utils
 
+def run_train_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_kwargs, offset=None):
+    device = trainer.device
+    if offset is None:
+        offset = geom_utils.axis_angle_t_to_matrix(
+            torch.FloatTensor([[0, 0, 1]]).to(device), 
+            )
+    os.makedirs(save_dir, exist_ok=True)
 
+    orig_H, orig_W = dataloader.dataset.H, dataloader.dataset.W
+    H, W = render_kwargs['H'], render_kwargs['W']
+    
+    # reconstruct  hand and render
+    name_list = ['gt', 'render_0', 'render_1', 'hand_0', 'hand_1', 'obj_0', 'obj_1', 'hand_front', 'obj_front']
+    image_list = [[] for _ in name_list]
+    for (indices, model_input, ground_truth) in tqdm(dataloader):
+        hh = ww = int(np.sqrt(ground_truth['rgb'].size(1) ))
+        gt = ground_truth['rgb'].reshape(1, hh, ww, 3).permute(0, 3, 1, 2)
+        image_list[0].append(gt)
+
+        jHand, jTc, _, intrinsics = trainer.get_jHand_camera(indices.to(device), model_input, ground_truth, H, W)
+
+        intrinsics[..., 0, 2] /= orig_W / W 
+        intrinsics[..., 0, 0] /= orig_W / W 
+        intrinsics[..., 1, 2] /= orig_H / H 
+        intrinsics[..., 1, 1] /= orig_H / H 
+
+        trainer.zero_grad()
+        with torch.enable_grad():
+            t = time()
+            image1 = trainer.render(jHand, jTc, intrinsics, render_kwargs, use_surface_render=None)
+            duration = time() - t
+            mem_usage = torch.cuda.memory_allocated(0)/1024/1024/1024
+            mem_total = 24 # torch.cuda.max(0)/1024/1024/1024
+            print('resolution:', image1['image'].shape)
+            print(f'render one image time:{duration:.2f} s')
+            print(f'mem: {mem_usage:.2f}GB / {mem_total:.2f}GB = {mem_usage / mem_total * 100:.2f}\%')
+
+            cam_norm = mesh_utils.get_camera_dist(wTc=jTc)
+            xyz = torch.cat([torch.zeros_like(cam_norm), torch.zeros_like(cam_norm), -cam_norm * 0.1])
+            z_back = geom_utils.axis_angle_t_to_matrix(t=xyz)
+            # image2 = trainer.render(jHand, jTc@z_back@offset, intrinsics, render_kwargs)
+
+        image_list[1].append(image1['image'])
+        # image_list[2].append(image2['image'])
+        image_list[3].append(image1['hand'])
+        # image_list[4].append(image2['hand'])
+        image_list[5].append(image1['obj'])
+        # image_list[6].append(image2['obj'])
+        image_list[7].append(image1['hand_front'])
+        image_list[8].append(image1['obj_front'])
+        break
+
+    for n, img_list in zip(name_list, image_list):
+        image_utils.save_gif(img_list, osp.join(save_dir, name + '_%s' % n))
+
+    file_list = [osp.join(save_dir, name + '_%s.gif' % n) for n in name_list]
+    return file_list
+
+
+    
 def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_kwargs, offset=None):
     device = trainer.device
+    if isinstance(trainer, DistributedDataParallel):
+        trainer = trainer.module
     if offset is None:
         offset = geom_utils.axis_angle_t_to_matrix(
             torch.FloatTensor([[0, 0, 1]]).to(device), 
@@ -34,7 +95,6 @@ def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_
     # if W is not None:
     #     render_kwargs['W'] = W
     H, W = render_kwargs['H'], render_kwargs['W']
-    print(device, H, W)
     
     # reconstruct  hand and render
     name_list = ['gt', 'render_0', 'render_1', 'hand_0', 'hand_1', 'obj_0', 'obj_1', 'hand_front', 'obj_front']
@@ -52,7 +112,14 @@ def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_
         intrinsics[..., 1, 1] /= orig_H / H 
 
         with torch.no_grad():
+            t = time()
             image1 = trainer.render(jHand, jTc, intrinsics, render_kwargs)
+            duration = time() - t
+            mem_usage = torch.cuda.memory_allocated(0)/1024/1024/1024
+            mem_total = 24 # torch.cuda.max(0)/1024/1024/1024
+            # print('resolution:', image1['image'].shape)
+            # print(f'render one image time:{duration:.2f} s')
+            # print(f'mem: {mem_usage:.2f}GB / {mem_total:.2f}GB = {mem_usage / mem_total * 100:.2f}\%')
 
             cam_norm = mesh_utils.get_camera_dist(wTc=jTc)
             xyz = torch.cat([torch.zeros_like(cam_norm), torch.zeros_like(cam_norm), -cam_norm * 0.1])
@@ -204,6 +271,8 @@ def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_siz
     rot_y = geom_utils.axis_angle_t_to_matrix(
         np.pi / 2 * torch.FloatTensor([[1, 0, 0]]).to(device), 
     )
+    if isinstance(trainer, DistributedDataParallel):
+        trainer = trainer.module
 
     model = trainer.model
     renderer = trainer.mesh_renderer
@@ -264,7 +333,7 @@ def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_siz
 
 def main_function(args):
 
-    H = W = 224
+    H = W = args.reso
     device = 'cuda:0'
     # load config
     config = io_util.load_yaml(osp.join(args.load_pt.split('/ckpts')[0], 'config.yaml'))
@@ -310,10 +379,18 @@ def main_function(args):
             run(dataloader, trainer, save_dir, name, H=H, W=W, volume_size=args.volume_size, N=args.N)
     if args.nvs:
         render_kwargs_test['rayschunk'] = args.chunk
-        render_kwargs_test['H'] = H  * 2 // 3
-        render_kwargs_test['W'] = W  * 2 // 3
+        render_kwargs_test['H'] = H #  * 2 // 3
+        render_kwargs_test['W'] = W #  * 2 // 3
         with torch.no_grad():
             run_render(dataloader, trainer, save_dir, name, render_kwargs_test,)
+    if args.nvs_train:
+        render_kwargs_train['rayschunk'] = args.chunk
+        render_kwargs_train['H'] = H #  * 2 // 3
+        render_kwargs_train['W'] = W #  * 2 // 3
+        render_kwargs_train['N_samples'] = args.D
+        render_kwargs_train['max_upsample_steps'] = 1
+        with torch.no_grad():
+            run_train_render(dataloader, trainer, save_dir, name, render_kwargs_train,)
     if args.hand:
         with torch.no_grad():
             save_dir = args.load_pt.split('/ckpts')[0] + '/hA/'
@@ -351,18 +428,20 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=str, default=None, help='output ply file name')
+    parser.add_argument('--reso', type=int, default=224, help='resolution of images')
     parser.add_argument('--N', type=int, default=64, help='resolution of the marching cube algo')
+    parser.add_argument('--D', type=int, default=128, help='resolution of the marching cube algo')
     parser.add_argument('--T', type=int, default=100, help='resolution of the marching cube algo')
     parser.add_argument('--volume_size', type=float, default=6., help='voxel size to run marching cube')
 
     parser.add_argument("--diff_ckpt", type=str, default='', help='the trained model checkpoint .pt file')
     parser.add_argument("--load_pt", type=str, default=None, help='the trained model checkpoint .pt file')
     parser.add_argument("--init_r", type=float, default=1.0, help='Optional. The init radius of the implicit surface.')
-    parser.add_argument("--hand", action='store_true')
-
-    parser.add_argument("--nvs", action='store_true')
     parser.add_argument("--chunk", type=int, default=256, help='net chunk when querying the network. change for smaller GPU memory.')
 
+    parser.add_argument("--hand", action='store_true')
+    parser.add_argument("--nvs", action='store_true')
+    parser.add_argument("--nvs_train", action='store_true')
     parser.add_argument("--gt", action='store_true')
     parser.add_argument("--surface", action='store_true')
     parser.add_argument("--diff_eval", action='store_true')

@@ -1,15 +1,8 @@
 import functools
-import logging
 import os.path as osp
 import copy
-from statistics import mode
-from turtle import forward
-from typing import IO
-import numpy as np
-from tqdm import tqdm
-import matplotlib.pyplot as plt
 from collections import OrderedDict
-
+from copy import deepcopy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -24,12 +17,11 @@ from ddpm.main import load_diffusion_model
 from models.articulation import get_artnet
 from models.cameras.gt import PoseNet
 from models.frameworks.volsdf import SingleRenderer, VolSDF, volume_render_flow
-from utils import hand_utils, io_util, train_util, rend_util
-from utils.dist_util import is_master
+from utils import rend_util
 from utils.logger import Logger
 
 from models.blending import hard_rgb_blend, softmax_rgb_blend, volumetric_rgb_blend
-from jutils import geom_utils, mesh_utils, model_utils
+from jutils import geom_utils, mesh_utils, model_utils, hand_utils
 
 
 
@@ -154,6 +146,8 @@ class Trainer(nn.Module):
         self.joint_frame = args.model.joint_frame
         self.obj_radius = args.model.obj_bounding_radius
         self.args = args
+        self.H : int = 224 # training reso
+        self.W : int = 224 # training reso
 
         self.model = model
         self.renderer = SingleRenderer(model)
@@ -366,7 +360,7 @@ class Trainer(nn.Module):
         device = self.device
         N = len(indices)
         indices = indices.to(device)
-
+        full_frame_iter = self.training and self.args.training.render_full_frame and it % 2 == 0
         # 1. GET POSES
         jTc, jTc_n, jTh, jTh_n = self.get_jTc(indices, model_input, ground_truth)
 
@@ -378,6 +372,16 @@ class Trainer(nn.Module):
         render_kwargs_train['far'] = zfar = (norm + args.model.obj_bounding_radius).cpu().item()
         render_kwargs_train['near'] = znear = (norm - args.model.obj_bounding_radius).cpu().item()
 
+        if full_frame_iter:
+            render_kwargs_train_copy = deepcopy(render_kwargs_train)
+            render_kwargs_train_copy['H'] = 64
+            render_kwargs_train_copy['W'] = 64
+            render_kwargs_train_copy['N_samples'] = 32  # low resolution smaple
+            render_kwargs_train = render_kwargs_train_copy
+        # else:
+            # render_kwargs_train['H'] = self.H
+            # render_kwargs_train['W'] = self.W
+            # render_kwargs_train['N_samples'] = self.args.model.setdefault('N_samples', 128)
         H = render_kwargs_train['H']
         W = render_kwargs_train['W']
         intrinsics = self.focalnet(indices, model_input, ground_truth, H=H, W=W)
@@ -406,8 +410,14 @@ class Trainer(nn.Module):
         # volumetric rendering
         # rays in canonical object frame
         if self.training:
-            rays_o, rays_d, select_inds = rend_util.get_rays(
-                jTc, intrinsics, H, W, N_rays=args.data.N_rays)
+            if full_frame_iter:
+                rays_o, rays_d, select_inds = rend_util.get_rays(
+                    jTc, intrinsics, H, W, N_rays=-1)
+                # print('render full frame', rays_o.shape)
+            else:
+                rays_o, rays_d, select_inds = rend_util.get_rays(
+                    jTc, intrinsics, H, W, N_rays=args.data.N_rays)
+                # print('render non full frame', rays_o.shape)
         else:
             rays_o, rays_d, select_inds = rend_util.get_rays(
                 jTc, intrinsics, H, W, N_rays=-1)
@@ -665,46 +675,6 @@ class Trainer(nn.Module):
         # # # depth_hoi = mesh_utils.join_scene([depth_hand, depth_obj])
 
 
-        # #----------- plot beta heat map
-        # beta_heat_map = to_img_fn(ret['beta_map']).permute(0, 2, 3, 1).data.cpu().numpy()
-        # beta_heat_map = io_util.gallery(beta_heat_map, int(np.sqrt(beta_heat_map.shape[0])))
-        # _, beta = self.model.forward_ab()
-        # beta = beta.data.cpu().numpy().item()
-        # # beta_min = beta_heat_map.min()
-        # beta_max = beta_heat_map.max().item()
-        # if beta_max != beta:
-        #     ticks = np.linspace(beta, beta_max, 10).tolist()
-        # else:
-        #     ticks = [beta]
-        # tick_labels = ["{:.4f}".format(b) for b in ticks]
-        # tick_labels[0] = "beta={:.4f}".format(beta)
-        
-        # fig = plt.figure(figsize=(5, 3), dpi=100)
-        # ax = fig.add_subplot(111)
-        # ax_im = ax.imshow(beta_heat_map, vmin=beta, vmax=beta_max)
-        # cbar = fig.colorbar(ax_im, ticks=ticks)
-        # cbar.ax.set_yticklabels(tick_labels)
-        # logger.add_figure(fig, 'val/beta_heat_map', it)
-        
-        # #----------- plot iteration used for each ray
-        # max_iter = render_kwargs_test['max_upsample_steps']
-        # iter_usage_map = to_img_fn(ret['iter_usage'].unsqueeze(-1)).permute(0, 2, 3, 1).data.cpu().numpy()
-        # iter_usage_map = io_util.gallery(iter_usage_map, int(np.sqrt(iter_usage_map.shape[0])))
-        # iter_usage_map[iter_usage_map==-1] = max_iter+1
-        
-        # fig = plt.figure(figsize=(5, 3), dpi=100)
-        # ax = fig.add_subplot(111)
-        # ax_im = ax.imshow(iter_usage_map, vmin=0, vmax=max_iter+1)
-        # ticks = list(range(max_iter+2))
-        # tick_labels = ["{:d}".format(b) for b in ticks]
-        # tick_labels[-1] = 'not converged'
-        # cbar = fig.colorbar(ax_im, ticks=ticks)
-        # cbar.ax.set_yticklabels(tick_labels)
-        # logger.add_figure(fig, 'val/upsample_iters', it)
-
-
-
-
 def get_model(args, data_size=-1, **kwargs):
     model_config = {
         'use_nerfplusplus': args.model.setdefault('outside_scene', 'builtin') == 'nerf++',
@@ -754,7 +724,8 @@ def get_model(args, data_size=-1, **kwargs):
         'white_bkgd': args.model.setdefault('white_bkgd', False),
         'max_upsample_steps': args.model.setdefault('max_upsample_iter', 5),
         'use_nerfplusplus': args.model.setdefault('outside_scene', 'builtin') == 'nerf++',
-        'obj_bounding_radius': args.model.obj_bounding_radius
+        'obj_bounding_radius': args.model.obj_bounding_radius,
+        'N_samples': args.model.setdefault('N_samples', 128),
     }
     render_kwargs_test = copy.deepcopy(render_kwargs_train)
     render_kwargs_test['rayschunk'] = args.data.val_rayschunk

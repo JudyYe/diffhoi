@@ -57,6 +57,8 @@ def load_rgb(path, downscale=1):
     # img -= 0.5
     # img *= 2.
     img = img.transpose(2, 0, 1)
+    if img.shape[0] == 4:
+        img = img[:3]
     return img
 
 def load_flow(path, downscale=1):

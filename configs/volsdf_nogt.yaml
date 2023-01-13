@@ -9,7 +9,7 @@ defaults:
   - diffuse: null
 
 worker: 'train'
-output: "/glusterfs/yufeiy2/vhoi/output/"
+output: "/compute/grogu-2-9/yufeiy2/result/vhoi"
 expname: dev/tmp
 
 hA:
@@ -20,7 +20,7 @@ resume_dir:
 
 # device_ids: [0]     # single gpu           ; run on specified GPU
 # device_ids: [1, 0]  # DP                   ; run on specified GPU
-device_ids: -1        # single GPU / DP / DDP; run on all available GPUs; 
+device_ids: [0]        # single GPU / DP / DDP; run on all available GPUs; 
 
 test_train: 0
 
@@ -28,6 +28,7 @@ test_train: 0
 model:
   framework: VolSDFHOI
   obj_bounding_radius: 3.0  # scene sphere, as in the VolSDF paper
+  N_samples: 64  # half the original size
   
   outside_scene: "builtin"  # [builtin, nerf++]
   max_upsample_iter: 6      # up sample iteratioms, as in the VolSDF paper

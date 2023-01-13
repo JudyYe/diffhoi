@@ -1,3 +1,10 @@
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine --config-name volsdf_nogt \
+    expname=dev/tmp \
+    data=ho3d data.index=SM2_0000_dt02 \
+    logging.mode=none 
+
+
+
 CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name blind_prior \
     environment.multiprocessing_distributed=False \
     data=ihoi_mow \

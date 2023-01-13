@@ -486,7 +486,7 @@ def volume_render(
         # NOTE: from the paper, should not concatenate here; 
         # NOTE: but from practice, as long as not concatenating and only using fine points, 
         #       there would be artifact emerging very fast before 10k iters, and the network converged to severe local minima (all cameras inside surface).
-        d_all = torch.cat([d_coarse, d_fine], dim=-1)
+        d_all = torch.cat([d_coarse, d_fine], dim=-1)  # in total 192 samples. (128+64)
         d_all, _ = torch.sort(d_all, dim=-1)
         # d_all = d_fine
         pts = rays_o[..., None, :] + rays_d[..., None, :] * d_all[..., :, None]
@@ -806,7 +806,8 @@ def get_model(args, data_size=-1):
         'white_bkgd': args.model.setdefault('white_bkgd', False),
         'max_upsample_steps': args.model.setdefault('max_upsample_iter', 5),
         'use_nerfplusplus': args.model.setdefault('outside_scene', 'builtin') == 'nerf++',
-        'obj_bounding_radius': args.model.obj_bounding_radius
+        'obj_bounding_radius': args.model.obj_bounding_radius,
+        'N_samples': args.model.setdefault('N_samples', 128),
     }
     render_kwargs_test = copy.deepcopy(render_kwargs_train)
     render_kwargs_test['rayschunk'] = args.data.val_rayschunk
