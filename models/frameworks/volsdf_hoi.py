@@ -542,7 +542,10 @@ class Trainer(nn.Module):
                  losses['contact_%d' % i] = args.training.w_contact * loss
                  losses['contact'] += losses['contact_%d' % i]
 
-        if args.training.w_diffuse > 0:
+        if args.training.w_diffuse > 0 and full_frame_iter:
+            apply_sd()
+            # Apply Distilled Score from dream diffusion
+            # https://github.com/ashawkey/stable-dreamfusion/blob/main/nerf/sd.py
             bs = args.data.batch_size
             reso = 32
             jGrid = mesh_utils.make_grid(reso, device=device, order='xyz')            
