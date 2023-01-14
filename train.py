@@ -259,6 +259,10 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                             log.warn('No surface extracted; pass')
                             pass
                     #-------------------
+                    # validate novel view rendering~~
+                    #-------------------
+
+                    #-------------------
                     # validate mesh
                     #-------------------
                     if is_master():

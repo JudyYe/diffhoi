@@ -1,6 +1,6 @@
 CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine --config-name volsdf_nogt \
-    expname=dev/tmp \
-    data=ho3d data.index=SM2_0000_dt02 \
+    expname=w_diff training=diffuse \
+    data=ho3d data.index=SM2_0000_dt02 data.len=2 \
     logging.mode=none 
 
 

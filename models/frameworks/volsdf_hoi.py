@@ -12,7 +12,7 @@ from pytorch3d.renderer import PerspectiveCameras
 import pytorch3d.transforms.rotation_conversions as rot_cvt
 from pytorch3d.renderer.blending import BlendParams
 from pytorch3d.loss.chamfer import knn_points
-from ddpm.main import load_diffusion_model
+from models.sd  import SDLoss
 
 from models.articulation import get_artnet
 from models.cameras.gt import PoseNet
@@ -161,10 +161,8 @@ class Trainer(nn.Module):
         self.hand_wrapper = hand_utils.ManopthWrapper()
 
         if args.training.w_diffuse > 0:
-            self.diffusion = load_diffusion_model(args.training.diffuse_ckpt)
-            self.diffusion.eval()
-            model_utils.freeze(self.diffusion)
-
+            self.sd_loss = SDLoss(args.training.diffuse_ckpt, args, **args.training.sd_para)
+            self.sd_loss.init_model(self.device)
 
     def init_hand_texture(self, dataloader):
         color_list = []
@@ -181,6 +179,9 @@ class Trainer(nn.Module):
     def init_camera(self, posenet, focalnet):
         self.posenet = posenet
         self.focalnet = focalnet
+
+    def sample_jHand_camera(self, indices, model_input, ground_truth, H, W):
+        return 
 
     def get_jHand_camera(self, indices, model_input, ground_truth, H, W):
         jTc, jTc_n, jTh, jTh_n = self.get_jTc(indices, model_input, ground_truth)
@@ -242,6 +243,19 @@ class Trainer(nn.Module):
         rtn['hand_front'] = pred_hand_select.cpu()
         rtn['obj_front'] = 1-pred_hand_select.cpu()
         return rtn
+    
+    def sample_jTc(self, indices, model_input, ground_truth):
+        jTc, jTc_n, jTh, jTh_n = self.get_jTc(indices, model_input, ground_truth)
+        # switch jTc with a sampled point on sphere
+        rot_T = geom_utils.random_rotations(len(jTc), device=jTc.device).reshape(len(jTc), 3, 3)
+
+        norm = mesh_utils.get_camera_dist(wTc=jTc)  # we want to get camera dist, and put it to -z? 
+        zeros = torch.zeros_like(norm)
+        trans = torch.stack([zeros, zeros, -norm], -1).unsqueeze(-1)
+
+        jTc = geom_utils.rt_to_homo(rot_T, -rot_T@trans)
+        # jTc_n = None
+        return jTc, jTc_n, jTh, jTh_n 
 
     def get_jTc(self, indices, model_input, ground_truth):
         device = self.device
@@ -362,7 +376,10 @@ class Trainer(nn.Module):
         indices = indices.to(device)
         full_frame_iter = self.training and self.args.training.render_full_frame and it % 2 == 0
         # 1. GET POSES
-        jTc, jTc_n, jTh, jTh_n = self.get_jTc(indices, model_input, ground_truth)
+        if full_frame_iter:
+            jTc, jTc_n, jTh, jTh_n = self.sample_jTc(indices, model_input, ground_truth)
+        else:
+            jTc, jTc_n, jTh, jTh_n = self.get_jTc(indices, model_input, ground_truth)
 
         # NOTE: znear and zfar is important: distance of camera center to world origin
         cam_norm = jTc_n[..., 0:4, 3]
@@ -430,7 +447,6 @@ class Trainer(nn.Module):
         # 2.3 BLEND!!!
         # blended rgb, detph, mask, flow
         iHoi = self.blend(iHand, iObj, select_inds, znear, zfar, **args.blend_train)
-
 
         # 3. GET GROUND TRUTH SUPERVISION 
         # [B, N_rays, 3]
@@ -543,24 +559,13 @@ class Trainer(nn.Module):
                  losses['contact'] += losses['contact_%d' % i]
 
         if args.training.w_diffuse > 0 and full_frame_iter:
-            apply_sd()
+            
             # Apply Distilled Score from dream diffusion
             # https://github.com/ashawkey/stable-dreamfusion/blob/main/nerf/sd.py
-            bs = args.data.batch_size
-            reso = 32
-            jGrid = mesh_utils.make_grid(reso, device=device, order='xyz')            
-            jSdf = self.model.implicit_surface(
-                jGrid.reshape(1, -1, 3)).reshape(
-                    1, 1, reso, reso, reso).repeat(bs, 1, 1, 1, 1)
+            H, W = render_kwargs_train['H'], render_kwargs_train['W']
+            img = iHoi['label'].reshape(N, 3, H, W)
+            self.sd_loss.apply_sd(img, args.training.w_diffuse)
 
-            # t = np.random.randint(0, self.diffusion.start_time)
-            t = torch.randint(0, self.diffusion.start_time, (bs,), device=device).long()
-            context = self.diffusion.get_context(hA=hA)
-
-            jSdf_recon = self.diffusion.p_sample(jSdf, t, context)
-            loss = F.mse_loss(jSdf_recon, jSdf)
-            losses['diffusion'] = args.training.w_diffuse * loss
-        
         # temporal smoothness loss
         # jJoints, hJoints? 
         if args.training.w_t_hand > 0:

@@ -4,8 +4,7 @@ import os.path as osp
 from time import time
 from tqdm import tqdm
 from torch.nn.parallel import DistributedDataParallel
-from ddpm.main import load_diffusion_model
-from models.frameworks.volsdf_hoi import MeshRenderer, VolSDFHoi
+from models.frameworks.volsdf_hoi import VolSDFHoi
 from preprocess.smooth_hand import vis_hA, vis_se3
 from utils import io_util, mesh_util
 from utils.dist_util import is_master

@@ -9,8 +9,16 @@ from glide_text2im.model_creation import create_gaussian_diffusion
 from glide_text2im.gaussian_diffusion import _extract_into_tensor
 
 class SDLoss:
-    def __init__(self, ckpt_path, cfg={}, min_step=0.02, max_step=0.98, 
-        prediction_respacing=100, guidance_scale=4, ) -> None:
+    def __init__(
+        self, 
+        ckpt_path, 
+        cfg={}, 
+        min_step=0.02, 
+        max_step=0.98, 
+        prediction_respacing=100, 
+        guidance_scale=4, 
+        prompt='a semantic segmentation of a hand grasping an object'
+    ) -> None:
         super().__init__()
         self.min_step = min_step
         self.max_step = max_step
@@ -20,7 +28,7 @@ class SDLoss:
         self.model: BaseModule = None
         self.alphas = None #  self.scheduler.alphas_cumprod.to(self.device) # for convenience
         self.cfg = cfg
-        self.const_str = 'a semantic segmentation of a hand grasping an object'
+        self.const_str = prompt
 
     def to(self, device):
         self.model.to(device)
@@ -41,7 +49,7 @@ class SDLoss:
         
         self.to(device)
         
-    def apply_sd(self, latents):
+    def apply_sd(self, latents, weight=1):
         device = latents.device
         batch_size = len(latents)
         guidance_scale = self.guidance_scale
@@ -62,7 +70,6 @@ class SDLoss:
             tokens = self.unet.tokenizer.encode(self.const_str)
             tokens, mask = self.unet.tokenizer.padded_tokens_and_mask( [], self.options["text_ctx"])
             uncond_tokens, uncond_mask = self.unet.tokenizer.padded_tokens_and_mask( [], self.options["text_ctx"])
-            # print(tokens.device, mask.device, uncond_mask.device, t.device, latent_model_input.device)
             model_kwargs = dict(
                 tokens=torch.tensor([tokens] * batch_size + [uncond_tokens] * batch_size, device=device),
                 mask=torch.tensor([mask] * batch_size + [uncond_mask] * batch_size,
@@ -85,9 +92,8 @@ class SDLoss:
         # TODO: judy: replace w EDM? 
         w = 1 - _extract_into_tensor(self.alphas, t, noise_pred.shape) 
         # w = (1 - self.alphas[t])
-        print(type(self.alphas), t.shape, type(noise_pred), noise_pred.shape)
         # w = self.alphas[t] ** 0.5 * (1 - self.alphas[t])
-        grad = w * (noise_pred - noise)
+        grad = weight * w * (noise_pred - noise)
 
         # clip grad for stable training?
         # grad = grad.clamp(-10, 10)
@@ -96,7 +102,6 @@ class SDLoss:
         # manually backward, since we omitted an item in grad and cannot simply autodiff.
         # _t = time.time()
         latents.backward(gradient=grad, retain_graph=True)    
-        print(latents.grad)
 
     def get_text_embeds(self, prompt, negative_prompt):
         # prompt, negative_prompt: [str]
