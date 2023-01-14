@@ -1,0 +1,9 @@
+module: ddpm.models.glide
+model:  Glide # | InpaintText2ImUNet | InsertText2ImUNet
+
+grad_clip: 0. 
+freeze_transformer: True
+freeze_diffusion: False
+activation_checkpointing: False
+
+resume_ckpt: ${environment.remote_str}/pretrain/glide/base.pt

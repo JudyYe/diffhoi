@@ -1,0 +1,6 @@
+obman_train:
+  target: obman
+  name: obman_train
+  data_dir: ${environment.local_str}/data/ObMan/
+  split: train
+  resize_ratio: 0.75

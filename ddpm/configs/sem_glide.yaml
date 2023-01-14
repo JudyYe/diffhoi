@@ -1,0 +1,62 @@
+defaults:
+  - environment: grogu
+  - hydra: default
+  - data@trainsets: ho3d
+  - data@testsets: ho3d
+  - model: glide
+
+worker: ddpm.models.glide_base
+train_prob: 
+  - 1
+  - 1
+
+expname: dev/tmp
+output: ${environment.output}
+checkpoints_dir: ${output}/${expname}
+outputs_dir: ${checkpoints_dir}/log
+exp_dir: ${checkpoints_dir}
+project_name: 'vhoiddpm_'
+
+ho3d:
+  split: train_seg
+
+test_batch_size: 8
+
+resume_ckpt: ${model.resume_ckpt}
+resume_train_from: ${exp_dir}/checkpoints/last.ckpt
+use_fp16: False
+
+
+eval: False
+logging: wandb
+batch_size: 8
+learning_rate: 1e-5
+adam_weight_decay: 0.01
+side_x: 64
+side_y: ${side_x}
+
+use_captions: True
+uncond_p: 0.2
+use_flip: False
+
+device: cuda
+log_frequency: 2500
+print_frequency: 100
+save_frequency: 5000
+save_topk: 1
+sanity_step: 1
+max_steps: 100000
+
+enable_inpaint: False
+enable_upsample: False
+
+activation_checkpointing: False
+
+test_guidance_scale: 4
+sample_respacing: '100'
+gradient_accumualation_steps: 1
+use_webdataset: False
+seed: 123
+upsample_factor: 4
+
+cudnn_benchmark: True

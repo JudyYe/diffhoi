@@ -1,0 +1,35 @@
+output: ${environment.remote_str}/result/vhoi
+ddp: False
+
+cmd: 
+local_str: /home/yufeiy2/scratch/
+remote_str: ${environment.local_str}
+
+local_dir: ${environment.local_str}/result/vhoi
+remote_dir: ${environment.remote_str}/result/vhoi
+
+submitit_dir: ${exp_dir}/submitit_train_logs/
+
+slurm: False
+overwrite: False
+resume: True
+
+world_size: 1
+rank: 0
+dist_url: tcp://localhost:10001
+dist_backend: nccl
+port: 10001
+node: localhost
+
+multiprocessing_distributed: ${environment.ddp}
+distributed: True
+workers: 8
+mem_gb: 256
+
+slurm_partition: abhinavlong,shubhamlong,all
+slurm_timeout: 2880
+nodelist: ""
+exclude_nodes: ""
+seed: 
+gpu:
+ngpu: 1
