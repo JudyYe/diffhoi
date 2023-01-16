@@ -1,3 +1,6 @@
+
+
+
 CUDA_VISIBLE_DEVICES=7 PYTHONPATH=. python -m ddpm.engine -m --config-name sem_glide  \
   expname=ddpm2/glide_\${ho3d.split} \
   ho3d.split=SM2,train_seg \

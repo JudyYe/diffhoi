@@ -1,17 +1,49 @@
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
-    expname=dev/tmp \
-    training=diffuse training.w_diffuse=1 \
-    data=ho3d data.index=SM2_0000_dt02 data.len=3 \
-    training.i_val=200 \
-    logging.mode=none 
-
-
 
 CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
-    expname=w_diff/len\${data.len}_wdiff\${training.w_diffuse} training=diffuse training.w_diffuse=0,1 \
-    data=ho3d data.index=SM2_0000_dt02 data.len=3 \
+    expname=calib/len\${data.len}_wdiff\${training.w_diffuse}_glide_train_seg_eik_\${training.w_eikonal} \
+    training=diffuse training.w_diffuse=1,1e-4,1e-3 \
+    data=ho3d data.index=SM2_0001_dt02 data.len=2 \
+    training.i_val=200 training.num_iters=2000 \
+    environment.slurm=True environment.resume=False \
+
+
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=calib/\${data.index}_len\${data.len}_default  \
+    data=ho3d data.index=SM2_0001_dt02 data.len=20,30 \
+    training.i_val=200 training.num_iters=2000 \
+    environment.slurm=True environment.resume=False \
+
+
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=calib/len\${data.len}_wdiff\${training.w_diffuse}_glide_train_seg training=diffuse training.w_diffuse=0,1e-4,1 \
+    data=ho3d data.index=SM2_0001_dt02 data.len=2 \
+    training.i_val=200 training.num_iters=2000 training.w_eikonal=0 \
+    environment.slurm=True environment.resume=False \
+
+
+-
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=fishrun/len\${data.len}_wdiff\${training.w_diffuse}_glide_train_seg training=diffuse training.w_diffuse=0.1,0.01,0.001 \
+    data=ho3d data.index=SM2_0000_dt02 data.len=2 \
     training.i_val=200 \
-    environment.slurm=True 
+    environment.slurm=True environment.resume=False \
+
+
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=fishrun/len\${data.len}_wdiff\${training.w_diffuse}_glide_train_seg training=diffuse training.w_diffuse=0,1 \
+    data=ho3d data.index=SM2_0000_dt02 data.len=2,3 \
+    training.i_val=200 \
+    environment.slurm=True environment.resume=False \
+
+
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=fishrun/len\${data.len}_wdiff\${training.w_diffuse}_glide_one training=diffuse training.w_diffuse=0,1 \
+    data=ho3d data.index=SM2_0000_dt02 data.len=2,3 \
+    training.i_val=200 training.diff_name=ddpm\/glide_SM2 \
+    environment.slurm=True environment.resume=False \
+
+
+
 
 CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
     expname=w_diff/len\${data.len}_default  \

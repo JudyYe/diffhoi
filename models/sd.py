@@ -1,4 +1,4 @@
-# https://github.com/ashawkey/stable-dreamfusion/blob/main/nerf/sd.py
+# modified from https://github.com/ashawkey/stable-dreamfusion/blob/main/nerf/sd.py
 import time
 import torch
 import torch.nn as nn
@@ -94,13 +94,12 @@ class SDLoss:
         # w = (1 - self.alphas[t])
         # w = self.alphas[t] ** 0.5 * (1 - self.alphas[t])
         grad = weight * w * (noise_pred - noise)
-
         # clip grad for stable training?
         # grad = grad.clamp(-10, 10)
         grad = torch.nan_to_num(grad)
-
+        # print('sd.py: L100, diffusion grad', grad, torch.norm(grad, dim=-1).mean())
+        # latents.retain_grad()  # just for debug
         # manually backward, since we omitted an item in grad and cannot simply autodiff.
-        # _t = time.time()
         latents.backward(gradient=grad, retain_graph=True)    
 
     def get_text_embeds(self, prompt, negative_prompt):

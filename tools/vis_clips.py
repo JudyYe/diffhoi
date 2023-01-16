@@ -14,6 +14,7 @@ from models.cameras import get_camera
 from dataio import get_data
 
 import torch
+import torch.nn.functional as F
 from torch.utils.data.dataloader import DataLoader
 from jutils import image_utils, geom_utils, mesh_utils, model_utils
 
@@ -30,6 +31,7 @@ def run_train_render(dataloader:DataLoader, trainer:Trainer, save_dir, name, ren
     
     # reconstruct  hand and render
     name_list = ['gt', 'render_0', 'render_1', 'hand_0', 'hand_1', 'obj_0', 'obj_1', 'hand_front', 'obj_front']
+    name_list = ['train_' + e for e in name_list]
     image_list = [[] for _ in name_list]
     for (indices, model_input, ground_truth) in tqdm(dataloader):
         hh = ww = int(np.sqrt(ground_truth['rgb'].size(1) ))
@@ -44,7 +46,7 @@ def run_train_render(dataloader:DataLoader, trainer:Trainer, save_dir, name, ren
         intrinsics[..., 1, 1] /= orig_H / H 
 
         trainer.zero_grad()
-        with torch.enable_grad():
+        with torch.no_grad():
             t = time()
             image1 = trainer.render(jHand, jTc, intrinsics, render_kwargs, use_surface_render=None)
             duration = time() - t
@@ -264,6 +266,7 @@ def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_siz
     for (indices, model_input, ground_truth) in dataloader:
         hh = ww = int(np.sqrt(ground_truth['rgb'].size(1) ))
         gt = ground_truth['rgb'].reshape(1, hh, ww, 3).permute(0, 3, 1, 2)
+        gt = F.adaptive_avg_pool2d(gt, (H, W))
 
         jHand, jTc, jTh, intrinsics = trainer.get_jHand_camera(
             indices.to(device), model_input, ground_truth, H, W)
@@ -285,6 +288,7 @@ def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_siz
             mesh_utils.apply_transform(jObj, rot_y@hTj), None, None, H, W)
 
         image_list[0].append(gt)
+        # print(gt.shape, image1.shape, mask1.shape)
         image_list[1].append(image_utils.blend_images(image1, gt, mask1))  # view 0
         image_list[2].append(image2)  # view 1
         image_list[3].append(image3)  # view_j 
@@ -331,6 +335,7 @@ def main_function(args):
         trainer.init_camera(posenet, focal_net)
         trainer.to(device)
         trainer.eval()
+        # trainer.train()
         
         it = state_dict['global_step']
         name = 'it%08d' % it
