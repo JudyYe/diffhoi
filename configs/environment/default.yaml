@@ -13,7 +13,7 @@ multiprocessing_distributed: True
 distributed: True
 seed:
 gpu:
-ngpu: 2
+ngpu: 1
 workers: 80
 mem_gb: 256
 

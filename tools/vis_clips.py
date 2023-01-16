@@ -4,7 +4,7 @@ import os.path as osp
 from time import time
 from tqdm import tqdm
 from torch.nn.parallel import DistributedDataParallel
-from models.frameworks.volsdf_hoi import VolSDFHoi
+from models.frameworks.volsdf_hoi import VolSDFHoi, Trainer
 from preprocess.smooth_hand import vis_hA, vis_se3
 from utils import io_util, mesh_util
 from utils.dist_util import is_master
@@ -15,9 +15,9 @@ from dataio import get_data
 
 import torch
 from torch.utils.data.dataloader import DataLoader
-from jutils import image_utils, geom_utils, mesh_utils
+from jutils import image_utils, geom_utils, mesh_utils, model_utils
 
-def run_train_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_kwargs, offset=None):
+def run_train_render(dataloader:DataLoader, trainer:Trainer, save_dir, name, render_kwargs, offset=None):
     device = trainer.device
     if offset is None:
         offset = geom_utils.axis_angle_t_to_matrix(
@@ -88,11 +88,6 @@ def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_
     os.makedirs(save_dir, exist_ok=True)
 
     orig_H, orig_W = dataloader.dataset.H, dataloader.dataset.W
-
-    # if H is not None:
-    #     render_kwargs['H'] = H
-    # if W is not None:
-    #     render_kwargs['W'] = W
     H, W = render_kwargs['H'], render_kwargs['W']
     
     # reconstruct  hand and render
@@ -105,7 +100,7 @@ def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_
 
         jHand, jTc, _, intrinsics = trainer.get_jHand_camera(indices.to(device), model_input, ground_truth, H, W)
 
-        intrinsics[..., 0, 2] /= orig_W / W 
+        intrinsics[..., 0, 2] /= orig_W / W   # TODO: do we need this?? 
         intrinsics[..., 0, 0] /= orig_W / W 
         intrinsics[..., 1, 2] /= orig_H / H 
         intrinsics[..., 1, 1] /= orig_H / H 
@@ -113,13 +108,6 @@ def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_
         with torch.no_grad():
             t = time()
             image1 = trainer.render(jHand, jTc, intrinsics, render_kwargs)
-            duration = time() - t
-            mem_usage = torch.cuda.memory_allocated(0)/1024/1024/1024
-            mem_total = 24 # torch.cuda.max(0)/1024/1024/1024
-            # print('resolution:', image1['image'].shape)
-            # print(f'render one image time:{duration:.2f} s')
-            # print(f'mem: {mem_usage:.2f}GB / {mem_total:.2f}GB = {mem_usage / mem_total * 100:.2f}\%')
-
             cam_norm = mesh_utils.get_camera_dist(wTc=jTc)
             xyz = torch.cat([torch.zeros_like(cam_norm), torch.zeros_like(cam_norm), -cam_norm * 0.1])
             z_back = geom_utils.axis_angle_t_to_matrix(t=xyz)
@@ -141,60 +129,43 @@ def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_
     return file_list
 
 
-def run_diffuse(dataloader, trainer, diffusion, save_dir, name, volume_size, N, T):
+def run_vis_cam(dataloader:DataLoader, trainer:Trainer, save_dir, name, render_kwargs):
     device = trainer.device
-    name_list = ['inp_lowres', 'recon', 'inp']
-    image_list = [[] for _ in name_list]
-    model = trainer.model
+    if isinstance(trainer, DistributedDataParallel):
+        trainer = trainer.module
     os.makedirs(save_dir, exist_ok=True)
 
-    if is_master():
-        mesh_util.extract_mesh(
-            model.implicit_surface, 
-            N=N,
-            filepath=osp.join(save_dir, name + '_obj.ply'),
-            volume_size=volume_size,
-        )
-        jObj = mesh_utils.load_mesh(osp.join(save_dir, name + '_obj.ply')).cuda()
-
-    for (indices, model_input, ground_truth) in dataloader:        
-        for k, v in model_input.items():
-            try:
-                model_input[k] = v.to(device)
-            except AttributeError:
-                pass
-        jHand, _, jTh, _ = trainer.get_jHand_camera(
-            indices.to(device), model_input, ground_truth, 200, 200)
-        hA = model.hA_net(indices.to(device), model_input, None)
-        hA = model_input['hA'].to(device)
-
-        nn = 32
-        jGrid = mesh_utils.make_grid(N=nn, halfsize=1, device=device, order='xyz')
+    orig_H, orig_W = dataloader.dataset.H, dataloader.dataset.W
+    H, W = render_kwargs['H'], render_kwargs['W']
+    jTc_list, jTc_nv_list = [], []
+    for (indices, model_input, ground_truth) in tqdm(dataloader):
+        indices = indices.to(device)
+        model_utils.to_cuda(model_input)
+        model_utils.to_cuda(ground_truth)
+        jHand, jTc, _, intrinsics = trainer.get_jHand_camera(indices, model_input, ground_truth, H, W)
+        jTc_nv =trainer.sample_jTc(indices, model_input, ground_truth)[0]
+        jTc_list.append(jTc)
+        jTc_nv_list.append(jTc_nv)
     
-        jSdf = model.implicit_surface(jGrid.reshape(1, -1, 3)).reshape(1, 1, nn, nn, nn)
-        jSdf_recon = diffusion.sample(1, img=jSdf, hA=hA, t=T - 1, q_sample=False)
-        jSdf_recon = mesh_utils.batch_grid_to_meshes(jSdf_recon.squeeze(1), 1)
-        jSdf = mesh_utils.batch_grid_to_meshes(jSdf.squeeze(1), 1)
-        
-        hoi = mesh_utils.join_scene([jHand, jSdf])
-        image_list[0] = mesh_utils.render_geom_rot(hoi)
-        hoi = mesh_utils.join_scene([jHand, jSdf_recon])
-        image_list[1] = mesh_utils.render_geom_rot(hoi)
-        hoi = mesh_utils.join_scene([jHand, jObj])
-        image_list[2] = mesh_utils.render_geom_rot(hoi)
+    jTc = torch.cat(jTc_list)
+    jTc_nv = torch.cat(jTc_nv_list)
+    N = len(jTc)
+    coord = mesh_utils.create_coord(device, N)
 
-        mesh_utils.dump_meshes([osp.join(save_dir, name + '_lowres')], jSdf)
-        mesh_utils.dump_meshes([osp.join(save_dir, name + '_recon')], jSdf_recon)
-        mesh_utils.dump_meshes([osp.join(save_dir, name + '_hand')], jHand)
-        mesh_utils.dump_meshes([osp.join(save_dir, name + '_inp')], jObj)
-        break
+    print(
+        geom_utils.mat_to_scale_rot(jTc[..., :3, :3])[1], 
+        geom_utils.mat_to_scale_rot(jTc_nv[..., :3, :3])[1])
+    wScene_origin = mesh_utils.vis_cam(wTc=jTc, color='red', size=0.02)
+    # print(wScene_origin.)
+    scene = mesh_utils.join_scene(wScene_origin + [coord,jHand])
+    image_list = mesh_utils.render_geom_rot(scene, scale_geom=True)
+    image_utils.save_gif(image_list, osp.join(save_dir, name + '_%s' % 'origin'))
 
-    for n, img_list in zip(name_list, image_list):
-        image_utils.save_gif(img_list, osp.join(save_dir, name + '_%s' % n))
-
-    file_list = [osp.join(save_dir, name + '_%s.gif' % n) for n in name_list]
-    return file_list
-
+    wScene_novel = mesh_utils.vis_cam(wTc=jTc_nv, color='blue', size=0.02)
+    scene = mesh_utils.join_scene(wScene_origin + wScene_novel +  [coord, jHand])
+    image_list = mesh_utils.render_geom_rot(scene, scale_geom=True, out_size=1024)
+    image_utils.save_gif(image_list, osp.join(save_dir, name + '_%s' % 'novel'))
+    
 
 def run_hA(dataloader, trainer, save_dir, name):
     device = trainer.device
@@ -395,13 +366,13 @@ def main_function(args):
             save_dir = args.load_pt.split('/ckpts')[0] + '/hA/'
             run_hA(dataloader, trainer, save_dir, name, )
     
-    if args.diff_eval:
-        diffusion = load_diffusion_model(args.diff_ckpt)
-        diffusion.to(device)
-        diffusion.eval()
+    if args.cam:
         with torch.no_grad():
-            save_dir = args.load_pt.split('/ckpts')[0] + '/diff_eval/'
-            run_diffuse(dataloader, trainer, diffusion, save_dir, name, args.volume_size, N=args.N, T=args.T)
+            render_kwargs_test['H'] = H
+            render_kwargs_test['W'] = W
+            run_vis_cam(dataloader, trainer, save_dir, name, render_kwargs_test)
+
+        
 
 
 def render(renderer, jHand, jObj, jTc, intrinsics, H, W, zfar=-1):
@@ -443,6 +414,7 @@ if __name__ == "__main__":
     parser.add_argument("--nvs_train", action='store_true')
     parser.add_argument("--gt", action='store_true')
     parser.add_argument("--surface", action='store_true')
+    parser.add_argument("--cam", action='store_true')
     parser.add_argument("--diff_eval", action='store_true')
     args = parser.parse_args()
     

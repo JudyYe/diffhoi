@@ -2,6 +2,7 @@ from copy import deepcopy
 from fileinput import filelineno
 import logging
 from pathlib import Path
+import wandb
 import hydra
 import hydra.utils as hydra_utils
 import submitit
@@ -206,9 +207,11 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
 
                                 if hasattr(trainer, 'val'):
                                     if args.ddp:
-                                        trainer.module.val(logger, ret, to_img, it, render_kwargs_test)
+                                        trainer.module.val(logger, ret, to_img, it, render_kwargs_test, 
+                                            val_ind, val_in, val_gt)
                                     else:
-                                        trainer.val(logger, ret, to_img, it, render_kwargs_test)
+                                        trainer.val(logger, ret, to_img, it, render_kwargs_test, 
+                                            val_ind, val_in, val_gt)
                                 
                                 logger.add_imgs(to_img(ret['normals_volume']/2.+0.5), 'obj/predicted_normals', it)
                     #-------------------
@@ -221,16 +224,28 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                             with torch.no_grad():
                                 extrinsics_list = []
                                 intrinsics_list = []
+                                novel_list = []
                                 for val_ind, val_in, val_gt in valloader:
                                     val_ind = val_ind.to(device)
                                     c2w = posenet(val_ind, val_in, val_gt).cpu().detach().numpy()
                                     intrinsics = focal_net(val_ind, val_in, val_gt, H=valH, W=valW).cpu().detach().numpy()
-                                    extrinsics_list.append(np.linalg.inv(c2w))  # camera extrinsics are w2c matrix
+                                    novel = trainer.sample_jTc(val_ind, val_in, val_gt)[0]
+                                    
+                                    extrinsics_list.append(np.linalg.inv(c2w))  # c2w=wTc=jTc camera extrinsics are w2c matrix
+                                    novel_list.append(np.linalg.inv(novel.cpu().detach().numpy()))
                                     intrinsics_list.append(intrinsics)
+
                             extrinsics = np.concatenate(extrinsics_list, 0)
                             vis_camera.visualize(intrinsics_list[0][0], extrinsics, 
                                 os.path.join(logger.log_dir, 'cams', '%08d' % it))
-                    
+                            novel = np.concatenate(novel_list + extrinsics_list, 0)
+                            vis_camera.visualize(intrinsics_list[0][0], novel, 
+                                os.path.join(logger.log_dir, 'cams', '%08d_nvs' % it))
+                            logger.log_metrics({
+                                'cams': wandb.Image(os.path.join(logger.log_dir, 'cams', '%08d.png' % it)),
+                                'cams_nv': wandb.Image(os.path.join(logger.log_dir, 'cams', '%08d_nvs.png' % it)),
+                                }, it)
+
                     #-------------------
                     # validate rendering
                     #-------------------

@@ -1,8 +1,29 @@
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine --config-name volsdf_nogt \
-    expname=w_diff training=diffuse \
-    data=ho3d data.index=SM2_0000_dt02 data.len=2 \
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=dev/tmp \
+    training=diffuse training.w_diffuse=1 \
+    data=ho3d data.index=SM2_0000_dt02 data.len=3 \
+    training.i_val=200 \
     logging.mode=none 
 
+
+
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=w_diff/len\${data.len}_wdiff\${training.w_diffuse} training=diffuse training.w_diffuse=0,1 \
+    data=ho3d data.index=SM2_0000_dt02 data.len=3 \
+    training.i_val=200 \
+    environment.slurm=True 
+
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=w_diff/len\${data.len}_default  \
+    data=ho3d data.index=SM2_0000_dt02 data.len=3 \
+    training.i_val=200 \
+    environment.slurm=True 
+
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=w_diff/len\${data.len}_default\${training.render_full_frame}  \
+    data=ho3d data.index=SM2_0000_dt02 training.render_full_frame=True,False \
+    training.i_val=200 \
+    environment.slurm=True environment.resume=False \
 
 
 CUDA_VISIBLE_DEVICES=0,1 PYTHONPATH=. python -m engine --config-name blind_prior \

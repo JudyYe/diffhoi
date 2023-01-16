@@ -1,5 +1,6 @@
 resume: True
 
+submitit_dir: ${exp_dir}/submitit_train_logs/
 
 world_size: 1
 rank: 0
@@ -9,16 +10,16 @@ port: 10001
 node: localhost
 
 
-multiprocessing_distributed: True
+multiprocessing_distributed: False
 distributed: True
 seed:
 gpu:
-ngpu: 2
+ngpu: 1
 workers: 8
 mem_gb: 256
 
 slurm: False
-slurm_partition: devlab
+slurm_partition: abhinavlong,shubhamlong,all
 slurm_timeout: 2880
 nodelist: ""
 exclude_nodes: ""

@@ -11,6 +11,7 @@ defaults:
 worker: 'train'
 output: "/compute/grogu-2-9/yufeiy2/result/vhoi"
 expname: dev/tmp
+exp_dir: ${output}/${expname}
 
 hA:
   mode: 'learn'  # gt / learn

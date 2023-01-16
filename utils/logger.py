@@ -100,7 +100,10 @@ class Logger(object):
         elif not self.wandb:
             print('[Step %04d]' % step)
             for k, v in metrics.items():
-                print('\t%08s: %.4f' % (k, v))
+                try:
+                    print('\t%08s: %.4f' % (k, v))
+                except TypeError:
+                    pass
 
     def add(self, category, k, v, it):
         if category not in self.stats:

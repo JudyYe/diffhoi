@@ -49,4 +49,4 @@ i_backup: 50000   # unit: itertation steps
 i_val: 1000
 i_val_mesh: 1000
 
-print_freq: 10
+print_freq: 11
