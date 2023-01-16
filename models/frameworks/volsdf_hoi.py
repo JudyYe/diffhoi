@@ -438,9 +438,10 @@ class Trainer(nn.Module):
     def get_reg_loss(self, losses, extras):
         """can be applied to original and novel view"""
         args = self.args
-        if  args.training.w_eikonal > 0:
-            nablas_norm = extras['implicit_nablas_norm']
-            losses['loss_eikonal'] = args.training.w_eikonal * F.mse_loss(nablas_norm, nablas_norm.new_ones(nablas_norm.shape), reduction='mean')
+        # if  args.training.w_eikonal > 0:
+        # always compute this even when the weight is zero --> populate loss to a correct shape
+        nablas_norm = extras['implicit_nablas_norm']
+        losses['loss_eikonal'] = args.training.w_eikonal * F.mse_loss(nablas_norm, nablas_norm.new_ones(nablas_norm.shape), reduction='mean')
 
         # contour of hand masks
         # gt to pred --> just wish gt to be covered
@@ -466,7 +467,9 @@ class Trainer(nn.Module):
             N, R, _C = iHoi['label'].shape
             H = W = int(R**0.5)
             img = iHoi['label'].reshape(N, 3, H, W)
-            self.sd_loss.apply_sd(img, args.training.w_diffuse)
+            # label are either 1, or 0, but the diffusion model trains with [-1, 1]
+            self.sd_loss.apply_sd(img*2 - 1, args.training.w_diffuse)
+            # iHoi['debug_img_label'] = img
         return losses
 
     def get_temporal_loss(self, losses, extras):
@@ -658,7 +661,7 @@ class Trainer(nn.Module):
         return image1
 
 
-    def val(self, logger: Logger, ret, to_img_fn, it, render_kwargs_test, val_ind=None, val_in=None, val_gt=None):
+    def val(self, logger: Logger, ret, to_img_fn, it, render_kwargs_test, val_ind=None, val_in=None, val_gt=None):        
         mesh_utils.dump_meshes(osp.join(logger.log_dir, 'hand_meshes/%08d' % it), ret['hand'])
         logger.add_meshes('hand',  osp.join('hand_meshes/%08d_0.obj' % it), it)
         
