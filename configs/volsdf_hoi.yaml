@@ -45,7 +45,7 @@ model:
 
   radiance:
     use_siren: False
-    use_view_dirs: True
+    use_view_dirs: True # change default behavior from True to False ??
     D: 4
     W: 256
     skips: []

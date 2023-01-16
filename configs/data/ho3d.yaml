@@ -1,6 +1,6 @@
 type: HOI
 data_dir: /home/yufeiy2/scratch/result/syn_data/${data.index}
-index:
+index: SM2_0001_dt02
 downscale: 1
 noise: 0
 scale_radius: 3  # what does this do 

@@ -25,7 +25,8 @@ w_contact: 0.
 w_diffuse: 1.   # diffusion model
 backward: 'once'
 
-diffuse_ckpt: '/home/yufeiy2/scratch/result/vhoi/ddpm/glide_SM2/checkpoints/last.ckpt'
+diff_name: ddpm/glide_train_seg
+diffuse_ckpt: '/home/yufeiy2/scratch/result/vhoi/${training.diff_name}/checkpoints/last.ckpt'
 
 sd_para:
   min_step: 0.02
@@ -58,4 +59,4 @@ i_backup: 50000   # unit: itertation steps
 i_val: 1000
 i_val_mesh: 1000
 
-print_freq: 10
+print_freq: 11
