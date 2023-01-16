@@ -291,17 +291,17 @@ if __name__ == '__main__':
     # link()
         # render_from_original()
     for dt in [10, 5, 2]:
-        render('MDF10', 1000, dt) # drill
+        # render('MDF10', 1000, dt) # drill
         # render('SMu1', 651, 1)
 
         
         # render('SMu41', 0, 10)
         # sugar box
-        render('SMu1', 650, dt)
-        render('SS2', 0, dt)
+        # render('SMu1', 650, dt)
+        # render('SS2', 0, dt)
 
         # # 006_mustard_bottle
-        render('SM2', 0, dt)
+        render('SM2', 1, dt)
         # # scissor
         # render('GSF11', 0, 10)
         # render('GSF11', 1000, 10)

@@ -6,7 +6,6 @@ from utils import io_util
 from utils import dist_util
 from utils.dist_util import is_master
 from utils.print_fn import log
-
 import os
 import os.path as osp
 import torch
@@ -17,6 +16,8 @@ import numpy as np
 
 import torch.distributed as dist
 from jutils import image_utils
+
+
 #---------------------------------------------------------------------------
 #---------------------- tensorboard / image recorder -----------------------
 #---------------------------------------------------------------------------
