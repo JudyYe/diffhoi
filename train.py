@@ -312,6 +312,8 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     #-------------------
                     start_time = time.time()
                     trainer.train()
+                    optimizer.zero_grad()
+
                     ret = trainer.forward(args, indices, model_input, ground_truth, render_kwargs_train, it)
 
                     losses = ret['losses']
@@ -323,7 +325,6 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     
                     if args.training.backward in ['twice', 'pose']:
                         if it % 2 == 0:
-                            optimizer.zero_grad()
                             if losses['contact'] > 0: 
                                 losses['contact'].backward()  # 
                             else:
@@ -335,18 +336,13 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                             train_util.zero_grad(optimizer.param_groups[4]['params']) # focalnet
                             optimizer.step()  # oTh
                         else:
-                            optimizer.zero_grad()
                             losses['total'].backward()  # gradient for everything but? contact
                             grad_norms = train_util.calc_grad_norm(model=model)
                             optimizer.step()
 
-
-                    elif args.training.backward == 'once':
-                        optimizer.zero_grad()
+                    elif args.training.backward == 'once':                        
                         losses['total'].backward()
-                        # NOTE: check grad before optimizer.step()
-
-                        grad_norms = train_util.calc_grad_norm(model=model)
+                        grad_norms = train_util.calc_grad_norm(model=model, posenet=posenet, focalnet=focal_net)
                         optimizer.step()
                     scheduler.step(it)  # NOTE: important! when world_size is not 1
 
@@ -377,7 +373,8 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     #-------------------
                     # log grads and learning rate
                     for k, v in grad_norms.items():
-                        logger.add('grad', k, v, it)
+                        
+                        logger.add('grad', k + f'_{it%2}', v, it)
                     logger.add('learning rates', 'whole', optimizer.param_groups[0]['lr'], it)
 
                     #-------------------
