@@ -2,6 +2,7 @@ import numpy as np
 from PIL import Image
 from glob import glob
 import os.path as osp
+from ..utils.train_util import pil_image_to_norm_tensor
 
 
 def red_hand_green_obj(image_file, ind, meta):
@@ -16,7 +17,7 @@ def red_hand_green_obj(image_file, ind, meta):
     out[..., 1] = (image[..., 2] > 50) * 255
     
     out = out.astype(np.uint8)
-    return Image.fromarray(out)
+    return pil_image_to_norm_tensor(Image.fromarray(out))
 
 
 def parse_data(data_dir, split, args):
