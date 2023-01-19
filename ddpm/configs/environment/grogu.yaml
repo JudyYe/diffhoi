@@ -25,6 +25,7 @@ multiprocessing_distributed: ${environment.ddp}
 distributed: True
 workers: 8
 mem_gb: 256
+gpu_mem_gb: '20G'
 
 slurm_partition: abhinavlong,shubhamlong,all
 slurm_timeout: 2880
