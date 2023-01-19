@@ -10,15 +10,140 @@ import torch as th
 from glide_text2im.download import load_checkpoint
 from glide_text2im.model_creation import (
     create_gaussian_diffusion,
-    create_model_and_diffusion,
+    # create_model_and_diffusion,
     model_and_diffusion_defaults,
     model_and_diffusion_defaults_upsampler,
 )
-from glide_text2im.tokenizer.bpe import Encoder
+from glide_text2im.tokenizer.bpe import get_encoder, Encoder
+from glide_text2im.text2im_model import Text2ImUNet
 from .train_util import pred_to_pil
 from jutils import model_utils
 MODEL_TYPES = ["base", "upsample", "base-inpaint", "upsample-inpaint"]
 
+
+def create_model_and_diffusion(
+    image_size,
+    num_channels,
+    num_res_blocks,
+    channel_mult,
+    num_heads,
+    num_head_channels,
+    num_heads_upsample,
+    attention_resolutions,
+    dropout,
+    text_ctx,
+    xf_width,
+    xf_layers,
+    xf_heads,
+    xf_final_ln,
+    xf_padding,
+    diffusion_steps,
+    noise_schedule,
+    timestep_respacing,
+    use_scale_shift_norm,
+    resblock_updown,
+    use_fp16,
+    cache_text_emb,
+    inpaint,
+    super_res,
+    in_channels=3,
+):
+    model = create_model(
+        image_size,
+        num_channels,
+        num_res_blocks,
+        channel_mult=channel_mult,
+        attention_resolutions=attention_resolutions,
+        num_heads=num_heads,
+        num_head_channels=num_head_channels,
+        num_heads_upsample=num_heads_upsample,
+        use_scale_shift_norm=use_scale_shift_norm,
+        dropout=dropout,
+        text_ctx=text_ctx,
+        xf_width=xf_width,
+        xf_layers=xf_layers,
+        xf_heads=xf_heads,
+        xf_final_ln=xf_final_ln,
+        xf_padding=xf_padding,
+        resblock_updown=resblock_updown,
+        use_fp16=use_fp16,
+        cache_text_emb=cache_text_emb,
+        inpaint=inpaint,
+        super_res=super_res,
+        in_channels=in_channels,
+    )
+    diffusion = create_gaussian_diffusion(
+        steps=diffusion_steps,
+        noise_schedule=noise_schedule,
+        timestep_respacing=timestep_respacing,
+    )
+    return model, diffusion
+
+
+def create_model(
+    image_size,
+    num_channels,
+    num_res_blocks,
+    channel_mult,
+    attention_resolutions,
+    num_heads,
+    num_head_channels,
+    num_heads_upsample,
+    use_scale_shift_norm,
+    dropout,
+    text_ctx,
+    xf_width,
+    xf_layers,
+    xf_heads,
+    xf_final_ln,
+    xf_padding,
+    resblock_updown,
+    use_fp16,
+    cache_text_emb,
+    inpaint,
+    super_res,
+    in_channels,
+):
+    if channel_mult == "":
+        if image_size == 256:
+            channel_mult = (1, 1, 2, 2, 4, 4)
+        elif image_size == 128:
+            channel_mult = (1, 1, 2, 3, 4)
+        elif image_size == 64:
+            channel_mult = (1, 2, 3, 4)
+        else:
+            raise ValueError(f"unsupported image size: {image_size}")
+    else:
+        channel_mult = tuple(int(ch_mult) for ch_mult in channel_mult.split(","))
+        assert 2 ** (len(channel_mult) + 2) == image_size
+
+    attention_ds = []
+    for res in attention_resolutions.split(","):
+        attention_ds.append(image_size // int(res))
+
+    return Text2ImUNet(
+        text_ctx=text_ctx,
+        xf_width=xf_width,
+        xf_layers=xf_layers,
+        xf_heads=xf_heads,
+        xf_final_ln=xf_final_ln,
+        tokenizer=get_encoder(),
+        xf_padding=xf_padding,
+        in_channels=in_channels,
+        model_channels=num_channels,
+        out_channels=in_channels * 2,
+        num_res_blocks=num_res_blocks,
+        attention_resolutions=tuple(attention_ds),
+        dropout=dropout,
+        channel_mult=channel_mult,
+        use_fp16=use_fp16,
+        num_heads=num_heads,
+        num_head_channels=num_head_channels,
+        num_heads_upsample=num_heads_upsample,
+        use_scale_shift_norm=use_scale_shift_norm,
+        resblock_updown=resblock_updown,
+        cache_text_emb=cache_text_emb,
+    )
 
 def get_uncond_tokens_mask(tokenizer: Encoder):
     uncond_tokens, uncond_mask = tokenizer.padded_tokens_and_mask([], 128)
@@ -41,10 +166,12 @@ def get_tokens_and_mask(
 def load_model(
     glide_path: str = "",
     use_fp16: bool = False,
+    disable_transformer: bool = False,
     freeze_transformer: bool = False,
     freeze_diffusion: bool = False,
     activation_checkpointing: bool = False,
     model_type: str = "base",
+    in_channels=3,
 ):
     assert model_type in MODEL_TYPES, f"Model must be one of {MODEL_TYPES}. Exiting."
     if model_type in ["base", "base-inpaint"]:
@@ -55,7 +182,9 @@ def load_model(
         options["inpaint"] = True
 
     options["use_fp16"] = use_fp16
-    glide_model, glide_diffusion = create_model_and_diffusion(**options)
+    if disable_transformer:
+        options["xf_width"] = 0
+    glide_model, glide_diffusion = create_model_and_diffusion(**options, in_channels=in_channels)
     if activation_checkpointing:
         glide_model.use_checkpoint = True
 
@@ -73,13 +202,17 @@ def load_model(
         glide_model.output_blocks.requires_grad_(False)
     if glide_path and os.path.exists(glide_path):  # user provided checkpoint
         weights = th.load(glide_path, map_location="cpu")
-        glide_model.load_state_dict(weights)
+        model_utils.load_my_state_dict(glide_model, weights)
+        # glide_model.load_state_dict(weights)
     elif glide_path is None:  # use default checkpoint from openai
         pass
     else:
-        glide_model.load_state_dict(
-            load_checkpoint(model_type, "cpu", cache_dir=os.path.dirname(glide_path))
-        )  # always load to cpu, saves memory
+        # glide_model.load_state_dict(
+        #     load_checkpoint(model_type, "cpu", cache_dir=os.path.dirname(glide_path))
+        # )  # always load to cpu, saves memory
+        model_utils.load_my_state_dict(
+            glide_model,
+            load_checkpoint(model_type, "cpu", cache_dir=os.path.dirname(glide_path)))        
     if use_fp16:
         glide_model.convert_to_fp16()
         print("Converted to fp16, likely gradients will explode")
@@ -146,7 +279,8 @@ def sample(
         half = x_t[: len(x_t) // 2]
         combined = th.cat([half, half], dim=0)
         model_out = glide_model(combined, ts, **kwargs)
-        eps, rest = model_out[:, :3], model_out[:, 3:]
+        C = model_out.shape[1]
+        eps, rest = model_out[:, :C//2], model_out[:, C//2:]
         cond_eps, uncond_eps = th.split(eps, len(eps) // 2, dim=0)
         beta = eval_diffusion.betas[
             int(
@@ -157,10 +291,10 @@ def sample(
         ]
         half_eps = uncond_eps + guidance_scale * (cond_eps - uncond_eps)
         eps = th.cat([half_eps, half_eps], dim=0)
-        current_prediction_pil = pred_to_pil(
-            (x_t - eps * (beta**0.5))[:batch_size]
-        )
-        current_prediction_pil.save("current_prediction.png")
+        # current_prediction_pil = pred_to_pil(
+        #     (x_t - eps * (beta**0.5))[:batch_size]
+        # )
+        # current_prediction_pil.save("current_prediction.png")
         return th.cat([eps, rest], dim=1)
 
     model_fn = cfg_model_fn # so we use CFG for the base model.
@@ -168,7 +302,7 @@ def sample(
         assert image_to_upsample != '', "You must specify a path to an image to upsample."
         low_res_samples = read_image(image_to_upsample, size=(side_x, side_y))
         model_kwargs['low_res'] = low_res_samples
-        noise = th.randn((batch_size, 3, side_y, side_x), device=device) * upsample_temp
+        noise = th.randn([batch_size, ] + size, device=device) * upsample_temp
         model_kwargs['noise'] = noise
         model_fn = glide_model # just use the base model, no need for CFG.
 
