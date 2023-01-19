@@ -4,22 +4,15 @@ import os
 import os.path as osp
 from time import time
 from tqdm import tqdm
-from torch.nn.parallel import DistributedDataParallel
-from models.frameworks.volsdf_hoi import VolSDFHoi, Trainer
-from preprocess.smooth_hand import vis_hA, vis_se3
-from utils import io_util, mesh_util
-from utils.dist_util import is_master
+from torchvision.transforms import ToTensor
 from glob import glob
-from models.frameworks import get_model
-from models.cameras import get_camera
-from dataio import get_data
-
+from tqdm import tqdm
 import torch
-from torch.utils.data.dataloader import DataLoader
-from jutils import image_utils, geom_utils, mesh_utils, model_utils
-
+from jutils import image_utils
+from PIL import Image
 from models.sd import SDLoss
 
+device = 'cuda:0'
 def get_inp(image_file):
     # TODO: emmm is GLIDe trained with scale [-1, 1] or [0, 1?]-->[-1, 1]
     image = Image.open(image_file)
@@ -27,29 +20,45 @@ def get_inp(image_file):
     image = image.resize((H, W))
     image = ToTensor()(image)
     image = image * 2 - 1
-    return 
+    image = image[None]
+    return image
 
 
 def main_function(args):
+    torch.manual_seed(args.seed)
     save_dir = args.out
-    sd = SDLoss(args.load_pt)
-    sd.init_model()
+    os.makedirs(save_dir, exist_ok=True)
+    
+    sd = SDLoss(args.load_pt, prediction_respacing=args.total_step)
+    sd.init_model(device)
 
-    image_list = sorted(glob(osp.join(args.inp)))
+    H = args.reso
+    inp_image_list = sorted(glob(args.inp))
 
     name_list = ['noisy_img', 'multi_step', 'single_step']
-    image_list = [[] for _ in name_list]
-    text_list = [[] for _ in name_list]
-    for image_file in image_list:
-        for noise_level in args.noise.split(','):
-            image = get_inp(image_file)
+    for image_file in inp_image_list:
+        image_list = [[] for _ in name_list]
+        text_list = [[] for _ in name_list]
 
-            noisy = sd.get_noisy_image(image, noise_level)
+        pref = osp.basename(image_file)[:-4] + '_'
+        image = get_inp(image_file)
+        image = image.to(device)
+        noise = torch.randn([args.S, 3, H, H], device=device)
+        # each image is a num_sample x noise_level
+        for noise_level in tqdm(args.noise.split(',')):
+            noise_level = float(noise_level)
+            if args.noise_is_step:
+                noise_step = int(noise_level)
+            else:
+                noise_step = int(noise_level * sd.num_step)
 
             m_list, s_list = [], []
-            for _ in args.S:
-                multi_out = sd.vis_multi_step(noisy, noise_level)
-                single_out = sd.vis_one_step(noisy, noise_level)
+            for s in tqdm(range(args.S)):
+                noisy = sd.get_noisy_image(image, noise_step-1, noise[s:s+1])
+                single_out = sd.vis_single_step(noisy, noise_step)
+                # multi_out = single_out
+                multi_out = sd.vis_multi_step(noisy, noise_step, loop=args.loop)
+                # single_out = multi_out
                 m_list.append(multi_out)
                 s_list.append(single_out)
             multi_out = torch.cat(m_list, dim=-2) # concat in height
@@ -59,76 +68,41 @@ def main_function(args):
             image_list[1].append(multi_out)
             image_list[2].append(single_out)
 
-            text_list[1].append(f'multi step: {noise_level:g}')
-            text_list[2].append(f'single step: {noise_level:g}')
-    image_utils.save_images(image, osp.join(save_dir, name + '_inp'), scale=True)
-    for name, images, texts in zip(name_list, image_list, text_list):
-        # [(1, C, H, W), ]
-        if len(texts) == 0:
-            texts.append(None)
-        image_utils.save_images(
-            torch.cat(images, dim=0),
-            osp.join(save_dir, name),
-            texts, col=len(images), scale=True
-        )
+            text_list[1].append(f'm{noise_level:g}')
+            text_list[2].append(f's{noise_level:g}')
+        
+        print(f'save image to {save_dir}') 
+        image_utils.save_images(image, osp.join(save_dir, pref + 'inp'), scale=True)
+        for name, images, texts in zip(name_list, image_list, text_list):
+            # [(1, C, H, W), ]
+            if len(texts) == 0:
+                texts.append(None)
+            images = torch.cat(images)
+            print(images.shape, len(texts))
+            image_utils.save_images(
+                images,
+                osp.join(save_dir, pref + name),
+                texts, col=len(images), scale=True
+            )
 
 
         
-
-    H = W = args.reso
-    device = 'cuda:0'
-    # load config
-    config = io_util.load_yaml(osp.join(args.load_pt.split('/ckpts')[0], 'config.yaml'))
-
-    # load data    
-    dataset, _ = get_data(config, return_val=True, val_downscale=1)
-    dataloader = DataLoader(dataset,
-        batch_size=1,
-        shuffle=False,
-        collate_fn=mesh_utils.collate_meshes)
-
-    # build and load model 
-    posenet, focal_net = get_camera(config, datasize=len(dataset)+1, H=dataset.H, W=dataset.W)
-    model, trainer, render_kwargs_train, render_kwargs_test, _, _ = get_model(config, data_size=len(dataset)+1, cam_norm=dataset.max_cam_norm, device=[0])
-
-    assert args.out is not None or args.load_pt is not None, 'Need to specify one of out / load_pt'
-    
-    if args.load_pt is not None:
-        state_dict = torch.load(args.load_pt)
-        
-        model.load_state_dict(state_dict['model'])
-        posenet.load_state_dict(state_dict['posenet'])
-        focal_net.load_state_dict(state_dict['focalnet'])
-        
-        trainer.init_camera(posenet, focal_net)
-        trainer.to(device)
-        trainer.eval()
-        
-        it = state_dict['global_step']
-        name = 'it%08d' % it
-        save_dir = args.load_pt.split('/ckpts')[0] + '/render/'
-    
-    if args.out is not None:
-        save_dir = args.out
-
-    os.makedirs(save_dir, exist_ok=True)
 
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--out", type=str, default=None, help='output ply file name')
-    parser.add_argument('--reso', type=int, default=224, help='resolution of images')
-    parser.add_argument('--N', type=int, default=64, help='resolution of the marching cube algo')
-    parser.add_argument('--D', type=int, default=128, help='resolution of the marching cube algo')
-    parser.add_argument('--T', type=int, default=100, help='resolution of the marching cube algo')
-    parser.add_argument('--volume_size', type=float, default=6., help='voxel size to run marching cube')
-
-    parser.add_argument("--diff_ckpt", type=str, default='', help='the trained model checkpoint .pt file')
-    parser.add_argument("--load_pt", type=str, default=None, help='the trained model checkpoint .pt file')
-    parser.add_argument("--init_r", type=float, default=1.0, help='Optional. The init radius of the implicit surface.')
-    parser.add_argument("--chunk", type=int, default=4096*2, help='net chunk when querying the network. change for smaller GPU memory.')
-
+    parser.add_argument("--inp", type=str, default="/home/yufeiy2/scratch/result/vis_ddpm/input/*.png", help='output ply file name')
+    parser.add_argument("--out", type=str, default="/home/yufeiy2/scratch/result/vis_ddpm/", help='output ply file name')
+    parser.add_argument('--reso', type=int, default=64, help='resolution of images')
+    parser.add_argument('--noise', type=str, default='0.9,0.75,0.5,0.25,0.1', help='noise level')
+    parser.add_argument('--total_step', type=int, default=100, help='total noise')
+    parser.add_argument('--loop', type=str, default='ddim', help='sample loop')
+    parser.add_argument('--S', type=int, default=8, help='number of samples')
+    parser.add_argument("--load_pt", type=str, default='/home/yufeiy2/scratch/result/vhoi/ddpm/glide_train_seg/checkpoints/last.ckpt', 
+        help='the trained model checkpoint .pt file')
+    parser.add_argument('--noise_is_step', action='store_true')
+    parser.add_argument('--seed', type=int, default=123)
     args = parser.parse_args()
     
     main_function(args)
