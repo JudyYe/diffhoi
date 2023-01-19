@@ -78,7 +78,33 @@ def run_train_render(dataloader:DataLoader, trainer:Trainer, save_dir, name, ren
     return file_list
 
 
-    
+def run_vis_diffusion(dataloader:DataLoader, trainer:Trainer, save_dir, name, render_kwargs, offset=None):
+    device = trainer.device
+    if isinstance(trainer, DistributedDataParallel):
+        trainer = trainer.module
+    if offset is None:
+        offset = geom_utils.axis_angle_t_to_matrix(
+            torch.FloatTensor([[0, 0, 1]]).to(device), 
+            )
+    os.makedirs(save_dir, exist_ok=True)
+    cnt = 0
+    trainer.train()
+    for (indices, model_input, ground_truth) in tqdm(dataloader):
+        cnt += 1
+        indices = indices.to(device)
+        model_utils.to_cuda(model_input, device)
+        model_utils.to_cuda(ground_truth, device)
+        print(model_input['intrinsics'])
+        extras = trainer(trainer.args, indices, model_input, ground_truth, render_kwargs, 0, False)
+        img = trainer.get_diffusion_image(extras)
+        image_dict = {}
+        trainer.sd_loss.model.vis_samples({}, img, None, '%d_' % cnt, image_dict)
+        # save 
+        for k, v in image_dict.items():
+            save_path = osp.join(save_dir, name + '_' + k.replace('/', '_') + '.png')
+            v.image.save(save_path)
+
+
 def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_kwargs, offset=None):
     device = trainer.device
     if isinstance(trainer, DistributedDataParallel):
@@ -101,7 +127,7 @@ def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_
         image_list[0].append(gt)
 
         jHand, jTc, _, intrinsics = trainer.get_jHand_camera(indices.to(device), model_input, ground_truth, H, W)
-
+        print('origin W ', orig_W, W)
         intrinsics[..., 0, 2] /= orig_W / W   # TODO: do we need this?? 
         intrinsics[..., 0, 0] /= orig_W / W 
         intrinsics[..., 1, 2] /= orig_H / H 
@@ -322,6 +348,8 @@ def main_function(args):
     # build and load model 
     posenet, focal_net = get_camera(config, datasize=len(dataset)+1, H=dataset.H, W=dataset.W)
     model, trainer, render_kwargs_train, render_kwargs_test, _, _ = get_model(config, data_size=len(dataset)+1, cam_norm=dataset.max_cam_norm, device=[0])
+    render_kwargs_test['H'] = H
+    render_kwargs_test['W'] = W
 
     assert args.out is not None or args.load_pt is not None, 'Need to specify one of out / load_pt'
     
@@ -377,7 +405,15 @@ def main_function(args):
             render_kwargs_test['W'] = W
             run_vis_cam(dataloader, trainer, save_dir, name, render_kwargs_test)
 
-        
+    if args.diff:
+        render_kwargs_train['rayschunk'] = args.chunk
+        render_kwargs_train['H'] = H #  * 2 // 3
+        render_kwargs_train['W'] = W #  * 2 // 3
+        render_kwargs_train['N_samples'] = args.D
+        render_kwargs_train['max_upsample_steps'] = 1
+        with torch.no_grad():
+            run_vis_diffusion(dataloader, trainer, save_dir, name, render_kwargs_train)
+
 
 
 def render(renderer, jHand, jObj, jTc, intrinsics, H, W, zfar=-1):
@@ -420,7 +456,7 @@ if __name__ == "__main__":
     parser.add_argument("--gt", action='store_true')
     parser.add_argument("--surface", action='store_true')
     parser.add_argument("--cam", action='store_true')
-    parser.add_argument("--diff_eval", action='store_true')
+    parser.add_argument("--diff", action='store_true')
     args = parser.parse_args()
     
     main_function(args)

@@ -18,7 +18,7 @@ class SDLoss:
         max_step=0.98, 
         prediction_respacing=100, 
         guidance_scale=4, 
-        prompt='a semantic segmentation of a hand grasping an object'
+        prompt='a semantic segmentation of a hand grasping an object', **kwargs,
     ) -> None:
         super().__init__()
         self.min_step = min_step
@@ -27,6 +27,7 @@ class SDLoss:
         self.guidance_scale = guidance_scale
         self.ckpt_path = ckpt_path
         self.model: BaseModule = None
+        self.in_channles = 0
         self.alphas = None #  self.scheduler.alphas_cumprod.to(self.device) # for convenience
         self.cfg = cfg
         self.const_str = prompt
@@ -48,10 +49,11 @@ class SDLoss:
         self.min_step = int(self.min_step * self.num_step)
         self.max_step = int(self.max_step * self.num_step)
         self.alphas = self.diffusion.alphas_cumprod
+        self.in_channles = self.model.template_size[0]
         
-        self.to(device)
+        self.to(device)  # do this since loss is not a nn.Module?
         
-    def apply_sd(self, latents, weight=1):
+    def apply_sd(self, latents, w_mask=1, w_normal=1, w_depth=1, w_spatial=False, ):
         device = latents.device
         batch_size = len(latents)
         guidance_scale = self.guidance_scale
@@ -68,7 +70,6 @@ class SDLoss:
             latent_model_input = torch.cat([latents_noisy] * 2)
             # apply CF-guidance
             # noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
-            # from glide_utils
             tokens = self.unet.tokenizer.encode(self.const_str)
             tokens, mask = self.unet.tokenizer.padded_tokens_and_mask( [], self.options["text_ctx"])
             uncond_tokens, uncond_mask = self.unet.tokenizer.padded_tokens_and_mask( [], self.options["text_ctx"])
@@ -84,7 +85,7 @@ class SDLoss:
             model_output = self.unet(latent_model_input, tt, **model_kwargs)
             if isinstance(model_output, tuple):
                 model_output, _ = model_output
-            noise_pred = eps = model_output[:, :3]
+            noise_pred = eps = model_output[:, :model_output.shape[1]//2]
 
         # perform guidance (high scale from paper!)
         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
@@ -95,7 +96,7 @@ class SDLoss:
         w = 1 - _extract_into_tensor(self.alphas, t, noise_pred.shape) 
         # w = (1 - self.alphas[t])
         # w = self.alphas[t] ** 0.5 * (1 - self.alphas[t])
-        grad = weight * w * (noise_pred - noise)
+        grad = w_mask * w * (noise_pred - noise)
         # clip grad for stable training?
         # grad = grad.clamp(-10, 10)
         grad = torch.nan_to_num(grad)
