@@ -1,3 +1,5 @@
+from tqdm import tqdm
+import argparse
 from glob import glob
 import imageio
 import cv2
@@ -21,11 +23,130 @@ from jutils.hand_utils import ManopthWrapper, cvt_axisang_t_i2o, cvt_axisang_t_o
 
 data_dir = '/home/yufeiy2/scratch/data/HO3D/'
 save_dir = '/home/yufeiy2/scratch/result/syn_data/'
+vis_dir = '/home/yufeiy2/scratch/result/vis/'
 shape_dir = '/home/yufeiy2/scratch/data/YCB/models'
 device = 'cuda:0'
 
 time_len = 30
 H = W = 224
+
+
+
+def render_amodal_batch(list_file):
+    hand_wrapper = ManopthWrapper().to(device)
+    with open(osp.join(data_dir, 'Sets/%s.txt' % list_file)) as fp:
+        frame_dict = [line.strip() for line in fp] # 66,034
+    np.random.seed(123)
+    np.random.shuffle(frame_dict)
+
+    for i, index in tqdm(enumerate(frame_dict), total=len(frame_dict)):
+        split, vid_index, frame_index = index.split('/')
+        # vid_index = osp.dirname(index)
+        # frame_index = osp.basename(index)
+        save_index = osp.join(save_dir, '{}', f'{vid_index}_{frame_index}_origin')
+        done_file = osp.join(save_dir, 'tmp/done', f'{vid_index}_{frame_index}_origin')
+        lock_file = osp.join(save_dir, 'tmp/lock', f'{vid_index}_{frame_index}_origin')
+        if args.skip and osp.exists(done_file):
+            continue
+        try:
+            os.makedirs(lock_file)
+        except FileExistsError:
+            if args.skip:
+                continue
+        
+        render_amodal(split, vid_index, frame_index, save_index, hand_wrapper, True)
+
+        save_index = osp.join(save_dir, '{}', f'{vid_index}_{frame_index}_novel')
+        render_amodal(split, vid_index, frame_index, save_index, hand_wrapper, False)
+
+        os.makedirs(done_file, exist_ok=True)
+        if args.num > 0 and  i >= args.num:
+            break
+
+
+def render_amodal(split, vid_index, frame_index, save_index, hand_wrapper, gt_camera=True):
+    with open(osp.join(data_dir, '%s/%s/meta/%s.pkl' % (split, vid_index, frame_index)), 'rb') as fp:
+        anno = pickle.load(fp)
+    hTo, cTh, hA, hHand, bbox_sq, cam_intr_crop, beta = get_crop(anno, hand_wrapper, H, W)
+    if not gt_camera:
+        cTh = mesh_utils.sample_camera_extr_like(cTw=cTh, t_std=0.1)
+        cam_intr_crop[:, 0, 2] = W / 2
+        cam_intr_crop[:, 1, 2] = H / 2
+    mesh_file = osp.join(shape_dir, anno['objName'], 'textured_simple.obj')
+    oMesh = mesh_utils.load_mesh(mesh_file)
+    hObj = mesh_utils.apply_transform(oMesh, hTo)
+
+    iHand, iObj = render_amodal_from_camera(hHand, hObj, cTh, cam_intr_crop, H, W)
+    
+    # save everything
+    image_utils.save_images(
+        torch.cat([iHand['mask'], iObj['mask'], torch.zeros_like(iObj['mask']) ], 1), 
+        save_index.format('amodal_mask'))
+
+    save_depth(iHand['depth'], save_index.format('hand_depth'))
+    save_depth(iObj['depth'], save_index.format('obj_depth'))
+
+    os.makedirs(osp.dirname(save_index.format('hand_normal')), exist_ok=True)
+    np.save(save_index.format('hand_normal'), iHand['normal'][0].cpu().detach().numpy())  # (3, H, W)
+    os.makedirs(osp.dirname(save_index.format('obj_normal')), exist_ok=True)
+    np.save(save_index.format('obj_normal'), iObj['normal'][0].cpu().detach().numpy())
+
+    image_utils.save_images(iHand['normal'], osp.join(vis_dir, f'{vid_index}_{frame_index}'), scale=True)
+    
+
+def save_depth(image, save_path):
+    os.makedirs(osp.dirname(save_path), exist_ok=True)
+    image = image.cpu().detach()
+    image = image[0].permute([1, 2, 0]).numpy()[..., 0]
+    # image = np.clip(image, 0, 1<<8-1)
+    # image = image.astype(np.uint8)
+    image = np.clip(image, 0, 1<<16-1)
+    image = image.astype(np.uint16)
+    os.makedirs(osp.dirname(save_path), exist_ok=True)
+    image = Image.fromarray(image)
+    image.save(save_path + '.png')
+
+
+def render_amodal_from_camera(hHand, hObj, cTh, cam_intr, H, W):
+    hHand = hHand.to(device)
+    hObj = hObj.to(device)
+    cTh = cTh.to(device)
+
+    cHand = mesh_utils.apply_transform(hHand, cTh)
+    cObj = mesh_utils.apply_transform(hObj, cTh)
+    f, p = mesh_utils.get_fxfy_pxpy(mesh_utils.intr_from_screen_to_ndc(cam_intr, H, W))
+    cameras = PerspectiveCameras(f, p).to(device)
+    
+    iHand = mesh_utils.render_mesh(cHand, cameras, 
+        depth_mode=args.depth, 
+        normal_mode=args.normal,
+        out_size=max(H, W))
+    iHand['depth'] *= iHand['mask']
+    iObj = mesh_utils.render_mesh(cObj, cameras, 
+        depth_mode=args.depth, 
+        normal_mode=args.normal,
+        out_size=max(H, W))
+    iObj['depth'] *= iObj['mask']
+
+    # rescale to [0, 1] to be consistent with midas convention
+    iHand['normal'] = iHand['normal'] / 2 + 0.5
+    iObj['normal'] = iObj['normal'] / 2 + 0.5
+
+    # sustract common min depth and scale to avoid overflow
+    min_depth_hand = torch.min(torch.masked_select(iHand['depth'], iHand['mask'].bool()))
+    min_depth_obj = torch.min(torch.masked_select(iObj['depth'], iObj['mask'].bool()))
+    min_depth = min(min_depth_hand, min_depth_obj)
+        # torch.masked_select(iHand['depth'], iHand['mask'].bool()).min(), 
+        # torch.masked_select(iObj['depth'], iObj['mask'].bool()).min()) - 2/1000
+    # print('norm', torch.norm(iHand['normal'], -1))
+    iHand['depth'] *= 1000
+    iObj['depth']  *= 1000   
+    iHand['depth'] -= min_depth * 1000  # in mm
+    iObj['depth'] -= min_depth * 1000
+    return iHand, iObj
+
+
+
 
 def render_from_original(split='train'):
     hand_wrapper = ManopthWrapper().to(device)
@@ -102,7 +223,7 @@ def render(vid_index, start, dt=10, split='train', skip=True):
             anno = pickle.load(fp)
 
 
-        hTo, cTh, hA, hHand, bbox_sq, cam_intr_crop, beta = get_crop(anno, hand_wrapper)
+        hTo, cTh, hA, hHand, bbox_sq, cam_intr_crop, beta = get_crop(anno, hand_wrapper, H, W)
 
         wTh = torch.eye(4)[None].to(device)
         cTw = cTh
@@ -189,7 +310,7 @@ def get_cHand(anno, hand_wrapper: ManopthWrapper):
 
 
 
-def get_crop(anno, hand_wrapper):
+def get_crop(anno, hand_wrapper, H, W):
     shape = torch.FloatTensor(anno['handBeta'][None])
     pose = torch.FloatTensor(anno['handPose'][None])  # handTrans
     trans = torch.FloatTensor(anno['handTrans'][None])
@@ -286,11 +407,30 @@ def link():
     for vid in vid_list:
         vid_list
 
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--depth", action='store_true')
+    parser.add_argument("--normal", action='store_true')
+    parser.add_argument("--skip", action='store_true')
+
+    parser.add_argument("--num", type=int, default=5)
+    parser.add_argument("--split", type=str, default='train_seg')
+    args, unknown = parser.parse_known_args()
+
+    return args
+
+
 if __name__ == '__main__':
-    skip=True
+    args = parse_args()
+    skip = args.skip
+
+    save_dir = '/home/yufeiy2/scratch/data/HO3D/crop_render'
+    render_amodal_batch(args.split)
+
     # link()
         # render_from_original()
-    for dt in [10, 5, 2]:
+    # for dt in [10, 5, 2]:
         # render('MDF10', 1000, dt) # drill
         # render('SMu1', 651, 1)
 
@@ -301,7 +441,7 @@ if __name__ == '__main__':
         # render('SS2', 0, dt)
 
         # # 006_mustard_bottle
-        render('SM2', 1, dt)
+        # render('SM2', 1, dt)
         # # scissor
         # render('GSF11', 0, 10)
         # render('GSF11', 1000, 10)
