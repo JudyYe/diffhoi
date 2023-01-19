@@ -24,6 +24,7 @@ w_contour: 10.
 w_contact: 0. 
 w_diffuse: 0. 
 backward: 'once'
+clip: None
 
 fg: 1
 occ_mask: label  # union | indp | label? 
