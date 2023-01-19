@@ -1,0 +1,8 @@
+ho3d_train:
+  target: ho3d_render
+  name: hoi3d_geom_cam
+  data_dir: ${environment.local_str}/data/HO3D/crop_render/
+  split: ${environment.local_str}/data/HO3D/Sets/${ho3d.split}.txt
+  resize_ratio: 0.9
+  dim: 11 # 3+2+3*2
+

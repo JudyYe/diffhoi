@@ -1,11 +1,11 @@
 defaults:
   - environment: grogu
   - hydra: default
-  - data@trainsets: ho3d
-  - data@testsets: ho3d
+  - data@trainsets: ho3d_crop_cam
+  - data@testsets: ho3d_crop_cam
   - model: glide
 
-ndim: 3  # or 11
+ndim: 11
 
 worker: ddpm.models.glide_base
 train_prob: 

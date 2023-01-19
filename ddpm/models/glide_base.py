@@ -22,7 +22,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint, ModelSummary
 from ddpm.utils import glide_util
 from ddpm.utils.logger import LoggerCallback, build_logger
 from ddpm.dataset.dataset import build_dataloader
-from jutils import slurm_utils
+
 
 class BaseModule(pl.LightningModule):
     def __init__(self, cfg, *args, **kwargs) -> None:
@@ -124,6 +124,7 @@ class BaseModule(pl.LightningModule):
         if step is None: step = self.global_step
         file_list = []
         step = self.global_step
+        
         for n in range(S):
             samples, sample_list = glide_util.sample(
                 glide_model=self.glide_model,
@@ -154,7 +155,7 @@ class BaseModule(pl.LightningModule):
 
 
 def main_function(gpu=None, ngpus_per_node=None, args=None):
-    slurm_utils.init_env(args, gpu, ngpus_per_node)
+    """we need this just because of bad engine?"""
     main_worker(args)
 
 

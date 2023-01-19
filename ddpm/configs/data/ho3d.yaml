@@ -4,3 +4,4 @@ ho3d_train:
   data_dir: ${environment.local_str}/data/HO3D/
   split: ${ho3d.split}
   resize_ratio: 0.25
+  dim: 3 

@@ -2,6 +2,7 @@ module: ddpm.models.glide
 model:  Glide # | InpaintText2ImUNet | InsertText2ImUNet
 
 grad_clip: 0. 
+disable_transformer: False
 freeze_transformer: True
 freeze_diffusion: False
 activation_checkpointing: False

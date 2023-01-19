@@ -342,6 +342,9 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
 
                     elif args.training.backward == 'once':                        
                         losses['total'].backward()
+                        if args.training.clip is not None:
+                            print('clip')
+                            torch.nn.utils.clip_grad_norm_(trainer.parameters(), args.training.clip)
                         grad_norms = train_util.calc_grad_norm(model=model, posenet=posenet, focalnet=focal_net)
                         optimizer.step()
                     scheduler.step(it)  # NOTE: important! when world_size is not 1
