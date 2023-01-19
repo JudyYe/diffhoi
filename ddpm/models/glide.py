@@ -88,9 +88,11 @@ class GeomGlide(Glide):
         out = self.decode_samples(samples)
         for k, v in out.items():
             log[f"{pref}sample_{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
+        return log
 
     @rank_zero_only
     def vis_input(self, batch, pref, log, step=None ):
         out = self.decode_samples(batch['image'])
         for k, v in out.items():
             log[f"{pref}{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
+        return log

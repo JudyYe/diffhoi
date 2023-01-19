@@ -48,7 +48,7 @@ def transform_nPoints_to_js(hand_wrapper, hA, nPoints):
 
 def get_nTh(r=0.2, center=None, hA=None, hand_wrapper=None, inverse=False):
     """
-    
+    boost the range up?? 
     Args:
         center: (N, 3?)
         hA (N, 45 ): Description

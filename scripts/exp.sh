@@ -1,6 +1,27 @@
 
 
 CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=dev/tmp \
+    training=diffuse training.w_diffuse=1 \
+    data=ho3d data.len=2 \
+    logging.mode=none \
+    environment.slurm=False environment.resume=False \
+
+
+
+
+
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=calib/more_\${data.index}_clip100_rescale_len\${data.len}_wdiff\${training.w_diffuse}_glide_train_seg_eik_\${training.w_eikonal} \
+    training=diffuse training.w_diffuse=1,1e-2,10 \
+    data=ho3d data.index=MDF10_1000_dt02,SMu1_0650_dt02,SS2_0000_dt02 data.len=2 \
+    training.i_val=200 training.num_iters=2000 \
+    environment.slurm=True environment.resume=False \
+
+
+
+
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
     expname=calib/more_\${data.index}_clip100_rescale_len\${data.len}_wdiff\${training.w_diffuse}_glide_train_seg_eik_\${training.w_eikonal} \
     training=diffuse training.w_diffuse=1,1e-2,10 \
     data=ho3d data.index=MDF10_1000_dt02,SMu1_0650_dt02,SS2_0000_dt02 data.len=2 \

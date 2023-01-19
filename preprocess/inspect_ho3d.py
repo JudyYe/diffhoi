@@ -135,7 +135,7 @@ def render_amodal_from_camera(hHand, hObj, cTh, cam_intr, H, W):
     # sustract common min depth and scale to avoid overflow
     min_depth_hand = torch.min(torch.masked_select(iHand['depth'], iHand['mask'].bool()))
     min_depth_obj = torch.min(torch.masked_select(iObj['depth'], iObj['mask'].bool()))
-    min_depth = min(min_depth_hand, min_depth_obj)
+    min_depth = min(min_depth_hand, min_depth_obj) - 2/1000
         # torch.masked_select(iHand['depth'], iHand['mask'].bool()).min(), 
         # torch.masked_select(iObj['depth'], iObj['mask'].bool()).min()) - 2/1000
     # print('norm', torch.norm(iHand['normal'], -1))

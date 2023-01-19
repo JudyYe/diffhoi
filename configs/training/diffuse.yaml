@@ -26,22 +26,12 @@ w_diffuse: 1.   # diffusion model
 backward: 'once'
 clip: 100
 
-diff_name: ddpm/glide_train_seg
-diffuse_ckpt: '/home/yufeiy2/scratch/result/vhoi/${training.diff_name}/checkpoints/last.ckpt'
-
-sd_para:
-  min_step: 0.02
-  max_step: 0.98
-  guidance_scale: 4
-  prediction_respacing: 100
-  prompt: 'a semantic segmentation of a hand grasping an object'
-
 fg: 1
 occ_mask: label  # union | indp | label? 
 label_prob: 1
 
 
-num_iters: 50000
+num_iters: 2000 # 50000
 
 # lr decay
 scheduler:
@@ -54,10 +44,10 @@ ckpt_only_use_keys: null # only change if you want to only use certain keys in t
 
 monitoring: ${logging.mode}
 
-i_save: 1000       # unit: seconds
+i_save: 200 # 1000       # unit: seconds
 i_backup: 50000   # unit: itertation steps
 
-i_val: 1000
-i_val_mesh: 1000
+i_val: 200 # 1000
+i_val_mesh: 200 # 1000
 
 print_freq: 11

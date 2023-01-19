@@ -1,0 +1,20 @@
+frame: camera
+mode: semantics # geom / semantics
+amodal: occlusion  # mixed / amodal / occlusion
+
+diff_name: ddpm/glide_train_seg
+diffuse_ckpt: '/home/yufeiy2/scratch/result/vhoi/${novel_view.diff_name}/checkpoints/last.ckpt'
+
+sd_para:
+  min_step: 0.02
+  max_step: 0.98
+  guidance_scale: 4
+  prediction_respacing: 100
+  prompt: 'a semantic segmentation of a hand grasping an object'
+
+loss:
+  w_spatial: False # spatially adjusted weight TODOs
+  w_mask: 1. 
+  w_normal: 1. 
+  w_depth: 1. 
+

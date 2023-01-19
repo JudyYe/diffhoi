@@ -555,7 +555,10 @@ def volume_render(
         ])
 
         if calc_normal:
-            normals_map = F.normalize(nablas, dim=-1)
+            # nablas: [(B), N_rays, N_pts, W_geo]
+            normals_map = F.normalize(nablas, dim=-1)  # [(B), N_rays, N_pts, 
+            # in joint frame? 
+            # normals_map torch.Size([1, 1024, 128, 3]) nabas torch.Size([1, 1024, 128, 3])
             N_pts = min(tau_i.shape[-1], normals_map.shape[-2])
             normals_map = (normals_map[..., :N_pts, :] * tau_i[..., :N_pts, None]).sum(dim=-2)
             ret_i['normals_volume'] = normals_map

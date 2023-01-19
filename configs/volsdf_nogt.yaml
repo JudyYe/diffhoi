@@ -6,7 +6,7 @@ defaults:
   - camera: delta
   - oTh: learn
   - training: default
-  - diffuse: null
+  - novel_view: semantic
 
 worker: 'train'
 output: "/compute/grogu-2-9/yufeiy2/result/vhoi"

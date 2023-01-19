@@ -6,12 +6,13 @@ from copy import deepcopy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from einops import rearrange
 from pytorch3d.structures import Meshes
 from pytorch3d.renderer import PerspectiveCameras
 import pytorch3d.transforms.rotation_conversions as rot_cvt
 from pytorch3d.renderer.blending import BlendParams
 from pytorch3d.loss.chamfer import knn_points
+from pytorch3d.transforms import Transform3d
 from models.sd  import SDLoss
 
 from models.articulation import get_artnet
@@ -127,7 +128,8 @@ class MeshRenderer(nn.Module):
         # apply cameraTworld outside of rendering to support scaling.
         cMeshes = mesh_utils.apply_transform(meshes, cTw)  # to allow scaling                 
         image = mesh_utils.render_soft(cMeshes, cameras, 
-            rgb_mode=True, depth_mode=True, xy_mode=True, out_size=max(H, W))
+            rgb_mode=True, depth_mode=True, normal_mode=True, xy_mode=True, 
+            out_size=max(H, W))
         # image = mesh_utils.render_mesh(cMeshes, cameras, rgb_mode=True, depth_mode=True, out_size=max(H, W))
         # apply cameraTworld for depth 
         # depth is in camera-view but is in another metric! 
@@ -141,6 +143,11 @@ class MeshRenderer(nn.Module):
 
 
 class Trainer(nn.Module):
+    @staticmethod
+    def lin2img(x):
+        H = int(x.shape[1]**0.5)
+        return rearrange(x, 'n (h w) c -> n c h w', h=H, w=H)
+
     def __init__(self, model: VolSDFHoi, device_ids=[0], batched=True, args=None):
         super().__init__()
         self.joint_frame = args.model.joint_frame
@@ -160,9 +167,9 @@ class Trainer(nn.Module):
         self.focalnet: nn.Module = None
         self.hand_wrapper = hand_utils.ManopthWrapper()
 
-        if args.training.w_diffuse > 0:
-            self.sd_loss = SDLoss(args.training.diffuse_ckpt, args, **args.training.sd_para)
-            self.sd_loss.init_model(self.device)
+        # if args.training.w_diffuse > 0:
+        self.sd_loss = SDLoss(args.novel_view.diffuse_ckpt, args, **args.novel_view.sd_para)
+        self.sd_loss.init_model(self.device)
 
     def init_hand_texture(self, dataloader):
         color_list = []
@@ -183,6 +190,10 @@ class Trainer(nn.Module):
     def sample_jHand_camera(self, indices=None, model_input=None, ground_truth=None, H=64, W=64):
         jHand, jTc, jTh, intrinsics = self.get_jHand_camera(indices, model_input, ground_truth, H, W)
         jTc = self.sample_jTc_like(jTc, )
+        # jTc = mesh_utils.sample_camera_extr_like(wTc=jTc)
+        # when we sample intrincisc, we set pp to center 
+        intrinsics[..., 0, 2] = W / 2
+        intrinsics[..., 1, 2] = H / 2
         return jHand, jTc, jTh, intrinsics
 
     def get_jHand_camera(self, indices, model_input, ground_truth, H, W):
@@ -260,6 +271,7 @@ class Trainer(nn.Module):
 
     def sample_jTc(self, indices, model_input, ground_truth):
         jTc, jTc_n, jTh, jTh_n = self.get_jTc(indices, model_input, ground_truth)
+        # jTc = mesh_utils.sample_camera_extr_like(wTc=jTc)  
         jTc = self.sample_jTc_like(jTc)
         # TODO: should do this but it breaks forward()
         # jTc_n = None
@@ -457,19 +469,131 @@ class Trainer(nn.Module):
                  losses['contact_%d' % i] = args.training.w_contact * loss
                  losses['contact'] += losses['contact_%d' % i]
     
+    def get_label(self, iHoi, iHand, iObj):
+        """ready to be consumed by sds
+        read label, rescale, 
+
+        :param iHoi: _description_
+        :param iHand: _description_
+        :param iObj: _description_
+        """
+        nv = self.args.novel_view
+        if nv.amodal == 'occlusion':
+            img = self.lin2img(iHoi['label'])
+        elif nv.amodal == 'amodal':
+            img = self.lin2img(torch.cat([
+                iHand['label'], iObj['label'], torch.zeros_like(iHand['label']),
+            ], 1))
+        img = img * 2 - 1 # rescale from 0/1 to -1/1
+        return img
+
+    def get_normal(self, iHoi, iHand, iObj, jTc, jTh):
+        """ready to be consumed by sds (N, C, H, W)
+        read normal, handle background
+        !!! transform cordinate to either hand or camera !!! 
+        normalize to 1
+
+        hand: 
+        object: comes naturally in world coordinate? 
+
+        :param iHoi: _description_
+        :param iHand: _description_
+        :param iObj: _description_
+        """
+        hTj = geom_utils.inverse_rt(mat=jTh, return_mat=True)
+        cTj = geom_utils.inverse_rt(mat=jTc, return_mat=True)
+
+        nv = self.args.novel_view
+        if nv.amodal == 'occlusion':
+            raise NotImplementedError(nv.amodal)
+        elif nv.amodal == 'amodal':
+            cHand_normal = iHand['normal'] * iHand['mask']
+
+            jObj_normal = iObj['normals_volume'] * iObj['mask']  # (N, R, 3?)
+            cTj_trans = Transform3d(matrix=cTj.tranpose(-1, -2), device=cTj.device)
+            cObj_normal = self.lin2img(cTj_trans.transform_normals(jObj_normal))
+
+            cHoi_normal = torch.cat([cHand_normal, cObj_normal], 1)  # (N, 3, H, W)
+
+            if nv.frame == 'hand':
+                hTc =hTj @  jTc
+                hTc_trans = Transform3d(matrix=hTc.tranpose(-1, -2), device=hTc.device)
+                cHoi_lin = rearrange(cHoi_normal, 'n (3k) h w -> n (khw) 3')
+                hHoi_lin = hTc_trans.transform_normals(cHoi_lin)
+                H = cHand_normal.shape[-1]
+                hHoi_normal = rearrange(hHoi_lin, 'n (khw) 3 -> n (3k) h w', h=H, w=H, k=2)
+                img = hHoi_normal
+
+            elif nv.frame == 'camera':
+                img = cHoi_normal
+
+        img = F.normalize(img, dim=1)
+        return img
+
+    def get_depth(self, iHoi, iHand, iObj, jTc, jTh):
+        """eady to be consumed by sds (N, C, H, W)
+        read depth, 
+        handle background
+        get relative depth to center of hand
+        !!! transform cordinate to either hand or camera !!! 
+        !!! rescale the metric to 1=100mm/0.1m
+
+        :param iHoi: _description_
+        :param iHand: _description_
+        :param iObj: _description_
+        :param cTj: _description_
+        :param hTj: _description_
+        """
+        nv = self.args.novel_view
+        if nv.amodal == 'occlusion':
+            raise NotImplementedError(nv.amodal)
+        elif nv.amodal == 'amodal':
+            jHand_depth_camera = iHand['depth'] * iHand['mask'] # camera frame depth, in scale of j
+            jObj_depth_camera = self.lin2img(iObj['depth'] * iObj['mask'])
+
+            mean_hand_depth = jHand_depth_camera.sum([-1, -2], keepdim=True) / iHand['mask'].sum([-1, -2], keepdim=True)
+            jHoi_reldepth = torch.cat([jHand_depth_camera, jObj_depth_camera] , 1) - mean_hand_depth
+
+            with torch.no_grad():
+                _, _, jTc_scale = geom_utils.homo_to_rt(jTc)  # (N, )
+                cHoi_depth_camera = jHoi_reldepth / jTc_scale
+                img = cHoi_depth_camera
+
+            # if nv.frame == 'hand':
+            # elif nv.frame == 'camera':
+
+        img = img / 10
+        return img
+
+    def get_diffusion_image(self, extras):
+        args = self.args
+        nv = args.novel_view
+        iHoi = extras['iHoi']
+        iHand = extras['iHand']
+        iObj = extras['iObj']
+        if nv.mode == 'semantics':
+            img = self.get_label(iHoi, iHand, iObj)
+        elif nv.mode == 'geom':
+            img = torch.cat([
+                self.get_label(iHoi, iHand, iObj),
+                self.get_normal(iHoi, iHand, iObj, extras['jTc'], extras['jTh']),
+                self.get_depth(iHoi, iHand, iObj, extras['jTc'], extras['jTh']),
+            ], 1)
+        else: 
+            raise NotImplementedError(nv.mode)
+        # label are either 1, or 0, but the diffusion model trains with [-1, 1]
+        return img
+
+
     def get_fullframe_reg_loss(self, losses, extras):
         """can only be applied to full_frame rendering, esp for novel view"""
-        args = self.args
         # Apply Distilled Score from dream diffusion
         # https://github.com/ashawkey/stable-dreamfusion/blob/main/nerf/sd.py
+        args = self.args
         if args.training.w_diffuse > 0:
-            iHoi = extras['iHoi']
-            N, R, _C = iHoi['label'].shape
-            H = W = int(R**0.5)
-            img = iHoi['label'].reshape(N, 3, H, W)
-            # label are either 1, or 0, but the diffusion model trains with [-1, 1]
-            self.sd_loss.apply_sd(img*2 - 1, args.training.w_diffuse)
-            # iHoi['debug_img_label'] = img
+            img = self.get_diffusion_image(extras)
+            self.sd_loss.apply_sd(img, **args.novel_view.loss)
+            extras['diffusion_inp'] = img
         return losses
 
     def get_temporal_loss(self, losses, extras):
@@ -489,7 +613,9 @@ class Trainer(nn.Module):
              model_input,
              ground_truth,
              render_kwargs_train: dict,
-             it: int):
+             it: int,
+             calc_loss=True,
+             ):
         device = self.device
         N = len(indices)
         indices = indices.to(device)
@@ -523,6 +649,11 @@ class Trainer(nn.Module):
         intrinsics = self.focalnet(indices, model_input, ground_truth, H=H, W=W)
         intrinsics_n = self.focalnet(model_input['inds_n'].to(device), model_input, ground_truth, H=H,W=W)
 
+        if full_frame_iter:
+            print(intrinsics, H)
+            intrinsics[..., 0, 2] = W / 2
+            intrinsics[..., 1, 2] = H / 2
+
         # 2. RENDER MY SCENE 
         # 2.1 RENDER OBJECT
         # volumetric rendering
@@ -542,9 +673,11 @@ class Trainer(nn.Module):
         
         rgb_obj, depth_v, extras = self.renderer(rays_o, rays_d, detailed_output=True, **render_kwargs_train)
         # rgb: (N, R, 3), mask/depth: (N, R, ), flow: (N, R, 2?)
-        iObj = {'rgb': rgb_obj, 'depth': depth_v, 'mask': extras['mask_volume']}
+        iObj = {'rgb': rgb_obj, 'depth': depth_v, 'mask': extras['mask_volume'],}
         if jTc_n is not None:
             iObj['flow'] = flow_12 = volume_render_flow(depth_v, select_inds, intrinsics, intrinsics_n, jTc, jTc_n, **render_kwargs_train)
+        if 'normals_volume' in extras:
+            iObj['normal'] = extras['normals_volume']
         extras['iObj'] = iObj
         extras['select_inds'] = select_inds
 
@@ -556,6 +689,8 @@ class Trainer(nn.Module):
         jHand = mesh_utils.apply_transform(hHand, jTh)
         jJoints = mesh_utils.apply_transform(hJoints, jTh)
         cJoints = mesh_utils.apply_transform(jJoints, geom_utils.inverse_rt(mat=jTc, return_mat=True))
+        extras['jTc'] = jTc
+        extras['jTh'] = jTh
         extras['hand'] = jHand
         extras['jJoints'] = jJoints
         extras['cJoints'] = cJoints
@@ -615,6 +750,9 @@ class Trainer(nn.Module):
         nablas_norm = torch.norm(nablas, dim=-1)
         extras['implicit_nablas_norm'] = nablas_norm
 
+        if not calc_loss:
+            # early return 
+            return extras
         losses = OrderedDict()
         self.get_reg_loss(losses, extras)
         if full_frame_iter: 
@@ -787,6 +925,7 @@ def get_model(args, data_size=-1, **kwargs):
         'use_nerfplusplus': args.model.setdefault('outside_scene', 'builtin') == 'nerf++',
         'obj_bounding_radius': args.model.obj_bounding_radius,
         'N_samples': args.model.setdefault('N_samples', 128),
+        'calc_normal': True,
     }
     render_kwargs_test = copy.deepcopy(render_kwargs_train)
     render_kwargs_test['rayschunk'] = args.data.val_rayschunk
