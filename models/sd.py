@@ -8,6 +8,7 @@ from jutils import model_utils
 from glide_text2im.model_creation import create_gaussian_diffusion
 from glide_text2im.gaussian_diffusion import _extract_into_tensor
 
+
 class SDLoss:
     def __init__(
         self, 
@@ -29,6 +30,7 @@ class SDLoss:
         self.alphas = None #  self.scheduler.alphas_cumprod.to(self.device) # for convenience
         self.cfg = cfg
         self.const_str = prompt
+        self.reso = 64
 
     def to(self, device):
         self.model.to(device)
@@ -121,6 +123,201 @@ class SDLoss:
         text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
         return text_embeddings        
 
+    def get_noisy_image(self, image, t, noise=None):
+        """return I_t+1"""
+        if noise is not None:
+            noise = torch.randn([1, 3, self.reso, self.reso]).to(image)
+        t = torch.tensor([t] * len(image), dtype=torch.long, device=image.device)
+        noisy_image = self.diffusion.q_sample(image, t, noise)
+        return noisy_image
+
+    def vis_single_step(self, noisy, t, guidance_scale=None):
+        if guidance_scale is None:
+            guidance_scale = self.guidance_scale
+
+        N = len(noisy)
+        device = noisy.device
+        t = torch.tensor([t] * len(noisy), dtype=torch.long, device=device)
+
+        noise_pred = self.get_pred_noise(noisy, t, guidance_scale)
+        start_pred = self.diffusion.eps_to_pred_xstart(noisy, noise_pred, t)
+        return start_pred
+        
+    def vis_multi_step(self, noisy, t, guidance_scale=None, loop='plms'):
+        N = len(noisy)
+        device = noisy.device
+        t = torch.tensor([t] * len(noisy), dtype=torch.long, device=device)
+        # sample for a bunch of steps
+        ## something about xxx_loop_progressive
+
+        # Pack the tokens together into model kwargs.
+        model_kwargs = self.get_model_kwargs(device, N)
+        glide_model = self.unet
+        if guidance_scale is None:
+            guidance_scale = self.guidance_scale
+        th = torch
+
+        def cfg_model_fn(x_t, ts, **kwargs):
+            half = x_t[: len(x_t) // 2]
+            combined = th.cat([half, half], dim=0)
+            model_out = glide_model(combined, ts, **kwargs)
+            eps, rest = model_out[:, :3], model_out[:, 3:]
+            cond_eps, uncond_eps = th.split(eps, len(eps) // 2, dim=0)
+            half_eps = uncond_eps + guidance_scale * (cond_eps - uncond_eps)
+            eps = th.cat([half_eps, half_eps], dim=0)
+            return th.cat([eps, rest], dim=1)
+
+        noisy_double = torch.cat([noisy, noisy], 0)
+        model_fn = cfg_model_fn # so we use CFG for the base model.
+        if loop == 'plms':
+            img = self.plms_sample_from_middle(model_fn, noisy_double, t, model_kwargs=model_kwargs)
+        elif loop == 'ddim':
+            img = self.ddim_sample_from_middle(model_fn, noisy_double, t, model_kwargs=model_kwargs)
+        return img[:N]
+
+        
+    def ddim_sample_from_middle(
+        self,
+        model,
+        img, t0, 
+        clip_denoised=True,
+        denoised_fn=None,
+        cond_fn=None,
+        model_kwargs=None,
+        device=None,
+        progress=False,
+        eta=0.0,
+    ):
+        """
+        Use DDIM to sample from the model and yield intermediate samples from
+        each timestep of DDIM.
+
+        Same usage as p_sample_loop_progressive().
+        """
+        shape = img.shape
+        device = img.device
+        assert isinstance(shape, (tuple, list))
+        indices = list(range(self.diffusion.num_timesteps))[::-1]
+        indices = list(range(t0))[::-1]  # internal function ignore t=0 step. 
+
+        if progress:
+            # Lazy import so that we don't depend on tqdm.
+            from tqdm.auto import tqdm
+
+            indices = tqdm(indices)
+
+        for i in indices:
+            t = torch.tensor([i] * shape[0], device=device)
+            with torch.no_grad():
+                out = self.diffusion.ddim_sample(
+                    model,
+                    img,
+                    t,
+                    clip_denoised=clip_denoised,
+                    denoised_fn=denoised_fn,
+                    cond_fn=cond_fn,
+                    model_kwargs=model_kwargs,
+                    eta=eta,
+                )
+                # yield out
+                img = out["sample"]
+        return out['sample']
+
+    def plms_sample_from_middle(
+        self,
+        model,
+        img, t0, 
+        clip_denoised=True,
+        denoised_fn=None,
+        cond_fn=None,
+        model_kwargs=None,
+        device=None,
+        progress=False,
+    ):
+        """
+        Use PLMS to sample from the model and yield intermediate samples from
+        each timestep of PLMS.
+
+        Same usage as p_sample_loop_progressive().
+        """
+        shape = img.shape
+        device = img.device
+        # say T=num_timestpe=100, indices = [98, ..., 1], then noise is Img_99
+        indices = list(range(self.diffusion.num_timesteps))[::-1][1:-1] # 
+        indices = list(range(t0))[::-1][1:-1]  #??
+
+        if progress:
+            # Lazy import so that we don't depend on tqdm.
+            from tqdm.auto import tqdm
+
+            indices = tqdm(indices)
+
+        old_eps = []
+
+        for i in indices:
+            t = torch.tensor([i] * shape[0], device=device)
+            with torch.no_grad():
+                if len(old_eps) < 3:
+                    out = self.diffusion.prk_sample(
+                        model,
+                        img,
+                        t,
+                        clip_denoised=clip_denoised,
+                        denoised_fn=denoised_fn,
+                        cond_fn=cond_fn,
+                        model_kwargs=model_kwargs,
+                    )
+                else:
+                    out = self.diffusion.plms_sample(
+                        model,
+                        img,
+                        old_eps,
+                        t,
+                        clip_denoised=clip_denoised,
+                        denoised_fn=denoised_fn,
+                        cond_fn=cond_fn,
+                        model_kwargs=model_kwargs,
+                    )
+                    old_eps.pop(0)
+                old_eps.append(out["eps"])
+                img = out["sample"]
+        # use out['sample']
+        return out['sample']
+
+    def get_model_kwargs(self, device, batch_size):
+        tokens = self.unet.tokenizer.encode(self.const_str)
+        tokens, mask = self.unet.tokenizer.padded_tokens_and_mask( [], self.options["text_ctx"])
+        uncond_tokens, uncond_mask = self.unet.tokenizer.padded_tokens_and_mask( [], self.options["text_ctx"])
+        model_kwargs = dict(
+            tokens=torch.tensor([tokens] * batch_size + [uncond_tokens] * batch_size, device=device),
+            mask=torch.tensor([mask] * batch_size + [uncond_mask] * batch_size,
+                dtype=torch.bool,
+                device=device,
+            )
+        )
+        return model_kwargs
+
+    def get_pred_noise(self, latents_noisy, t, guidance_scale):
+        # with CFG
+        batch_size = len(latents_noisy)
+        device = latents_noisy.device
+
+        with torch.no_grad():
+            latent_model_input = torch.cat([latents_noisy] * 2)
+            # apply CF-guidance
+            # noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
+            model_kwargs = self.get_model_kwargs(device, batch_size)
+            # from # GaussinDiffusion:L633 get_eps()
+            tt = torch.cat([t, t], 0)
+            model_output = self.unet(latent_model_input, tt, **model_kwargs)
+            if isinstance(model_output, tuple):
+                model_output, _ = model_output
+            noise_pred = eps = model_output[:, :3]
+
+        # perform guidance (high scale from paper!)
+        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+        noise_pred = noise_pred_text + guidance_scale * (noise_pred_text - noise_pred_uncond)
+        return noise_pred
 
 def test_sd():
     N = 2
