@@ -198,6 +198,7 @@ class Trainer(nn.Module):
 
     def get_jHand_camera(self, indices, model_input, ground_truth, H, W):
         jTc, jTc_n, jTh, jTh_n = self.get_jTc(indices, model_input, ground_truth)
+        import pdb; pdb.set_trace()
         intrinsics = self.focalnet(indices, model_input, ground_truth, H=H, W=W)
         
         hA = self.model.hA_net(indices, model_input, None)

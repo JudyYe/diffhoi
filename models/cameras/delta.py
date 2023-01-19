@@ -96,6 +96,7 @@ class FocalNet(nn.Module):
         return pxpy
         
     def forward(self, i=None, model_input=None, gt=None, H=1, W=1, **kwargs):  # the i=None is just to enable multi-gpu training
+        # TODO: change to NDC???
         """ Returns intrinsics in pixel / screen space
         Args:
             i ([type], optional): [description]. Defaults to None.

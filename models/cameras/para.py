@@ -76,7 +76,8 @@ class FocalNet(nn.Module):
 
     def _get_focal(self, i, H, W):  # the i=None is just to enable multi-gpu training
         # final focal length = H/W * init_f_ndc * coe_x**2
-        init_fx, init_fy = self.init_f_ndc[i].split(1, -1)
+        init_fx, init_fy = self.init_f_ndc[i].split(1, -1)  # in NDC space
+        print('NDC? init_fx', init_fx , init_fy)
 
         max_H = max(H, W)
         if self.fx_only:

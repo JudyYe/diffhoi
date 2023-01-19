@@ -16,7 +16,7 @@ from dataio import get_data
 import torch
 import torch.nn.functional as F
 from torch.utils.data.dataloader import DataLoader
-from jutils import image_utils, geom_utils, mesh_utils, model_utils
+from jutils import image_utils, geom_utils, mesh_utils, model_utils, plot_utils
 
 def run_train_render(dataloader:DataLoader, trainer:Trainer, save_dir, name, render_kwargs, offset=None):
     device = trainer.device
@@ -40,6 +40,7 @@ def run_train_render(dataloader:DataLoader, trainer:Trainer, save_dir, name, ren
 
         jHand, jTc, _, intrinsics = trainer.get_jHand_camera(indices.to(device), model_input, ground_truth, H, W)
 
+        print('origin', orig_W, W )
         intrinsics[..., 0, 2] /= orig_W / W 
         intrinsics[..., 0, 0] /= orig_W / W 
         intrinsics[..., 1, 2] /= orig_H / H 
@@ -94,7 +95,7 @@ def run_vis_diffusion(dataloader:DataLoader, trainer:Trainer, save_dir, name, re
         indices = indices.to(device)
         model_utils.to_cuda(model_input, device)
         model_utils.to_cuda(ground_truth, device)
-        print(model_input['intrinsics'])
+        # print(model_input['intrinsics'])
         extras = trainer(trainer.args, indices, model_input, ground_truth, render_kwargs, 0, False)
         img = trainer.get_diffusion_image(extras)
         image_dict = {}
@@ -178,18 +179,18 @@ def run_vis_cam(dataloader:DataLoader, trainer:Trainer, save_dir, name, render_k
     jTc = torch.cat(jTc_list)
     jTc_nv = torch.cat(jTc_nv_list)
     N = len(jTc)
-    coord = mesh_utils.create_coord(device, N)
+    coord = plot_utils.create_coord(device, N)
 
     print(
         geom_utils.mat_to_scale_rot(jTc[..., :3, :3])[1], 
         geom_utils.mat_to_scale_rot(jTc_nv[..., :3, :3])[1])
-    wScene_origin = mesh_utils.vis_cam(wTc=jTc, color='red', size=0.02)
+    wScene_origin = plot_utils.vis_cam(wTc=jTc, color='red', size=0.02)
     # print(wScene_origin.)
     scene = mesh_utils.join_scene(wScene_origin + [coord,jHand])
     image_list = mesh_utils.render_geom_rot(scene, scale_geom=True)
     image_utils.save_gif(image_list, osp.join(save_dir, name + '_%s' % 'origin'))
 
-    wScene_novel = mesh_utils.vis_cam(wTc=jTc_nv, color='blue', size=0.02)
+    wScene_novel = plot_utils.vis_cam(wTc=jTc_nv, color='blue', size=0.02)
     scene = mesh_utils.join_scene(wScene_origin + wScene_novel +  [coord, jHand])
     image_list = mesh_utils.render_geom_rot(scene, scale_geom=True, out_size=1024)
     image_utils.save_gif(image_list, osp.join(save_dir, name + '_%s' % 'novel'))
@@ -413,7 +414,6 @@ def main_function(args):
         render_kwargs_train['max_upsample_steps'] = 1
         with torch.no_grad():
             run_vis_diffusion(dataloader, trainer, save_dir, name, render_kwargs_train)
-
 
 
 def render(renderer, jHand, jObj, jTc, intrinsics, H, W, zfar=-1):
