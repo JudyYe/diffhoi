@@ -45,7 +45,7 @@ class FocalNet(nn.Module):
     def __init__(self, num_cams, H, W, learn_f, learn_pp, fx_only, order=2, init_focal=None, init_px=0, init_py=0):
         super().__init__()
         self.num_cams = num_cams
-        self.gt = GTFocal()
+        self.gt = GTFocal(H, W)
         self.fx_only = fx_only  # If True, output [fx, fx]. If False, output [fx, fy]
         self.order = order  # check our supplementary section.
                 
@@ -103,11 +103,12 @@ class FocalNet(nn.Module):
         Return:
             (N, 4, 4)
         """
-        init_K_screen = self.gt(i, model_input, gt)
-        init_K_ndc = mesh_utils.intr_from_screen_to_ndc(init_K_screen, H, W)
+        # init_K_screen = self.gt(i, model_input, gt)
+        # init_K_ndc = mesh_utils.intr_from_screen_to_ndc(init_K_screen, H, W)
+        init_K_ndc = self.gt(i, model_input, gt, ndc=True)
 
-        fxfy = self._get_focal(i, H, W, init_K_ndc)
-        pxpy = self._get_pp(i, H, W, init_K_ndc)
+        fxfy = self._get_focal(i, None, None, init_K_ndc)
+        pxpy = self._get_pp(i, None, None, init_K_ndc)
         intrinsics = mesh_utils.get_k_from_fp(fxfy, pxpy)
         intrinsics = mesh_utils.intr_from_ndc_to_screen(intrinsics, H, W)
         return intrinsics

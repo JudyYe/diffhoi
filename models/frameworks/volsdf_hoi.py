@@ -198,7 +198,6 @@ class Trainer(nn.Module):
 
     def get_jHand_camera(self, indices, model_input, ground_truth, H, W):
         jTc, jTc_n, jTh, jTh_n = self.get_jTc(indices, model_input, ground_truth)
-        import pdb; pdb.set_trace()
         intrinsics = self.focalnet(indices, model_input, ground_truth, H=H, W=W)
         
         hA = self.model.hA_net(indices, model_input, None)
@@ -260,15 +259,16 @@ class Trainer(nn.Module):
         return rtn
     
     def sample_jTc_like(self, jTc):
-        # world j hans included scene box, so has scale factor.
-        _, scale = geom_utils.mat_to_scale_rot(jTc[..., :3, :3])
-        # switch jTc with a sampled point on sphere
-        rot_T = geom_utils.random_rotations(len(jTc), device=jTc.device).reshape(len(jTc), 3, 3)
-        norm = mesh_utils.get_camera_dist(wTc=jTc)  # we want to get camera dist, and put it to -z? 
-        zeros = torch.zeros_like(norm)
-        trans = torch.stack([zeros, zeros, norm], -1).unsqueeze(-1)
-        jTc = geom_utils.rt_to_homo(rot_T, -rot_T@trans, scale)  
-        return jTc
+        return mesh_utils.sample_camera_extr_like(wTc=jTc, t_std=self.args.novel_view.t_std)
+        # # world j hans included scene box, so has scale factor.
+        # _, scale = geom_utils.mat_to_scale_rot(jTc[..., :3, :3])
+        # # switch jTc with a sampled point on sphere
+        # rot_T = geom_utils.random_rotations(len(jTc), device=jTc.device).reshape(len(jTc), 3, 3)
+        # norm = mesh_utils.get_camera_dist(wTc=jTc)  # we want to get camera dist, and put it to -z? 
+        # zeros = torch.zeros_like(norm)
+        # trans = torch.stack([zeros, zeros, norm], -1).unsqueeze(-1)
+        # jTc = geom_utils.rt_to_homo(rot_T, -rot_T@trans, scale)  
+        # return jTc
 
     def sample_jTc(self, indices, model_input, ground_truth):
         jTc, jTc_n, jTh, jTh_n = self.get_jTc(indices, model_input, ground_truth)
@@ -809,8 +809,6 @@ class Trainer(nn.Module):
         logger.add_imgs(novel_img['image'], 'sample/hoi_rgb', it)
         logger.add_imgs(novel_img['label'].float(), 'sample/hoi_label', it)
 
-        # import pdb
-        # pdb.set_trace()
         mask = torch.cat([
             to_img_fn(ret['hand_mask_target'].unsqueeze(-1).float()).repeat(1, 3, 1, 1),
             to_img_fn(ret['obj_mask_target'].unsqueeze(-1)).repeat(1, 3, 1, 1),

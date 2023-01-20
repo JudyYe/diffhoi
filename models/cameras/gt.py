@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from jutils import geom_utils
+from jutils import geom_utils, mesh_utils
 
 
 class PoseNet(nn.Module):
@@ -28,11 +28,14 @@ class PoseNet(nn.Module):
 
 
 class FocalNet(nn.Module):
-    def __init__(self):
+    def __init__(self, H=224, W=224, **kwargs):
         super().__init__()
+        print(f'original HW {H, W}')
+        self.register_buffer('orig_H', torch.tensor(H))
+        self.register_buffer('orig_W', torch.tensor(W))
     
-    def forward(self, inds, model_input, gt, **kwargs):
-        """Returns intrinsics in pixel / screen space"""
+    def forward(self, inds, model_input, gt, ndc=False, H=2, W=2, **kwargs):
+        """Returns intrinsics in pixel/screen space with length H, W"""
         device = inds.device
         N = len(inds)
         intr = model_input["intrinsics"].to(device)
@@ -41,10 +44,13 @@ class FocalNet(nn.Module):
         m_nxt = (inds == model_input['inds_n'].to(device)).float()
         m_nxt = m_nxt.view(N, 1, 1)
         rtn = intr_n * m_nxt + intr * (1 - m_nxt)  # (N, 4, 4)
+        rtn = mesh_utils.intr_from_screen_to_ndc(rtn, self.orig_H, self.orig_W)
+        if not ndc:
+            rtn = mesh_utils.intr_from_ndc_to_screen(rtn, H, W)
         return rtn
 
 
 def get_camera(args, **kwargs):
-    posenet = PoseNet()
-    focalnet = FocalNet()
+    posenet = PoseNet(**kwargs)
+    focalnet = FocalNet(**kwargs)
     return posenet, focalnet

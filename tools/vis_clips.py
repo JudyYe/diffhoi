@@ -41,10 +41,10 @@ def run_train_render(dataloader:DataLoader, trainer:Trainer, save_dir, name, ren
         jHand, jTc, _, intrinsics = trainer.get_jHand_camera(indices.to(device), model_input, ground_truth, H, W)
 
         print('origin', orig_W, W )
-        intrinsics[..., 0, 2] /= orig_W / W 
-        intrinsics[..., 0, 0] /= orig_W / W 
-        intrinsics[..., 1, 2] /= orig_H / H 
-        intrinsics[..., 1, 1] /= orig_H / H 
+        # intrinsics[..., 0, 2] /= orig_W / W 
+        # intrinsics[..., 0, 0] /= orig_W / W 
+        # intrinsics[..., 1, 2] /= orig_H / H 
+        # intrinsics[..., 1, 1] /= orig_H / H 
 
         trainer.zero_grad()
         with torch.no_grad():
@@ -129,10 +129,10 @@ def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_
 
         jHand, jTc, _, intrinsics = trainer.get_jHand_camera(indices.to(device), model_input, ground_truth, H, W)
         print('origin W ', orig_W, W)
-        intrinsics[..., 0, 2] /= orig_W / W   # TODO: do we need this?? 
-        intrinsics[..., 0, 0] /= orig_W / W 
-        intrinsics[..., 1, 2] /= orig_H / H 
-        intrinsics[..., 1, 1] /= orig_H / H 
+        # intrinsics[..., 0, 2] /= orig_W / W   # TODO: do we need this?? 
+        # intrinsics[..., 0, 0] /= orig_W / W 
+        # intrinsics[..., 1, 2] /= orig_H / H 
+        # intrinsics[..., 1, 1] /= orig_H / H 
 
         with torch.no_grad():
             t = time()
@@ -357,9 +357,12 @@ def main_function(args):
     if args.load_pt is not None:
         state_dict = torch.load(args.load_pt)
         
-        model.load_state_dict(state_dict['model'])
-        posenet.load_state_dict(state_dict['posenet'])
-        focal_net.load_state_dict(state_dict['focalnet'])
+        model_utils.load_my_state_dict(model, state_dict['model'])
+        model_utils.load_my_state_dict(posenet, state_dict['posenet'])
+        model_utils.load_my_state_dict(focal_net, state_dict['focalnet'])
+        # model.load_state_dict(state_dict['model'])
+        # posenet.load_state_dict(state_dict['posenet'])
+        # focal_net.load_state_dict(state_dict['focalnet'])
         
         trainer.init_camera(posenet, focal_net)
         trainer.to(device)
