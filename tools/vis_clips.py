@@ -40,12 +40,6 @@ def run_train_render(dataloader:DataLoader, trainer:Trainer, save_dir, name, ren
 
         jHand, jTc, _, intrinsics = trainer.get_jHand_camera(indices.to(device), model_input, ground_truth, H, W)
 
-        print('origin', orig_W, W )
-        # intrinsics[..., 0, 2] /= orig_W / W 
-        # intrinsics[..., 0, 0] /= orig_W / W 
-        # intrinsics[..., 1, 2] /= orig_H / H 
-        # intrinsics[..., 1, 1] /= orig_H / H 
-
         trainer.zero_grad()
         with torch.no_grad():
             t = time()
@@ -96,14 +90,17 @@ def run_vis_diffusion(dataloader:DataLoader, trainer:Trainer, save_dir, name, re
         model_utils.to_cuda(model_input, device)
         model_utils.to_cuda(ground_truth, device)
         # print(model_input['intrinsics'])
-        extras = trainer(trainer.args, indices, model_input, ground_truth, render_kwargs, 0, False)
-        img = trainer.get_diffusion_image(extras)
-        image_dict = {}
-        trainer.sd_loss.model.vis_samples({}, img, None, '%d_' % cnt, image_dict)
-        # save 
-        for k, v in image_dict.items():
-            save_path = osp.join(save_dir, name + '_' + k.replace('/', '_') + '.png')
-            v.image.save(save_path)
+        for i in range(10):
+            extras = trainer(trainer.args, indices, model_input, ground_truth, render_kwargs, 0, False)
+            iHand = extras['iHand']
+
+            img = trainer.get_diffusion_image(extras)
+            image_dict = {}
+            trainer.sd_loss.model.vis_samples({}, img, None, '%d_' % cnt, image_dict)
+            # save 
+            for k, v in image_dict.items():
+                save_path = osp.join(save_dir, name + '_' + k.replace('/', '_') + f'{i}.png')
+                v.image.save(save_path)
 
 
 def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_kwargs, offset=None):
@@ -128,11 +125,6 @@ def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_
         image_list[0].append(gt)
 
         jHand, jTc, _, intrinsics = trainer.get_jHand_camera(indices.to(device), model_input, ground_truth, H, W)
-        print('origin W ', orig_W, W)
-        # intrinsics[..., 0, 2] /= orig_W / W   # TODO: do we need this?? 
-        # intrinsics[..., 0, 0] /= orig_W / W 
-        # intrinsics[..., 1, 2] /= orig_H / H 
-        # intrinsics[..., 1, 1] /= orig_H / H 
 
         with torch.no_grad():
             t = time()
@@ -338,6 +330,10 @@ def main_function(args):
     device = 'cuda:0'
     # load config
     config = io_util.load_yaml(osp.join(args.load_pt.split('/ckpts')[0], 'config.yaml'))
+    print('###### Change it back! latter',  )
+    config.novel_view.mode = 'geom'
+    config.novel_view.amodal = 'amodal'
+    config.novel_view.diffuse_ckpt = '/home/yufeiy2/scratch/result/vhoi/geom/ho3d_cam_train_seg/checkpoints/last.ckpt'
 
     # load data    
     dataset, _ = get_data(config, return_val=True, val_downscale=1)
@@ -371,7 +367,7 @@ def main_function(args):
         
         it = state_dict['global_step']
         name = 'it%08d' % it
-        save_dir = args.load_pt.split('/ckpts')[0] + '/render/'
+        save_dir = args.load_pt.split('/ckpts')[0] + '/vis_clip/'
     
     if args.out is not None:
         save_dir = args.out

@@ -43,9 +43,12 @@ def read_depth(image_file, ind, meta):
     hand = np.array(Image.open(meta['hand_depth_list'][ind])).astype(np.float)
     obj = np.array(Image.open(meta['obj_depth_list'][ind])).astype(np.float)
     hand_mean = hand.sum() / (hand > 0).sum()  # mean within mask
-    obj = obj - hand_mean
-    hand = hand - hand_mean
-    # let us assume depth is in scale of 0, 255? for now? 
+    z_far = -1000  # -1m
+    # TODO: only apply within mask
+    obj = (obj - hand_mean) * (obj > 0).float() + z_far * (obj <= 0).float()
+    hand = (hand - hand_mean) * (hand > 0).float() + z_far * (obj <= 0).float()
+
+    # let us assume depth is in scale of 0, 200ish mm ? for now? 
     # the scene has a boundary so range is bounded, dont' need inverse depth trick  
 
     hoi_depth = np.stack([hand, obj], 0) # (C, H, W)

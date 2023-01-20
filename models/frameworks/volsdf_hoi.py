@@ -316,11 +316,14 @@ class Trainer(nn.Module):
             method='hard', sigma=1e-4, gamma=1e-4, background_color=(1.0, 1.0, 1.0), **kwargs):
         N = len(iHand['image'])
         # change and select inds
-        iHand['rgb'] = iHand['image'].view(N, 3, -1).transpose(-1, -2)
+        # iHand['rgb'] = iHand['image'].view(N, 3, -1).transpose(-1, -2)
+        iHand['rgb']    = rearrange(iHand['image'], 'n c h w -> n (h w) c') 
+        iHand['normal'] = rearrange(iHand['normal'], 'n c h w -> n (h w) c')
         iHand['depth'] = iHand['depth'].view(N, -1)
         iHand['mask'] = iHand['mask'].view(N, -1)
 
         iHand['rgb'] = torch.gather(iHand['rgb'], 1, torch.stack(3*[select_inds],-1))
+        iHand['normal'] = torch.gather(iHand['normal'], 1, torch.stack(3*[select_inds],-1))
         iHand['depth'] = torch.gather(iHand['depth'], 1, select_inds).float()
         iHand['mask'] = torch.gather(iHand['mask'], 1, select_inds).float()
 
@@ -482,9 +485,10 @@ class Trainer(nn.Module):
         if nv.amodal == 'occlusion':
             img = self.lin2img(iHoi['label'])
         elif nv.amodal == 'amodal':
-            img = self.lin2img(torch.cat([
-                iHand['label'], iObj['label'], torch.zeros_like(iHand['label']),
-            ], 1))
+            print(iHand['mask'].shape, iObj['mask'].shape)
+            img = self.lin2img(torch.stack([
+                iHand['mask'], iObj['mask'], torch.zeros_like(iHand['mask']),
+            ], -1))
         img = img * 2 - 1 # rescale from 0/1 to -1/1
         return img
 
@@ -492,7 +496,7 @@ class Trainer(nn.Module):
         """ready to be consumed by sds (N, C, H, W)
         read normal, handle background
         !!! transform cordinate to either hand or camera !!! 
-        normalize to 1
+        normalize to 1 
 
         hand: 
         object: comes naturally in world coordinate? 
@@ -508,33 +512,38 @@ class Trainer(nn.Module):
         if nv.amodal == 'occlusion':
             raise NotImplementedError(nv.amodal)
         elif nv.amodal == 'amodal':
-            cHand_normal = iHand['normal'] * iHand['mask']
+            
+            cHand_normal = iHand['normal'] * iHand['mask'][..., None]
 
-            jObj_normal = iObj['normals_volume'] * iObj['mask']  # (N, R, 3?)
-            cTj_trans = Transform3d(matrix=cTj.tranpose(-1, -2), device=cTj.device)
-            cObj_normal = self.lin2img(cTj_trans.transform_normals(jObj_normal))
+            jObj_normal = iObj['normal'] * iObj['mask'][..., None]  # (N, R, 3?)
+            cTj_trans = Transform3d(matrix=cTj.transpose(-1, -2), device=cTj.device)
+            # this is because my weird def of pytorch3d mesh rendering of normal in mesh_utils.render
+            cObj_normal = cTj_trans.transform_normals(jObj_normal)  
+            cObj_normal[..., 1:3] *= -1 # xyz points to left, up, outward
 
-            cHoi_normal = torch.cat([cHand_normal, cObj_normal], 1)  # (N, 3, H, W)
+            cHoi_normal = torch.cat([cHand_normal, cObj_normal], -1)  # (N, R, 32)
 
             if nv.frame == 'hand':
-                hTc =hTj @  jTc
-                hTc_trans = Transform3d(matrix=hTc.tranpose(-1, -2), device=hTc.device)
-                cHoi_lin = rearrange(cHoi_normal, 'n (3k) h w -> n (khw) 3')
+                hTc =hTj @  jTc 
+                hTc_trans = Transform3d(matrix=hTc.transpose(-1, -2), device=hTc.device)
+                # TODO: maybe a bug
+                cHoi_lin = rearrange(cHoi_normal, 'n r (c k) -> n (r k) c', c=3)  
                 hHoi_lin = hTc_trans.transform_normals(cHoi_lin)
-                H = cHand_normal.shape[-1]
-                hHoi_normal = rearrange(hHoi_lin, 'n (khw) 3 -> n (3k) h w', h=H, w=H, k=2)
-                img = hHoi_normal
+                hHoi_lin = F.normalize(hHoi_lin, -1)
+                # there is a scale factor so norm will change~~
+                # H = cHand_normal.shape[-1]
+                hHoi_normal = rearrange(hHoi_lin, 'n (r k) 3 -> n r (3 k)',)
+                img = self.lin2img(hHoi_normal)
 
             elif nv.frame == 'camera':
-                img = cHoi_normal
+                img = self.lin2img(cHoi_normal)  # N, 6, H, W
 
-        img = F.normalize(img, dim=1)
         return img
 
-    def get_depth(self, iHoi, iHand, iObj, jTc, jTh):
+    def get_depth(self, iHoi, iHand, iObj, jTc, jTh, zfar=-10):
         """eady to be consumed by sds (N, C, H, W)
         read depth, 
-        handle background
+        handle background??
         get relative depth to center of hand
         !!! transform cordinate to either hand or camera !!! 
         !!! rescale the metric to 1=100mm/0.1m
@@ -546,24 +555,30 @@ class Trainer(nn.Module):
         :param hTj: _description_
         """
         nv = self.args.novel_view
+        N = len(jTc)
         if nv.amodal == 'occlusion':
             raise NotImplementedError(nv.amodal)
         elif nv.amodal == 'amodal':
             jHand_depth_camera = iHand['depth'] * iHand['mask'] # camera frame depth, in scale of j
-            jObj_depth_camera = self.lin2img(iObj['depth'] * iObj['mask'])
+            jObj_depth_camera = iObj['depth'] * iObj['mask'] # （N,R,)
 
-            mean_hand_depth = jHand_depth_camera.sum([-1, -2], keepdim=True) / iHand['mask'].sum([-1, -2], keepdim=True)
-            jHoi_reldepth = torch.cat([jHand_depth_camera, jObj_depth_camera] , 1) - mean_hand_depth
+            mean_hand_depth = jHand_depth_camera.sum(1, keepdim=True) / iHand['mask'].sum(1, keepdim=True)
+            
+            jHand_depth_camera = iHand['mask'] * (jHand_depth_camera - mean_hand_depth) + (1-iHand['mask']) * zfar
+            jObj_depth_camera = iObj['mask'] * (jObj_depth_camera-mean_hand_depth) + (1 - iObj['mask']) * zfar
 
+            jHoi_reldepth = torch.stack([jHand_depth_camera, jObj_depth_camera] , -1) - mean_hand_depth[..., None]
+
+            jHoi_reldepth = self.lin2img(jHoi_reldepth)  # (N, C, H, W? )
             with torch.no_grad():
-                _, _, jTc_scale = geom_utils.homo_to_rt(jTc)  # (N, )
-                cHoi_depth_camera = jHoi_reldepth / jTc_scale
+                _, _, jTc_scale = geom_utils.homo_to_rt(jTc)  # (N, 3)
+                cHoi_depth_camera = jHoi_reldepth / jTc_scale.mean(-1).reshape([N, 1, 1, 1])  
                 img = cHoi_depth_camera
 
             # if nv.frame == 'hand':
             # elif nv.frame == 'camera':
 
-        img = img / 10
+        img = img * 10
         return img
 
     def get_diffusion_image(self, extras):
@@ -792,10 +807,6 @@ class Trainer(nn.Module):
     def render_novel_view(self, indices, model_input, ground_truth, render_kwargs_test):
         H, W = render_kwargs_test['H'], render_kwargs_test['W']
         jHand, jTc, _, intrinsics = self.sample_jHand_camera(indices, model_input, ground_truth, H, W)
-        # intrinsics[..., 0, 2] /= orig_W / W 
-        # intrinsics[..., 0, 0] /= orig_W / W 
-        # intrinsics[..., 1, 2] /= orig_H / H 
-        # intrinsics[..., 1, 1] /= orig_H / H 
         image1 = self.render(jHand, jTc, intrinsics, render_kwargs_test)
         return image1
 

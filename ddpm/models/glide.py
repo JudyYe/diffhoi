@@ -94,5 +94,8 @@ class GeomGlide(Glide):
     def vis_input(self, batch, pref, log, step=None ):
         out = self.decode_samples(batch['image'])
         for k, v in out.items():
+            if 'depth' in k:
+                v_np = v
+                print(v_np, v_np.min(), v_np.max())
             log[f"{pref}{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
         return log
