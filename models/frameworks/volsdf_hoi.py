@@ -476,7 +476,6 @@ class Trainer(nn.Module):
         if nv.amodal == 'occlusion':
             img = self.lin2img(iHoi['label'])
         elif nv.amodal == 'amodal':
-            print(iHand['mask'].shape, iObj['mask'].shape)
             img = self.lin2img(torch.stack([
                 iHand['mask'], iObj['mask'], torch.zeros_like(iHand['mask']),
             ], -1))
@@ -649,10 +648,7 @@ class Trainer(nn.Module):
             render_kwargs_train = render_kwargs_train_copy
         H = render_kwargs_train['H']
         W = render_kwargs_train['W']
-        import pdb
-        pdb.set_trace()
         intrinsics = self.focalnet(indices, model_input, ground_truth, H=H, W=W)
-        print('intr', intrinsics, model_input['intrinsics'])
         intrinsics_n = self.focalnet(model_input['inds_n'].to(device), model_input, ground_truth, H=H,W=W)
 
         if full_frame_iter:

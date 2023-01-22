@@ -103,11 +103,7 @@ class FocalNet(nn.Module):
         Return:
             (N, 4, 4)
         """
-        # init_K_screen = self.gt(i, model_input, gt)
-        # init_K_ndc = mesh_utils.intr_from_screen_to_ndc(init_K_screen, H, W)
         init_K_ndc = self.gt(i, model_input, gt, ndc=True)
-        import pdb
-        pdb.set_trace()
         fxfy = self._get_focal(i, None, None, init_K_ndc)
         pxpy = self._get_pp(i, None, None, init_K_ndc)
         intrinsics = mesh_utils.get_k_from_fp(fxfy, pxpy)

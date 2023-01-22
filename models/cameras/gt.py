@@ -30,9 +30,6 @@ class PoseNet(nn.Module):
 class FocalNet(nn.Module):
     def __init__(self, H=224, W=224, **kwargs):
         super().__init__()
-        print(f'original HW {H, W}')
-        self.register_buffer('orig_H', torch.tensor(H))
-        self.register_buffer('orig_W', torch.tensor(W))
     
     def forward(self, inds, model_input, gt, ndc=False, H=2, W=2, **kwargs):
         """Returns intrinsics in pixel/screen space with length H, W"""
@@ -44,7 +41,6 @@ class FocalNet(nn.Module):
         m_nxt = (inds == model_input['inds_n'].to(device)).float()
         m_nxt = m_nxt.view(N, 1, 1)
         rtn = intr_n * m_nxt + intr * (1 - m_nxt)  # (N, 4, 4)
-        rtn = mesh_utils.intr_from_screen_to_ndc(rtn, self.orig_H, self.orig_W)
         if not ndc:
             rtn = mesh_utils.intr_from_ndc_to_screen(rtn, H, W)
         return rtn

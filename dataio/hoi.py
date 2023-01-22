@@ -7,7 +7,7 @@ from tqdm import tqdm
 from glob import glob
 
 from utils.io_util import load_flow, load_mask, load_rgb, glob_imgs
-from jutils import geom_utils, image_utils
+from jutils import geom_utils, image_utils, mesh_utils
 
 
 class SceneDataset(torch.utils.data.Dataset):
@@ -51,13 +51,15 @@ class SceneDataset(torch.utils.data.Dataset):
         self.hTo = camera_dict['hTo']  # compute from hA
         self.onTo = camera_dict['onTo']
         self.intrinsics_all = torch.from_numpy(camera_dict['K_pix']).float()  # (N, 4, 4)
-
+        # downscale * self.H is the orignal height before resize. 
+        self.intrinsics_all = mesh_utils.intr_from_screen_to_ndc(
+            self.intrinsics_all, downscale* self.H, downscale * self.W)
 
         # downscale intrinsics
-        self.intrinsics_all[..., 0, 2] /= downscale
-        self.intrinsics_all[..., 1, 2] /= downscale
-        self.intrinsics_all[..., 0, 0] /= downscale
-        self.intrinsics_all[..., 1, 1] /= downscale
+        # self.intrinsics_all[..., 0, 2] /= downscale
+        # self.intrinsics_all[..., 1, 2] /= downscale
+        # self.intrinsics_all[..., 0, 0] /= downscale
+        # self.intrinsics_all[..., 1, 1] /= downscale
 
         self.scale_cam = 1
         # calculate cam distance
@@ -134,7 +136,7 @@ class SceneDataset(torch.utils.data.Dataset):
         idx_n = idx + 1
         sample = {
             "object_mask": self.object_masks[idx],
-            "intrinsics": self.intrinsics_all[idx],
+            "intrinsics":  self.intrinsics_all[idx],
             "intrinsics_n": self.intrinsics_all[idx_n],
         }
 

@@ -113,7 +113,6 @@ def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_
             )
     os.makedirs(save_dir, exist_ok=True)
 
-    orig_H, orig_W = dataloader.dataset.H, dataloader.dataset.W
     H, W = render_kwargs['H'], render_kwargs['W']
     
     # reconstruct  hand and render
@@ -156,7 +155,6 @@ def run_vis_cam(dataloader:DataLoader, trainer:Trainer, save_dir, name, render_k
         trainer = trainer.module
     os.makedirs(save_dir, exist_ok=True)
 
-    orig_H, orig_W = dataloader.dataset.H, dataloader.dataset.W
     H, W = render_kwargs['H'], render_kwargs['W']
     jTc_list, jTc_nv_list = [], []
     for (indices, model_input, ground_truth) in tqdm(dataloader):

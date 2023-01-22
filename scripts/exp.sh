@@ -1,11 +1,5 @@
 
 
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
-    expname=dev/debug \
-    data=ho3d data.index=SS2_0000_dt02 data.len=2 \
-    training.num_iters=100 environment.slurm=False environment.resume=False \
-
-
 
 CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
     expname=vis_correct/\${data.index}_\${novel_view.mode}_\${training.w_diffuse} \
