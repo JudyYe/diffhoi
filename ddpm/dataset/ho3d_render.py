@@ -45,8 +45,8 @@ def read_depth(image_file, ind, meta):
     hand_mean = hand.sum() / (hand > 0).sum()  # mean within mask
     z_far = -1000  # -1m
     # TODO: only apply within mask
-    obj = (obj - hand_mean) * (obj > 0).float() + z_far * (obj <= 0).float()
-    hand = (hand - hand_mean) * (hand > 0).float() + z_far * (obj <= 0).float()
+    obj = (obj - hand_mean) * (obj > 0) + z_far * (obj <= 0)
+    hand = (hand - hand_mean) * (hand > 0) + z_far * (obj <= 0)
 
     # let us assume depth is in scale of 0, 200ish mm ? for now? 
     # the scene has a boundary so range is bounded, dont' need inverse depth trick  

@@ -16,6 +16,6 @@ sd_para:
 loss:
   w_spatial: False # spatially adjusted weight TODOs
   w_mask: 1. 
-  w_normal: 1. 
-  w_depth: 1. 
+  w_normal: 0.
+  w_depth: 0. 
 

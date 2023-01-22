@@ -1,7 +1,7 @@
 
 CUDA_VISIBLE_DEVICES=7 PYTHONPATH=. python -m ddpm.engine -m --config-name geom_glide  \
-  expname=geom/ho3d_cam_\${ho3d.split} \
-  model.model=GeomGlide ho3d.split=SM2,train_seg \
+  expname=geom/100_depth_\${ho3d.split} \
+  model.model=GeomGlide ho3d.split=SM2,train_seg  \
   environment.slurm=True \
 
 

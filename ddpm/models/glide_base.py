@@ -144,6 +144,9 @@ class BaseModule(pl.LightningModule):
         overlay = mask * (bg * (1-r) + r) + (1 - mask) * bg
         return overlay
 
+    def distribute_weight(self, grad, w, *args, **kwargs):
+        return grad * w
+
     @rank_zero_only
     def vis_samples(self, batch, samples, sample_list, pref, log, step=None):        
         log['%ssample' % pref] = wandb.Image(vutils.make_grid(samples))        

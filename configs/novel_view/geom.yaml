@@ -1,6 +1,7 @@
 frame: camera
 mode: geom # geom / semantics
 amodal: amodal  # mixed / amodal / occlusion
+t_std: 0.1 # tranlsation standard deviate
 
 diff_name: geom/ho3d_cam_train_seg
 diffuse_ckpt: '/home/yufeiy2/scratch/result/vhoi/${novel_view.diff_name}/checkpoints/last.ckpt'

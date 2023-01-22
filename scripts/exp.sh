@@ -1,7 +1,33 @@
 
 
 CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
-    expname=dev/tmp \
+    expname=dev/debug \
+    data=ho3d data.index=SS2_0000_dt02 data.len=2 \
+    training.num_iters=100 environment.slurm=False environment.resume=False \
+
+
+
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=vis_correct/\${data.index}_\${novel_view.mode}_\${training.w_diffuse} \
+    training=diffuse training.w_diffuse=1  \
+    data=ho3d data.index=SM2_0001_dt02,MDF10_1000_dt02,SMu1_0650_dt02,SS2_0000_dt02 data.len=2 \
+    environment.slurm=True environment.resume=False \
+
+
+
+
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=vis_correct/\${data.index}_\${novel_view.mode}_n\${novel_view.loss.w_normal}x\${training.w_diffuse} \
+    novel_view=geom novel_view.loss.w_depth=0. novel_view.loss.w_normal=0,1 \
+    training=diffuse training.w_diffuse=1  \
+    data=ho3d data.index=SM2_0001_dt02,MDF10_1000_dt02,SMu1_0650_dt02,SS2_0000_dt02 data.len=2 \
+    environment.slurm=True environment.resume=False \
+
+
+
+
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m train -m --config-name volsdf_nogt \
+    expname=dev/tmp2 \
     training=diffuse training.w_diffuse=1 \
     data=ho3d data.len=2 \
     logging.mode=none \

@@ -83,6 +83,12 @@ class GeomGlide(Glide):
             'obj_depth': obj_depth,
         }
 
+    def distribute_weight(self, grad, w_mask, w_normal, w_depth, *args, **kwargs):
+        grad[:, 0:3] *= w_mask
+        grad[:, 3:3+3*2] *= w_normal
+        grad[:, 3+3*2:3+3*2+1*2] *= w_depth
+        return grad
+
     @rank_zero_only
     def vis_samples(self, batch, samples, sample_list, pref, log, step=None):        
         out = self.decode_samples(samples)

@@ -53,7 +53,7 @@ class SDLoss:
         
         self.to(device)  # do this since loss is not a nn.Module?
         
-    def apply_sd(self, latents, w_mask=1, w_normal=1, w_depth=1, w_spatial=False, ):
+    def apply_sd(self, latents, weight, w_mask=1, w_normal=1, w_depth=1, w_spatial=False, ):
         device = latents.device
         batch_size = len(latents)
         guidance_scale = self.guidance_scale
@@ -96,11 +96,11 @@ class SDLoss:
         w = 1 - _extract_into_tensor(self.alphas, t, noise_pred.shape) 
         # w = (1 - self.alphas[t])
         # w = self.alphas[t] ** 0.5 * (1 - self.alphas[t])
-        grad = w_mask * w * (noise_pred - noise)
+        grad = weight * w * (noise_pred - noise)
+        grad = self.model.distribute_weight(grad, w_mask, w_normal, w_depth)  # interpolate your own image
         # clip grad for stable training?
         # grad = grad.clamp(-10, 10)
         grad = torch.nan_to_num(grad)
-        # print('sd.py: L100, diffusion grad', grad, torch.norm(grad, dim=-1).mean())
         # latents.retain_grad()  # just for debug
         # manually backward, since we omitted an item in grad and cannot simply autodiff.
         latents.backward(gradient=grad, retain_graph=True)    

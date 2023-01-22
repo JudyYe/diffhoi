@@ -1,7 +1,7 @@
 log_root_dir: ${output}
 exp_dir: ${training.log_root_dir}/${expname}
 
-render_full_frame: True
+render_full_frame: False
 beta_init: 0.1
 speed_factor: 10.0
 
@@ -24,7 +24,7 @@ w_contour: 10.
 w_contact: 0. 
 w_diffuse: 0. 
 backward: 'once'
-clip: None
+clip: null
 
 fg: 1
 occ_mask: label  # union | indp | label? 

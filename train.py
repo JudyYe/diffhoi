@@ -189,6 +189,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                                 
                                 trainer.eval()
                                 val_ind = val_ind.to(device)
+                                print('test H', render_kwargs_test['H'])
                                 loss_extras = trainer(args, val_ind, val_in, val_gt, render_kwargs_test, 0)
     
                                 target_rgb = val_gt['rgb'].to(device)    

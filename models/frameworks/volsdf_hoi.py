@@ -260,15 +260,6 @@ class Trainer(nn.Module):
     
     def sample_jTc_like(self, jTc):
         return mesh_utils.sample_camera_extr_like(wTc=jTc, t_std=self.args.novel_view.t_std)
-        # # world j hans included scene box, so has scale factor.
-        # _, scale = geom_utils.mat_to_scale_rot(jTc[..., :3, :3])
-        # # switch jTc with a sampled point on sphere
-        # rot_T = geom_utils.random_rotations(len(jTc), device=jTc.device).reshape(len(jTc), 3, 3)
-        # norm = mesh_utils.get_camera_dist(wTc=jTc)  # we want to get camera dist, and put it to -z? 
-        # zeros = torch.zeros_like(norm)
-        # trans = torch.stack([zeros, zeros, norm], -1).unsqueeze(-1)
-        # jTc = geom_utils.rt_to_homo(rot_T, -rot_T@trans, scale)  
-        # return jTc
 
     def sample_jTc(self, indices, model_input, ground_truth):
         jTc, jTc_n, jTh, jTh_n = self.get_jTc(indices, model_input, ground_truth)
@@ -608,7 +599,7 @@ class Trainer(nn.Module):
         args = self.args
         if args.training.w_diffuse > 0:
             img = self.get_diffusion_image(extras)
-            self.sd_loss.apply_sd(img, **args.novel_view.loss)
+            self.sd_loss.apply_sd(img, args.training.w_diffuse, **args.novel_view.loss)
             extras['diffusion_inp'] = img
         return losses
 
@@ -656,17 +647,15 @@ class Trainer(nn.Module):
             render_kwargs_train_copy['W'] = 64
             render_kwargs_train_copy['N_samples'] = 32  # low resolution smaple
             render_kwargs_train = render_kwargs_train_copy
-        # else:
-            # render_kwargs_train['H'] = self.H
-            # render_kwargs_train['W'] = self.W
-            # render_kwargs_train['N_samples'] = self.args.model.setdefault('N_samples', 128)
         H = render_kwargs_train['H']
         W = render_kwargs_train['W']
+        import pdb
+        pdb.set_trace()
         intrinsics = self.focalnet(indices, model_input, ground_truth, H=H, W=W)
+        print('intr', intrinsics, model_input['intrinsics'])
         intrinsics_n = self.focalnet(model_input['inds_n'].to(device), model_input, ground_truth, H=H,W=W)
 
         if full_frame_iter:
-            print(intrinsics, H)
             intrinsics[..., 0, 2] = W / 2
             intrinsics[..., 1, 2] = H / 2
 
@@ -678,11 +667,9 @@ class Trainer(nn.Module):
             if full_frame_iter:
                 rays_o, rays_d, select_inds = rend_util.get_rays(
                     jTc, intrinsics, H, W, N_rays=-1)
-                # print('render full frame', rays_o.shape)
             else:
                 rays_o, rays_d, select_inds = rend_util.get_rays(
                     jTc, intrinsics, H, W, N_rays=args.data.N_rays)
-                # print('render non full frame', rays_o.shape)
         else:
             rays_o, rays_d, select_inds = rend_util.get_rays(
                 jTc, intrinsics, H, W, N_rays=-1)
