@@ -1,17 +1,23 @@
-
-
-
 CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
-    expname=vis_correct/\${data.index}_\${novel_view.mode}_\${training.w_diffuse} \
-    training=diffuse training.w_diffuse=1  \
-    data=ho3d data.index=SM2_0001_dt02,MDF10_1000_dt02,SMu1_0650_dt02,SS2_0000_dt02 data.len=2 \
+    expname=ndc_intr/debug\${data.index}_\${novel_view.mode}_\${training.w_diffuse}_c\${training.clip} \
+    training=diffuse training.w_diffuse=1e-3,1e-4,1e-2 training.clip=100,10  \
+    data=ho3d  data.len=2 \
     environment.slurm=True environment.resume=False \
 
 
 
 
+# only with occluded sematnics 
 CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
-    expname=vis_correct/\${data.index}_\${novel_view.mode}_n\${novel_view.loss.w_normal}x\${training.w_diffuse} \
+    expname=ndc_intr/\${data.index}_\${novel_view.mode}_\${training.w_diffuse} \
+    training=diffuse training.w_diffuse=1  \
+    data=ho3d data.index=SM2_0001_dt02,MDF10_1000_dt02,SMu1_0650_dt02,SS2_0000_dt02 data.len=2 \
+    environment.slurm=True environment.resume=False \
+
+
+# with amodal normal and mask. 
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=ndc_intr/\${data.index}_\${novel_view.mode}_n\${novel_view.loss.w_normal}x\${training.w_diffuse} \
     novel_view=geom novel_view.loss.w_depth=0. novel_view.loss.w_normal=0,1 \
     training=diffuse training.w_diffuse=1  \
     data=ho3d data.index=SM2_0001_dt02,MDF10_1000_dt02,SMu1_0650_dt02,SS2_0000_dt02 data.len=2 \

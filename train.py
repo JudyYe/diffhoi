@@ -323,30 +323,13 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     # all but contact 
                     for k, v in losses.items():
                         losses[k] = torch.mean(v)
-                    
-                    if args.training.backward in ['twice', 'pose']:
-                        if it % 2 == 0:
-                            if losses['contact'] > 0: 
-                                losses['contact'].backward()  # 
-                            else:
-                                losses['total'].backward()
-                            grad_norms = train_util.calc_grad_norm(model=model)
-                            train_util.zero_grad(optimizer.param_groups[0]['params']) # model but oTh
-                            train_util.zero_grad(optimizer.param_groups[2]['params']) # textures
-                            train_util.zero_grad(optimizer.param_groups[3]['params']) # posenet
-                            train_util.zero_grad(optimizer.param_groups[4]['params']) # focalnet
-                            optimizer.step()  # oTh
-                        else:
-                            losses['total'].backward()  # gradient for everything but? contact
-                            grad_norms = train_util.calc_grad_norm(model=model)
-                            optimizer.step()
-
-                    elif args.training.backward == 'once':                        
-                        losses['total'].backward()
-                        if args.training.clip is not None:
-                            torch.nn.utils.clip_grad_norm_(trainer.parameters(), args.training.clip)
-                        grad_norms = train_util.calc_grad_norm(model=model, posenet=posenet, focalnet=focal_net)
-                        optimizer.step()
+        
+                    losses['total'].backward()
+                    if args.training.clip is not None:
+                        torch.nn.utils.clip_grad_norm_(trainer.parameters(), args.training.clip)
+                    grad_norms = train_util.calc_grad_norm(model=model, posenet=posenet, focalnet=focal_net)
+                    optimizer.step()
+        
                     scheduler.step(it)  # NOTE: important! when world_size is not 1
 
                     #-------------------
