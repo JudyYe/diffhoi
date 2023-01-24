@@ -7,6 +7,7 @@ defaults:
   - oTh: learn
   - training: default
   - novel_view: semantic
+  - model: small
 
 worker: 'train'
 output: "/compute/grogu-2-9/yufeiy2/result/vhoi"
@@ -25,38 +26,6 @@ device_ids: [0]        # single GPU / DP / DDP; run on all available GPUs;
 
 test_train: 0
 
-
-model:
-  framework: VolSDFHOI
-  obj_bounding_radius: 3.0  # scene sphere, as in the VolSDF paper
-  N_samples: 64  # half the original size
-  
-  outside_scene: "builtin"  # [builtin, nerf++]
-  max_upsample_iter: 6      # up sample iteratioms, as in the VolSDF paper
-
-  W_geometry_feature: 256
-  use_siren: False
-  perturb: True
-  white_bkgd: False
-  surface:
-    radius_init: 1.0        # as in VolSDF supp B.3, unit sphere
-    D: 8
-    W: 256
-    skips: [4]
-    embed_multires: 6
-    use_siren: False
-    geometric_init: True
-
-  radiance:
-    use_siren: False
-    use_view_dirs: True
-    D: 4
-    W: 256
-    skips: []
-    embed_multires: -1
-    embed_multires_view: -1
-
-  joint_frame: 'object_norm'  # object_norm / hand_norm
 
 
 hand_text:

@@ -133,4 +133,5 @@ class TextImageDataset(Dataset):
             'token': tokens, 
             'token_mask': mask, 
             'image': base_tensor,
+            'cond_image': hand_tensor,
             }
