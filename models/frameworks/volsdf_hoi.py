@@ -793,7 +793,6 @@ class Trainer(nn.Module):
         image1 = self.render(jHand, jTc, intrinsics, render_kwargs_test)
         return image1
 
-
     def val(self, logger: Logger, ret, to_img_fn, it, render_kwargs_test, val_ind=None, val_in=None, val_gt=None):        
         mesh_utils.dump_meshes(osp.join(logger.log_dir, 'hand_meshes/%08d' % it), ret['hand'])
         logger.add_meshes('hand',  osp.join('hand_meshes/%08d_0.obj' % it), it)
