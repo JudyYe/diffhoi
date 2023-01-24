@@ -7,7 +7,7 @@ from ddpm.models.glide_base import BaseModule
 from jutils import model_utils
 from glide_text2im.model_creation import create_gaussian_diffusion
 from glide_text2im.gaussian_diffusion import _extract_into_tensor
-
+from glide_text2im.respace import _WrappedModel
 
 class SDLoss:
     def __init__(
@@ -21,6 +21,7 @@ class SDLoss:
         prompt='a semantic segmentation of a hand grasping an object', **kwargs,
     ) -> None:
         super().__init__()
+        self._warp = None
         self.min_step = min_step
         self.max_step = max_step
         self.num_step = prediction_respacing
@@ -38,6 +39,7 @@ class SDLoss:
 
     def init_model(self, device='cuda'):
         self.model = load_from_checkpoint(self.ckpt_path)
+        self.model.eval()
         model_utils.freeze(self.model)
         self.unet = self.model.glide_model
         self.options = self.model.glide_options
@@ -53,46 +55,38 @@ class SDLoss:
         
         self.to(device)  # do this since loss is not a nn.Module?
         
-    def apply_sd(self, latents, weight, w_mask=1, w_normal=1, w_depth=1, w_spatial=False, ):
+    def apply_sd(self, latents, weight,
+            w_mask=1, w_normal=1, w_depth=1, w_spatial=False, 
+            t=None, noise=None):
         device = latents.device
         batch_size = len(latents)
         guidance_scale = self.guidance_scale
         # timestep ~ U(0.02, 0.98) to avoid very high/low noise level
-        t = torch.randint(self.min_step, self.max_step + 1, [batch_size], dtype=torch.long, device=device)
+        if t is None:
+            t = torch.randint(self.min_step, self.max_step + 1, [batch_size], dtype=torch.long, device=device)
         # predict the noise residual with unet, NO grad!
-        _t = time.time()
         with torch.no_grad():
             # add noise
-            noise = torch.randn_like(latents, device=device)
+            if noise is None:
+                noise = torch.randn_like(latents, device=device)
             latents_noisy = self.diffusion.q_sample(latents, t, noise)
-            # latents_noisy = self.scheduler.add_noise(latents, noise, t)
             # pred noise
-            latent_model_input = torch.cat([latents_noisy] * 2)
-            # apply CF-guidance
-            # noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
-            tokens = self.unet.tokenizer.encode(self.const_str)
-            tokens, mask = self.unet.tokenizer.padded_tokens_and_mask( [], self.options["text_ctx"])
-            uncond_tokens, uncond_mask = self.unet.tokenizer.padded_tokens_and_mask( [], self.options["text_ctx"])
-            model_kwargs = dict(
-                tokens=torch.tensor([tokens] * batch_size + [uncond_tokens] * batch_size, device=device),
-                mask=torch.tensor([mask] * batch_size + [uncond_mask] * batch_size,
-                    dtype=torch.bool,
-                    device=device,
-                )
-            )
+            model_fn = self.get_cfg_model_fn(self.unet, guidance_scale)
+            noise_pred = self.get_pred_noise(model_fn, latents_noisy, t)
             # from # GaussinDiffusion:L633 get_eps()
-            tt = torch.cat([t, t], 0)
-            model_output = self.unet(latent_model_input, tt, **model_kwargs)
-            if isinstance(model_output, tuple):
-                model_output, _ = model_output
-            noise_pred = eps = model_output[:, :model_output.shape[1]//2]
+            # tt = torch.cat([t, t], 0)
+            # model_output = self.unet(latent_model_input, tt, **model_kwargs)
+            # if isinstance(model_output, tuple):
+            #     model_output, _ = model_output
+            # noise_pred = eps = model_output[:, :model_output.shape[1]//2]
 
         # perform guidance (high scale from paper!)
-        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-        noise_pred = noise_pred_text + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
         # w(t), sigma_t^2
         # TODO: judy: replace w EDM? 
+        # pred_start_from_eps:
+        # return (x - eps * th.sqrt(1 - alpha_bar)) / th.sqrt(alpha_bar)
+        
         w = 1 - _extract_into_tensor(self.alphas, t, noise_pred.shape) 
         # w = (1 - self.alphas[t])
         # w = self.alphas[t] ** 0.5 * (1 - self.alphas[t])
@@ -125,25 +119,52 @@ class SDLoss:
         return text_embeddings        
 
     def get_noisy_image(self, image, t, noise=None):
-        """return I_t+1"""
-        if noise is not None:
+        """return I_t"""
+        if noise is None:
             noise = torch.randn([1, 3, self.reso, self.reso]).to(image)
         t = torch.tensor([t] * len(image), dtype=torch.long, device=image.device)
         noisy_image = self.diffusion.q_sample(image, t, noise)
         return noisy_image
 
-    def vis_single_step(self, noisy, t, guidance_scale=None):
+    def vis_single_step(self, noisy, t, guidance_scale=None, noise=None):
         if guidance_scale is None:
             guidance_scale = self.guidance_scale
 
         N = len(noisy)
         device = noisy.device
         t = torch.tensor([t] * len(noisy), dtype=torch.long, device=device)
-
-        noise_pred = self.get_pred_noise(noisy, t, guidance_scale)
+        model_fn = self.get_cfg_model_fn(self.unet, guidance_scale)
+        model_fn = self.diffusion._wrap_model(model_fn)
+        noise_pred = self.get_pred_noise(model_fn, noisy, t)
+        # noise_pred = noise
         start_pred = self.diffusion.eps_to_pred_xstart(noisy, noise_pred, t)
         return start_pred
-        
+    
+    def get_cfg_model_fn(self, glide_model, guidance_scale):
+        """
+
+        :param glide_model: _description_
+        :param guidance_scale: _description_
+        :return: a function that takes in x_t in shape of (N*2, C*2, H, W)
+        but only use the first N batch of x_t, and return 
+        (2N, 2C, H, W),  where the :N, ... == N:2N, ...
+        """
+        th = torch
+        def cfg_model_fn(x_t, ts, **kwargs):
+            _3 = x_t.shape[1] // 2
+            half = x_t[: len(x_t) // 2]
+            combined = th.cat([half, half], dim=0)
+            model_out = glide_model(combined, ts, **kwargs)
+
+            eps, rest = model_out[:, :_3], model_out[:, _3:]
+            cond_eps, uncond_eps = th.split(eps, len(eps) // 2, dim=0)  # (N, C, H, W)
+            half_eps = uncond_eps + guidance_scale * (cond_eps - uncond_eps)
+            eps = th.cat([half_eps, half_eps], dim=0)  # 2*N, C, H, W
+            return th.cat([eps, rest], dim=1)  # 2N, 2C, H, W
+        if self._warp is None:
+            self._warp = self.diffusion._wrap_model(cfg_model_fn)
+        return self._warp # self.diffusion._wrap_model(cfg_model_fn)
+
     def vis_multi_step(self, noisy, t, guidance_scale=None, loop='plms'):
         N = len(noisy)
         device = noisy.device
@@ -153,27 +174,16 @@ class SDLoss:
 
         # Pack the tokens together into model kwargs.
         model_kwargs = self.get_model_kwargs(device, N)
-        glide_model = self.unet
         if guidance_scale is None:
             guidance_scale = self.guidance_scale
-        th = torch
-
-        def cfg_model_fn(x_t, ts, **kwargs):
-            half = x_t[: len(x_t) // 2]
-            combined = th.cat([half, half], dim=0)
-            model_out = glide_model(combined, ts, **kwargs)
-            eps, rest = model_out[:, :3], model_out[:, 3:]
-            cond_eps, uncond_eps = th.split(eps, len(eps) // 2, dim=0)
-            half_eps = uncond_eps + guidance_scale * (cond_eps - uncond_eps)
-            eps = th.cat([half_eps, half_eps], dim=0)
-            return th.cat([eps, rest], dim=1)
 
         noisy_double = torch.cat([noisy, noisy], 0)
-        model_fn = cfg_model_fn # so we use CFG for the base model.
+        model_fn = self.get_cfg_model_fn(self.unet, guidance_scale) # so we use CFG for the base model.
         if loop == 'plms':
             img = self.plms_sample_from_middle(model_fn, noisy_double, t, model_kwargs=model_kwargs)
         elif loop == 'ddim':
             img = self.ddim_sample_from_middle(model_fn, noisy_double, t, model_kwargs=model_kwargs)
+        
         return img[:N]
 
         
@@ -287,7 +297,15 @@ class SDLoss:
 
     def get_model_kwargs(self, device, batch_size):
         tokens = self.unet.tokenizer.encode(self.const_str)
-        tokens, mask = self.unet.tokenizer.padded_tokens_and_mask( [], self.options["text_ctx"])
+        # TODO change to constant string~~
+        tokenizer = self.unet.tokenizer
+        tokens = tokenizer.encode(self.const_str)
+        tokens, mask = tokenizer.padded_tokens_and_mask(tokens, self.options["text_ctx"])
+        # print(tokens.shape, type(tokens))
+        # tokens = torch.tensor(tokens)  # + uncond_tokens)
+        # mask = torch.tensor(mask, dtype=torch.bool, device=device)  # + uncond_mask, dtype=th.bool)
+
+        # tokens, mask = self.unet.tokenizer.padded_tokens_and_mask( [self.const_str], self.options["text_ctx"])
         uncond_tokens, uncond_mask = self.unet.tokenizer.padded_tokens_and_mask( [], self.options["text_ctx"])
         model_kwargs = dict(
             tokens=torch.tensor([tokens] * batch_size + [uncond_tokens] * batch_size, device=device),
@@ -298,27 +316,38 @@ class SDLoss:
         )
         return model_kwargs
 
-    def get_pred_noise(self, latents_noisy, t, guidance_scale):
+    def get_pred_noise(self, model_fn, latents_noisy, t, ):
+        """
+        inside the method, it 
+        :param model_fn: CFG func! Wrapped! function
+        :param latents_noisy:in shape of (N, C, H, W)
+        :param t: in shape of (N, )
+        :return: (N, C, H, W)
+        """
         # with CFG
+        if not isinstance(model_fn, _WrappedModel):
+            print('##### Should not appear, sd.py:L329')
+            model_fn = self.diffusion._wrap_model(model_fn)
         batch_size = len(latents_noisy)
         device = latents_noisy.device
 
         with torch.no_grad():
             latent_model_input = torch.cat([latents_noisy] * 2)
             # apply CF-guidance
-            # noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
             model_kwargs = self.get_model_kwargs(device, batch_size)
             # from # GaussinDiffusion:L633 get_eps()
             tt = torch.cat([t, t], 0)
-            model_output = self.unet(latent_model_input, tt, **model_kwargs)
+            model_output = model_fn(latent_model_input, tt, **model_kwargs)
+
+            # model_output = self.unet(latent_model_input, tt, **model_kwargs)
             if isinstance(model_output, tuple):
                 model_output, _ = model_output
-            noise_pred = eps = model_output[:, :3]
+            noise_pred = eps = model_output[:, :model_output.shape[1] // 2]
 
         # perform guidance (high scale from paper!)
-        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-        noise_pred = noise_pred_text + guidance_scale * (noise_pred_text - noise_pred_uncond)
-        return noise_pred
+        # noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+        # noise_pred = noise_pred_text + guidance_scale * (noise_pred_text - noise_pred_uncond)
+        return noise_pred[:len(noise_pred)//2]
 
 def test_sd():
     N = 2
