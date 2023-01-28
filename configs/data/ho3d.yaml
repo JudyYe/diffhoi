@@ -1,5 +1,5 @@
 type: HOI
-data_dir: /home/yufeiy2/scratch/result/syn_data/${data.index}
+data_dir: ${environment.output}/../syn_data/${data.index}
 index: SM2_0001_dt02
 downscale: 1
 noise: 0
