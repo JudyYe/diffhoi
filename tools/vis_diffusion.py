@@ -25,6 +25,8 @@ def get_inp(image_file):
     image = image[None]
     return image
 
+
+
 def run_sample(sd: SDLoss, image_file):
     save_dir = args.out
     H = args.reso
@@ -38,7 +40,8 @@ def run_sample(sd: SDLoss, image_file):
 
     pref = osp.basename(image_file)[:-4] + '_'
 
-    noise = torch.randn([args.S, 3, H, H], device=device)
+    ndim = sd.model.cfg.ndim
+    noise = torch.randn([args.S, ndim, H, H], device=device)
     # each image is a num_sample x noise_level
     for noise_level in tqdm(args.noise.split(',')):
         noise_level = float(noise_level)
@@ -155,8 +158,8 @@ def main_function(args):
             run_sample(sd, image_file)
         if 'sgd' in args.mode:
             run_sgd(sd, image_file)
-         
-
+        if 'uncond' in args.mode:
+            run_uncond_sample(sd)
         
 
 
@@ -172,7 +175,7 @@ if __name__ == "__main__":
     parser.add_argument('--total_step', type=int, default=100, help='total noise')
     parser.add_argument('--loop', type=str, default='ddim', help='sample loop')
     parser.add_argument('--S', type=int, default=8, help='number of samples')
-    parser.add_argument("--load_pt", type=str, default='/home/yufeiy2/scratch/result/vhoi/ddpm/glide_train_seg/checkpoints/last.ckpt', 
+    parser.add_argument("--load_pt", type=str, default='/home/yufeiy2/scratch/result/vhoi/geom/SM2_1_0.0001/checkpoints/last.ckpt', 
         help='the trained model checkpoint .pt file')
     parser.add_argument('--noise_is_step', action='store_true')
     parser.add_argument('--seed', type=int, default=123)

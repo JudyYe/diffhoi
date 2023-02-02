@@ -1,8 +1,36 @@
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=SM2only/w_\${training.w_diffuse}_clip\${training.clip}_geom_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth} \
+    training=diffuse novel_view=geom novel_view.diff_name="geom/SM2_1_0.0001" \
+    novel_view.loss.w_mask=1 novel_view.loss.w_depth=0,1 novel_view.loss.w_normal=0,1 \
+    training.w_diffuse=0.01,1e-3 \
+    data=ho3d  data.len=2 \
+    environment.slurm=True environment.resume=False \
+
+
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=SM2only/geom_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth} \
+    training=diffuse novel_view=geom novel_view.diff_name="geom/SM2_1_0.0001" \
+    training.render_full_frame=False \
+    novel_view.loss.w_mask=0 novel_view.loss.w_depth=0 novel_view.loss.w_normal=0 \
+    data=ho3d  data.len=2 \
+    environment.slurm=False environment.resume=False \
+
+
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=after_rebut/sem_\${data.index}_\${data.len}_\${training.w_diffuse} \
+    training=diffuse training.w_diffuse=0,0.01 \
+    data=ho3d  data.index=SM2_0001_dt10,SMu1_0650_dt10,MDF10_1000_dt10 \
+    environment.slurm=False environment.resume=False \
+
+
+
 CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
     expname=ndc_intr/sds\${data.index}_\${novel_view.mode}_\${training.w_diffuse}_c\${training.clip} \
     training=diffuse training.w_diffuse=1e-3,1e-4,1e-2 training.clip=100,10  \
     data=ho3d  data.len=2 \
-    environment.slurm=True environment.resume=False \
+    environment.slurm=True environment.resume=False logging.mode=none \
 
 
 

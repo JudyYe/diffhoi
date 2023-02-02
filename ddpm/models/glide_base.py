@@ -146,6 +146,12 @@ class BaseModule(pl.LightningModule):
 
     def distribute_weight(self, grad, w, *args, **kwargs):
         return grad * w
+    
+    # @classmethod
+    def decode_samples(self, tensor):
+        return {
+            'semantics': tensor, 
+        }
 
     @rank_zero_only
     def vis_samples(self, batch, samples, sample_list, pref, log, step=None):        
@@ -168,6 +174,7 @@ def main_worker(cfg):
     # handle learning rate 
     print('main worker')
     torch.backends.cudnn.benchmark = True
+    cfg.ndim = cfg.mode.mask * 3 +  (3 * cfg.mode.normal + cfg.mode.depth) * (2 - cfg.mode.cond)
     module = importlib.import_module(cfg.model.module)
     model_cls = getattr(module, cfg.model.model)
     model = model_cls(cfg, )

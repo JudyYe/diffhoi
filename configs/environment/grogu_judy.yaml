@@ -6,6 +6,8 @@ data_dir: /compute/grogu-2-9/yufeiy2/data/
 output: ${environment.remote_str}/result/vhoi
 slurm_partition: abhinavlong,shubhamlong,all
 
+submitit_dir: ${exp_dir}/submitit_train_logs/
+
 resume: True
 
 world_size: 1

@@ -10,6 +10,7 @@ from pytorch_lightning.utilities.distributed import rank_zero_only
 
 from .glide_base import BaseModule
 from ..utils import glide_util
+from jutils import image_utils
 
 class Glide(BaseModule):
     def __init__(self, cfg, *args, **kwargs) -> None:
@@ -67,21 +68,44 @@ class Glide(BaseModule):
         loss = F.mse_loss(epsilon, noise.to(device).detach())        
         return loss, {'loss': loss}
 
+    @rank_zero_only
+    def vis_samples(self, batch, samples, sample_list, pref, log, step=None):        
+        out = self.decode_samples(samples)
+        for k, v in out.items():
+            if 'depth' in k:
+                log[f"{pref}{k}_color"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
+            log[f"{pref}sample_{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
+        return log
 
 class GeomGlide(Glide):
     def __init__(self, cfg, *args, **kwargs) -> None:
         super().__init__(cfg, *args, **kwargs)
 
+    # @classmethod
     def decode_samples(self, tensor):
-        masks, hand_normal, obj_normal,  hand_depth, obj_depth = \
-            tensor.split([3, 3, 3, 1, 1], 1)
-        return {
-            'semantics': masks, 
-            'hand_normal': hand_normal,
-            'obj_normal': obj_normal,
-            'hand_depth': hand_depth,
-            'obj_depth': obj_depth,
-        }
+        mode = self.cfg.mode
+        out = {}
+        cur = 0
+        if mode.mask:
+            out['semantics'] = tensor[:, cur:cur+3]
+            cur += 3
+        if mode.normal:
+            out['hand_normal'] = tensor[:, cur:cur+3]
+            out['obj_normal'] = tensor[:, cur+3:cur+6]
+            cur += 6
+        if mode.depth:
+            out['hand_depth'] = tensor[:, cur:cur+1]
+            out['obj_depth'] = tensor[:, cur+1:cur+2]
+        return out
+        # masks, hand_normal, obj_normal,  hand_depth, obj_depth = \
+            # tensor.split([3, 3, 3, 1, 1], 1)
+        # return {
+            # 'semantics': masks, 
+            # 'hand_normal': hand_normal,
+            # 'obj_normal': obj_normal,
+            # 'hand_depth': hand_depth,
+            # 'obj_depth': obj_depth,
+        # }
 
     def distribute_weight(self, grad, w_mask, w_normal, w_depth, *args, **kwargs):
         grad[:, 0:3] *= w_mask
@@ -93,6 +117,8 @@ class GeomGlide(Glide):
     def vis_samples(self, batch, samples, sample_list, pref, log, step=None):        
         out = self.decode_samples(samples)
         for k, v in out.items():
+            if 'depth' in k:
+                log[f"{pref}{k}_color"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
             log[f"{pref}sample_{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
         return log
 
@@ -101,7 +127,6 @@ class GeomGlide(Glide):
         out = self.decode_samples(batch['image'])
         for k, v in out.items():
             if 'depth' in k:
-                v_np = v
-                print(v_np, v_np.min(), v_np.max())
+                log[f"{pref}{k}_color"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
             log[f"{pref}{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
         return log

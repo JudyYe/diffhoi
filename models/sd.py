@@ -1,5 +1,4 @@
 # modified from https://github.com/ashawkey/stable-dreamfusion/blob/main/nerf/sd.py
-import time
 import torch
 import torch.nn as nn
 from ddpm.utils.train_util import load_from_checkpoint
@@ -73,27 +72,14 @@ class SDLoss:
             # pred noise
             model_fn = self.get_cfg_model_fn(self.unet, guidance_scale)
             noise_pred = self.get_pred_noise(model_fn, latents_noisy, t)
-            # from # GaussinDiffusion:L633 get_eps()
-            # tt = torch.cat([t, t], 0)
-            # model_output = self.unet(latent_model_input, tt, **model_kwargs)
-            # if isinstance(model_output, tuple):
-            #     model_output, _ = model_output
-            # noise_pred = eps = model_output[:, :model_output.shape[1]//2]
-
-        # perform guidance (high scale from paper!)
 
         # w(t), sigma_t^2
         # TODO: judy: replace w EDM? 
-        # pred_start_from_eps:
-        # return (x - eps * th.sqrt(1 - alpha_bar)) / th.sqrt(alpha_bar)
-        
         w = 1 - _extract_into_tensor(self.alphas, t, noise_pred.shape) 
         # w = (1 - self.alphas[t])
         # w = self.alphas[t] ** 0.5 * (1 - self.alphas[t])
         grad = weight * w * (noise_pred - noise)
         grad = self.model.distribute_weight(grad, w_mask, w_normal, w_depth)  # interpolate your own image
-        # clip grad for stable training?
-        # grad = grad.clamp(-10, 10)
         grad = torch.nan_to_num(grad)
         # latents.retain_grad()  # just for debug
         # manually backward, since we omitted an item in grad and cannot simply autodiff.
@@ -121,7 +107,7 @@ class SDLoss:
     def get_noisy_image(self, image, t, noise=None):
         """return I_t"""
         if noise is None:
-            noise = torch.randn([1, 3, self.reso, self.reso]).to(image)
+            noise = torch.randn_like(image)
         t = torch.tensor([t] * len(image), dtype=torch.long, device=image.device)
         noisy_image = self.diffusion.q_sample(image, t, noise)
         return noisy_image
@@ -348,6 +334,7 @@ class SDLoss:
         # noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
         # noise_pred = noise_pred_text + guidance_scale * (noise_pred_text - noise_pred_uncond)
         return noise_pred[:len(noise_pred)//2]
+
 
 def test_sd():
     N = 2

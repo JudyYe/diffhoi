@@ -1,6 +1,6 @@
 ## glide_util.py
 # Utilities for tokenizing, padding, and batching data and sampling from GLIDE.
-
+from copy import deepcopy
 import os
 from typing import Tuple
 
@@ -20,6 +20,24 @@ from .train_util import pred_to_pil
 from jutils import model_utils
 MODEL_TYPES = ["base", "upsample", "base-inpaint", "upsample-inpaint"]
 
+def init_best_efforts(new_shape, param, split_in_half, dim):
+    K = new_shape[dim] // (param.shape[dim]) 
+    m = new_shape[dim] % (param.shape[dim])
+    dims = [1,] * param.ndim
+    if split_in_half:
+        param1, param2 = th.chunk(param, 2, dim=dim)
+        half_dim = list(new_shape); half_dim[dim] //= 2
+        first = init_best_efforts(half_dim, param1, False, dim)
+        second = init_best_efforts(half_dim, param2, False, dim)
+        new_param = th.cat([first, second], 0)
+    else:
+        to_dims1 = deepcopy(dims); to_dims1[dim] = K
+        to_dims2 = deepcopy(dims); to_dims2[dim] = m
+        new_param = param.repeat(*to_dims1) 
+        if m > 0:
+            param2 = th.mean(param, dim, True).repeat(*to_dims2)
+            new_param = th.cat([new_param, param2], dim)
+    return new_param
 
 def create_model_and_diffusion(
     image_size,
@@ -202,8 +220,18 @@ def load_model(
         glide_model.output_blocks.requires_grad_(False)
     if glide_path and os.path.exists(glide_path):  # user provided checkpoint
         weights = th.load(glide_path, map_location="cpu")
-        model_utils.load_my_state_dict(glide_model, weights)
-        # glide_model.load_state_dict(weights)
+        _, _, mismatch_keys =  model_utils.load_my_state_dict(glide_model, weights)
+        if len(mismatch_keys) > 0:
+            # try to fit outermost layer?
+            own_state = glide_model.state_dict()
+            for key in mismatch_keys:
+                if key not in ['input_blocks.0.0.weight', 'out.2.weight', 'out.2.bias']:
+                    continue
+                dim = 1 if 'input' in key else 0
+                v = init_best_efforts(
+                    own_state[key].shape, weights[key].data, 'out' in key, dim)
+                own_state[key].copy_(v)
+                print('init w best efforts', key)
     elif glide_path is None:  # use default checkpoint from openai
         pass
     else:

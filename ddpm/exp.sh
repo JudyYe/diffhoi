@@ -1,7 +1,12 @@
+CUDA_VISIBLE_DEVICES=7 PYTHONPATH=. python -m ddpm.engine -m --config-name geom_glide  \
+  expname=geom/pretrained_ho3d_cam_\${ho3d.split}_\${zfar}_\${learning_rate} \
+  ho3d.split=SM2  zfar=1,10 model.model=GeomGlide learning_rate=1e-4,1e-5 \
+  environment.slurm=True logging=none \
+
 
 CUDA_VISIBLE_DEVICES=7 PYTHONPATH=. python -m ddpm.engine -m --config-name geom_glide  \
   expname=ddpm_geom/100_depth_\${ho3d.split} \
-  model.model=GeomGlide ho3d.split=SM2  \
+  model.model=GeomGlide ho3d.split=SM2,train_seg  \
   environment.slurm=True logging=none \
 
 

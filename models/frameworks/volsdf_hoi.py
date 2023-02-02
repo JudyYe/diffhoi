@@ -6,6 +6,7 @@ from copy import deepcopy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.transforms.functional as TF
 from einops import rearrange
 from pytorch3d.structures import Meshes
 from pytorch3d.renderer import PerspectiveCameras
@@ -22,7 +23,7 @@ from utils import rend_util
 from utils.logger import Logger
 
 from models.blending import hard_rgb_blend, softmax_rgb_blend, volumetric_rgb_blend
-from jutils import geom_utils, mesh_utils, model_utils, hand_utils, plot_utils
+from jutils import geom_utils, mesh_utils, model_utils, hand_utils, plot_utils, image_utils
 
 
 
@@ -502,14 +503,18 @@ class Trainer(nn.Module):
         if nv.amodal == 'occlusion':
             raise NotImplementedError(nv.amodal)
         elif nv.amodal == 'amodal':
-            
+            torch.autograd.set_detect_anomaly(True)
             cHand_normal = iHand['normal'] * iHand['mask'][..., None]
 
             jObj_normal = iObj['normal'] * iObj['mask'][..., None]  # (N, R, 3?)
             cTj_trans = Transform3d(matrix=cTj.transpose(-1, -2), device=cTj.device)
             # this is because my weird def of pytorch3d mesh rendering of normal in mesh_utils.render
-            cObj_normal = cTj_trans.transform_normals(jObj_normal)  
+            cObj_normal = cTj_trans.transform_normals(jObj_normal)    # need to renorm! coz of scale happens in cTj... 
             cObj_normal[..., 1:3] *= -1 # xyz points to left, up, outward
+            cHoi_norm = torch.norm(cObj_normal, dim=-1, keepdim=True) + 1e-5
+            cObj_normal = cObj_normal / cHoi_norm
+
+            # cObj_normal = F.normalize(cObj_normal, -1)
 
             cHoi_normal = torch.cat([cHand_normal, cObj_normal], -1)  # (N, R, 32)
 
@@ -519,7 +524,8 @@ class Trainer(nn.Module):
                 # TODO: maybe a bug
                 cHoi_lin = rearrange(cHoi_normal, 'n r (c k) -> n (r k) c', c=3)  
                 hHoi_lin = hTc_trans.transform_normals(cHoi_lin)
-                hHoi_lin = F.normalize(hHoi_lin, -1)
+                hHoi_norm = torch.norm(hHoi_lin, dim=-1, keepdim=True) + 1e-10
+                hHoi_lin /= hHoi_norm
                 # there is a scale factor so norm will change~~
                 # H = cHand_normal.shape[-1]
                 hHoi_normal = rearrange(hHoi_lin, 'n (r k) 3 -> n r (3 k)',)
@@ -557,7 +563,8 @@ class Trainer(nn.Module):
             jHand_depth_camera = iHand['mask'] * (jHand_depth_camera - mean_hand_depth) + (1-iHand['mask']) * zfar
             jObj_depth_camera = iObj['mask'] * (jObj_depth_camera-mean_hand_depth) + (1 - iObj['mask']) * zfar
 
-            jHoi_reldepth = torch.stack([jHand_depth_camera, jObj_depth_camera] , -1) - mean_hand_depth[..., None]
+            # jHoi_reldepth = torch.stack([jHand_depth_camera, jObj_depth_camera] , -1) - mean_hand_depth[..., None]
+            jHoi_reldepth = torch.stack([jHand_depth_camera, jObj_depth_camera], -1)
 
             jHoi_reldepth = self.lin2img(jHoi_reldepth)  # (N, C, H, W? )
             with torch.no_grad():
@@ -580,10 +587,11 @@ class Trainer(nn.Module):
         if nv.mode == 'semantics':
             img = self.get_label(iHoi, iHand, iObj)
         elif nv.mode == 'geom':
+            zfar = self.sd_loss.model.cfg.zfar
             img = torch.cat([
                 self.get_label(iHoi, iHand, iObj),
                 self.get_normal(iHoi, iHand, iObj, extras['jTc'], extras['jTh']),
-                self.get_depth(iHoi, iHand, iObj, extras['jTc'], extras['jTh']),
+                self.get_depth(iHoi, iHand, iObj, extras['jTc'], extras['jTh'], zfar),
             ], 1)
         else: 
             raise NotImplementedError(nv.mode)
@@ -801,6 +809,33 @@ class Trainer(nn.Module):
         novel_img = self.render_novel_view(val_ind, val_in, val_gt, render_kwargs_test)
         logger.add_imgs(novel_img['image'], 'sample/hoi_rgb', it)
         logger.add_imgs(novel_img['label'].float(), 'sample/hoi_label', it)
+
+        # get _diffusion image
+        if self.sd_loss is not None:
+            image = self.get_diffusion_image(ret)
+            out = self.sd_loss.model.decode_samples(image)
+            for k,v in out.items():
+                if 'normal' in k:
+                    v = v / 2 + 0.5
+                if 'depth' in k:
+                    color = image_utils.save_depth(v, None, znear=-1, zfar=1)
+                    logger.add_imgs(TF.to_tensor(color)[None], f'diffuse/{k}_color', it)
+                    
+                logger.add_imgs(v.clip(-1, 1), f'diffuse/{k}', it)
+
+            # try free generation? 
+            noise_step = self.sd_loss.max_step
+            noisy = self.sd_loss.get_noisy_image(image, noise_step-1)
+            out = self.sd_loss.vis_multi_step(noisy, noise_step, 1)
+            out = self.sd_loss.model.decode_samples(out)
+            for k,v in out.items():
+                if 'normal' in k:
+                    v = v / 2 + 0.5
+                if 'depth' in k:
+                    color = image_utils.save_depth(v, None, znear=-1, zfar=1)
+                    logger.add_imgs(TF.to_tensor(color)[None], f'diffuse_sample/{k}_color', it)
+                    
+                logger.add_imgs(v.clip(-1, 1), f'diffuse_sample/{k}', it)
 
         mask = torch.cat([
             to_img_fn(ret['hand_mask_target'].unsqueeze(-1).float()).repeat(1, 3, 1, 1),

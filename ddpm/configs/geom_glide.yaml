@@ -6,6 +6,13 @@ defaults:
   - model: glide
 
 ndim: 11
+zfar: 10
+
+mode:
+  mask: 1
+  normal: 1
+  depth: 1
+  cond: False
 
 worker: ddpm.models.glide_base
 train_prob: 

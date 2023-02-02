@@ -20,7 +20,7 @@ def red_hand_green_obj(image_file, ind, meta):
     return pil_image_to_norm_tensor(Image.fromarray(out))
 
 
-def parse_data(data_dir, split, args):
+def parse_data(data_dir, split, data_cfg, args):
     """let us try no crop first? 
     :param data_dir: _description_
     :param split: _description_

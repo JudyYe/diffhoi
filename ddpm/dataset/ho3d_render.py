@@ -40,17 +40,19 @@ def read_depth(image_file, ind, meta):
     :param meta: _description_
     :return: depth tensor in shape of [C=2, H, W], scale in cm
     """
+    cfg = meta['cfg']
     hand = np.array(Image.open(meta['hand_depth_list'][ind])).astype(np.float)
+    hand_mask = hand > 0
     obj = np.array(Image.open(meta['obj_depth_list'][ind])).astype(np.float)
-    hand_mean = hand.sum() / (hand > 0).sum()  # mean within mask
-    z_far = -1000  # -1m
+    obj_mask = obj > 0
+    hand_mean = hand.sum() / hand_mask.sum()  # mean within mask
+    z_far = cfg.zfar * 100  # 1m
     # TODO: only apply within mask
-    obj = (obj - hand_mean) * (obj > 0) + z_far * (obj <= 0)
-    hand = (hand - hand_mean) * (hand > 0) + z_far * (obj <= 0)
+    obj = (obj - hand_mean) * obj_mask + z_far * (1 - obj_mask)
+    hand = (hand - hand_mean) * hand_mask + z_far * (1 - hand_mask)
 
     # let us assume depth is in scale of 0, 200ish mm ? for now? 
     # the scene has a boundary so range is bounded, dont' need inverse depth trick  
-
     hoi_depth = np.stack([hand, obj], 0) # (C, H, W)
     hoi_depth = torch.FloatTensor(hoi_depth)
     # convert mm to cm
@@ -83,7 +85,7 @@ def surface_normal(image_file, ind, meta):
     return normal_tensor
 
 
-def parse_data(data_dir, split, args):
+def parse_data(data_dir, split, data_cfg, args):
     """let us try no crop first? 
     :param data_dir: _description_
     :param split: _description_
@@ -117,6 +119,7 @@ def parse_data(data_dir, split, args):
     text_list = ['a semantic segmentation of a hand grasping an object'] * len(image_list)
     img_func = get_image
 
+    meta['cfg'] = args
     return {
         'image': image_list,
         'text': text_list,
@@ -128,13 +131,27 @@ def parse_data(data_dir, split, args):
 if __name__ == '__main__':
     out = parse_data('/home/yufeiy2/scratch//data/HO3D/crop_render/', 
         '/home/yufeiy2/scratch//data/HO3D/Sets/SM2.txt', {})
-
+    save_dir = '/home/yufeiy2/scratch/result/vis'
+    from ddpm.models.glide import GeomGlide
+    from jutils import image_utils
     mean_list, var_list = [], []
     for i in range(10):
         img = get_image(out['image'][i], i, out['meta'])
         mean_list.append(img.reshape(11, -1).mean(-1),)
         var_list.append( img.reshape(11, -1).std(-1))
-        print(img.shape, )
+        img = img[None]
+
+        rtn = GeomGlide.decode_samples(img)
+        for k, v in rtn.items():
+            if 'normal' in k:
+                v = v /2 + 0.5
+            if 'depth' in k:
+                print(k, v.max(), v.min(), )
+                image_utils.save_depth(v.clip(-1, 10), osp.join(save_dir, f'{i}_{k}'), znear=-1, zfar=1)
+                image_utils.save_images(v.clip(-1, 10), osp.join(save_dir, f'{i}_{k}2'), )
+            else:
+                image_utils.save_images(v.clip(-1, 1), osp.join(save_dir, f'{i}_{k}'))
+
     print('mean', torch.stack(mean_list).mean(0))
     print('std' , torch.stack(var_list).mean(0))
 

@@ -59,13 +59,13 @@ class ConcatDatasetProb(Dataset):
         return self.cumulative_sizes
 
 
-def get_data_parsed(data_cfg):
+def get_data_parsed(data_cfg, cfg):
     """
     :param data_cfg: a dict with keys: target, data_dir, split, .... defined in data/xxx.yaml
     """
     mod = importlib.import_module('.' + data_cfg.target, 'ddpm.dataset')
     met = getattr(mod, 'parse_data')
-    parsed_data = met(data_cfg.data_dir, data_cfg.split, data_cfg)
+    parsed_data = met(data_cfg.data_dir, data_cfg.split, data_cfg, cfg)
     return parsed_data
 
 
@@ -74,7 +74,7 @@ def build_dataloader(args, datasets, tokenizer, text_ctx_len, is_train, bs, shuf
     print(type(datasets))
     for ds in datasets:
         data_cfg = datasets[ds]
-        data_parserd = get_data_parsed(data_cfg)
+        data_parserd = get_data_parsed(data_cfg, args)
         s = data_cfg.split
         DSet = TextImageDataset 
         dataset = DSet(
