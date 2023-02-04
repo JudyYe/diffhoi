@@ -24,7 +24,7 @@ w_contour: 10.
 w_contact: 0. 
 w_diffuse: 0.01   # diffusion model
 backward: 'once'
-clip: 10
+clip: 100
 
 fg: 1
 occ_mask: label  # union | indp | label? 
@@ -47,7 +47,7 @@ monitoring: ${logging.mode}
 i_save: 200 # 1000       # unit: seconds
 i_backup: 50000   # unit: itertation steps
 
-i_val: 200 # 1000
-i_val_mesh: 200 # 1000
+i_val: 199 # 1000
+i_val_mesh: 199 # 1000
 
 print_freq: 11

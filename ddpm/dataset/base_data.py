@@ -2,7 +2,7 @@ import time
 from random import randint, choice, random
 
 import PIL
-
+import torch
 from torch.utils.data import Dataset
 from torchvision import transforms as T
 from ..utils.glide_util import get_tokens_and_mask, get_uncond_tokens_mask
@@ -126,12 +126,21 @@ class TextImageDataset(Dataset):
             print(f"Skipping index {ind}")
             return self.skip_sample(ind)
         
-        base_tensor = random_resized_crop(base_tensor, (self.side_x, self.side_y), resize_ratio=self.resize_ratio)
-        # base_tensor = pil_image_to_norm_tensor(base_pil_image)
-        # return th.tensor(tokens), th.tensor(mask, dtype=th.bool), base_tensor
-        return {
+        if self.parsed_data.get('cond_func', None) is not None:
+            cond_tensor = self.parsed_data['cond_func'](image_file, ind, self.parsed_data['meta'])
+            all_tensor = torch.cat([base_tensor, cond_tensor], 0)
+            all_tensor = random_resized_crop(all_tensor, (self.side_x, self.side_y), resize_ratio=self.resize_ratio)
+            D1, D2 = base_tensor.shape[0], cond_tensor.shape[0]
+            base_tensor, cond_tensor = all_tensor.split([D1, D2], 0)
+        else:
+            base_tensor = random_resized_crop(base_tensor, (self.side_x, self.side_y), resize_ratio=self.resize_ratio)
+            cond_tensor = None
+        out = {
             'token': tokens, 
             'token_mask': mask, 
             'image': base_tensor,
             # 'cond_image': hand_tensor,
             }
+        if cond_tensor is not None:
+            out['cond_image'] = cond_tensor
+        return out

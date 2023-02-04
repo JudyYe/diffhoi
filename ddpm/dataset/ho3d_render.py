@@ -6,6 +6,23 @@ from ..utils.train_util import pil_image_to_norm_tensor
 
 import torch
 
+def get_hand_image(image_file, ind, meta):
+    mask = sem_mask(image_file, ind, meta)
+    normal = surface_normal(image_file, ind, meta)
+    depth = read_depth(image_file, ind, meta)
+
+    image = torch.cat([mask[0:1], normal[0:3], depth[0:1]], 0)
+    return image
+
+
+def get_obj_image(image_file, ind, meta):
+    mask = sem_mask(image_file, ind, meta)
+    normal = surface_normal(image_file, ind, meta)
+    depth = read_depth(image_file, ind, meta)
+
+    image = torch.cat([mask[1:2], normal[3:6], depth[1:2]], 0)
+    return image
+
 
 def get_image(image_file, ind, meta):
     mask = sem_mask(image_file, ind, meta)
@@ -117,13 +134,20 @@ def parse_data(data_dir, split, data_cfg, args):
             meta['obj_normal_list'].append(img_file.format('obj_normal')[:-3] + 'npy')
         
     text_list = ['a semantic segmentation of a hand grasping an object'] * len(image_list)
-    img_func = get_image
+    print(args.mode.cond)
+    if not args.mode.cond:
+        img_func = get_image
+        cond_func = None
+    else:
+        img_func = get_obj_image
+        cond_func = get_hand_image
 
     meta['cfg'] = args
     return {
         'image': image_list,
         'text': text_list,
         'img_func': img_func, 
+        'cond_func': cond_func,
         'meta': meta,
     }    
 
@@ -154,8 +178,3 @@ if __name__ == '__main__':
 
     print('mean', torch.stack(mean_list).mean(0))
     print('std' , torch.stack(var_list).mean(0))
-
-# mean tensor([-0.7618, -0.6442, -1.0000,  0.0081,  0.0032,  0.0794,  0.0076,  0.0096,
-#          0.1470, -0.5141, -0.5287])
-# std tensor([0.6338, 0.7510, 0.0000, 0.1502, 0.1650, 0.2270, 0.1617, 0.1292, 0.3159,
-#         0.2056, 0.1374])

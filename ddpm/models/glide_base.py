@@ -124,7 +124,8 @@ class BaseModule(pl.LightningModule):
         if step is None: step = self.global_step
         file_list = []
         step = self.global_step
-        
+        for k, v in batch.items():
+            print(k, v.shape)
         for n in range(S):
             samples, sample_list = glide_util.sample(
                 glide_model=self.glide_model,
@@ -174,7 +175,10 @@ def main_worker(cfg):
     # handle learning rate 
     print('main worker')
     torch.backends.cudnn.benchmark = True
-    cfg.ndim = cfg.mode.mask * 3 +  (3 * cfg.mode.normal + cfg.mode.depth) * (2 - cfg.mode.cond)
+    if cfg.mode.cond:
+        cfg.ndim = cfg.mode.mask +  (3 * cfg.mode.normal + cfg.mode.depth) * (2 - cfg.mode.cond)
+    else:
+        cfg.ndim = cfg.mode.mask * 3 +  (3 * cfg.mode.normal + cfg.mode.depth) * (2 - cfg.mode.cond)
     module = importlib.import_module(cfg.model.module)
     model_cls = getattr(module, cfg.model.model)
     model = model_cls(cfg, )

@@ -16,8 +16,10 @@ from glide_text2im.model_creation import (
 )
 from glide_text2im.tokenizer.bpe import get_encoder, Encoder
 from glide_text2im.text2im_model import Text2ImUNet
-from .train_util import pred_to_pil
+from ddpm.models.network import ImageText2ImUNet
 from jutils import model_utils
+
+
 MODEL_TYPES = ["base", "upsample", "base-inpaint", "upsample-inpaint"]
 
 def init_best_efforts(new_shape, param, split_in_half, dim):
@@ -139,7 +141,11 @@ def create_model(
     for res in attention_resolutions.split(","):
         attention_ds.append(image_size // int(res))
 
-    return Text2ImUNet(
+    if not inpaint:
+        Model = Text2ImUNet
+    else:
+        Model = ImageText2ImUNet
+    return Model(
         text_ctx=text_ctx,
         xf_width=xf_width,
         xf_layers=xf_layers,
@@ -162,6 +168,7 @@ def create_model(
         resblock_updown=resblock_updown,
         cache_text_emb=cache_text_emb,
     )
+ 
 
 def get_uncond_tokens_mask(tokenizer: Encoder):
     uncond_tokens, uncond_mask = tokenizer.padded_tokens_and_mask([], 128)
@@ -301,7 +308,10 @@ def sample(
             dtype=th.bool,
             device=device,
         )], 0),
+        # cond_image=val_batch.get('cond_image', None)
     )
+    if 'cond_image' in val_batch:
+        model_kwargs['cond_image'] = val_batch['cond_image'].repeat(2, 1, 1, 1)
 
     def cfg_model_fn(x_t, ts, **kwargs):
         half = x_t[: len(x_t) // 2]

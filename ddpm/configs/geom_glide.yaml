@@ -6,7 +6,7 @@ defaults:
   - model: glide
 
 ndim: 11
-zfar: 10
+zfar: 1
 
 mode:
   mask: 1
