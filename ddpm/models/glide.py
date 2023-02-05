@@ -147,7 +147,6 @@ class CondGeomGlide(Glide):
         x_t = glide_diffusion.q_sample(reals, timesteps, noise=noise,
             ).to(device)
 
-        print('x_t', x_t.shape, 'cond_image', batch['cond_image'].shape)
         model_output = glide_model(
             x_t.to(device),
             timesteps.to(device),

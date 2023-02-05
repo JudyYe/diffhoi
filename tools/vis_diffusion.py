@@ -141,7 +141,6 @@ def run_sgd(sd: SDLoss, image_file):
         )
     
 
-    
 def main_function(args):
     torch.manual_seed(args.seed)
     save_dir = args.out

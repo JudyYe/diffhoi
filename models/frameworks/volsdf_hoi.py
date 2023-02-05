@@ -555,27 +555,28 @@ class Trainer(nn.Module):
         if nv.amodal == 'occlusion':
             raise NotImplementedError(nv.amodal)
         elif nv.amodal == 'amodal':
-            jHand_depth_camera = iHand['depth'] * iHand['mask'] # camera frame depth, in scale of j
-            jObj_depth_camera = iObj['depth'] * iObj['mask'] # （N,R,)
+            _, _, jTc_scale = geom_utils.homo_to_rt(jTc)  # (N, 3)            
+            jTc_scale = jTc_scale.mean(-1).reshape(N, 1) / 10  # *10: m -> dm
 
-            mean_hand_depth = jHand_depth_camera.sum(1, keepdim=True) / iHand['mask'].sum(1, keepdim=True)
+            hand_mask = (iHand['mask'] > 0.5).float()
+            obj_mask = (iObj['mask'] > 0.5).float()
             
-            jHand_depth_camera = iHand['mask'] * (jHand_depth_camera - mean_hand_depth) + (1-iHand['mask']) * zfar
-            jObj_depth_camera = iObj['mask'] * (jObj_depth_camera-mean_hand_depth) + (1 - iObj['mask']) * zfar
+            jHand_depth_camera = iHand['depth'] * hand_mask
+            jObj_depth_camera = iObj['depth'] * obj_mask
+            
+            cHand_depth_camera = jHand_depth_camera / jTc_scale
+            cObj_depth_camera = jObj_depth_camera / jTc_scale
 
-            # jHoi_reldepth = torch.stack([jHand_depth_camera, jObj_depth_camera] , -1) - mean_hand_depth[..., None]
-            jHoi_reldepth = torch.stack([jHand_depth_camera, jObj_depth_camera], -1)
+            mean_hand_depth = cHand_depth_camera.sum(1, keepdim=True) / hand_mask.sum(1, keepdim=True)            
+            
+            cHand_reldepth = hand_mask * (cHand_depth_camera - mean_hand_depth) + (1-hand_mask) * zfar
+            cObj_reldepth = obj_mask * (cObj_depth_camera-mean_hand_depth) + (1 - obj_mask) * zfar
 
-            jHoi_reldepth = self.lin2img(jHoi_reldepth)  # (N, C, H, W? )
-            with torch.no_grad():
-                _, _, jTc_scale = geom_utils.homo_to_rt(jTc)  # (N, 3)
-                cHoi_depth_camera = jHoi_reldepth / jTc_scale.mean(-1).reshape([N, 1, 1, 1])  
-                img = cHoi_depth_camera
+            cHoi_reldepth = torch.stack([cHand_reldepth, cObj_reldepth], -1)
+            cHoi_reldepth = self.lin2img(cHoi_reldepth)  # (N, C, H, W? )
+            
+            img = cHoi_reldepth
 
-            # if nv.frame == 'hand':
-            # elif nv.frame == 'camera':
-
-        img = img * 10
         return img
 
     def get_diffusion_image(self, extras):
@@ -584,19 +585,28 @@ class Trainer(nn.Module):
         iHoi = extras['iHoi']
         iHand = extras['iHand']
         iObj = extras['iObj']
+        rtn = {}
         if nv.mode == 'semantics':
             img = self.get_label(iHoi, iHand, iObj)
         elif nv.mode == 'geom':
             zfar = self.sd_loss.model.cfg.zfar
-            img = torch.cat([
-                self.get_label(iHoi, iHand, iObj),
-                self.get_normal(iHoi, iHand, iObj, extras['jTc'], extras['jTh']),
-                self.get_depth(iHoi, iHand, iObj, extras['jTc'], extras['jTh'], zfar),
-            ], 1)
+            mask = self.get_label(iHoi, iHand, iObj)
+            normal = self.get_normal(iHoi, iHand, iObj, extras['jTc'], extras['jTh'])
+            depth = self.get_depth(iHoi, iHand, iObj, extras['jTc'], extras['jTh'], zfar)
+
+            if not self.sd_loss.cond:
+                img = torch.cat([mask, normal, depth], 1)
+                rtn['image'] = img
+            else:
+                hand_mask, obj_mask = mask[:, 0:1], mask[:, 1:2]
+                hand_normal, obj_normal = normal.split([3, 3], 1)
+                hand_depth, obj_depth = depth.split([1, 1], 1)
+
+                rtn['image'] = torch.cat([obj_mask, obj_normal, obj_depth], 1)        
+                rtn['cond_image'] = torch.cat([hand_mask, hand_normal, hand_depth], 1)
         else: 
             raise NotImplementedError(nv.mode)
-        # label are either 1, or 0, but the diffusion model trains with [-1, 1]
-        return img
+        return rtn
 
 
     def get_fullframe_reg_loss(self, losses, extras):
@@ -606,7 +616,8 @@ class Trainer(nn.Module):
         args = self.args
         if args.training.w_diffuse > 0:
             img = self.get_diffusion_image(extras)
-            self.sd_loss.apply_sd(img, args.training.w_diffuse, **args.novel_view.loss)
+            self.sd_loss.apply_sd(**img, 
+                weight=args.training.w_diffuse, **args.novel_view.loss)
             extras['diffusion_inp'] = img
         return losses
 
@@ -810,23 +821,24 @@ class Trainer(nn.Module):
         logger.add_imgs(novel_img['image'], 'sample/hoi_rgb', it)
         logger.add_imgs(novel_img['label'].float(), 'sample/hoi_label', it)
 
-        # get _diffusion image
+        # get_diffusion image
         if self.sd_loss is not None:
             image = self.get_diffusion_image(ret)
-            out = self.sd_loss.model.decode_samples(image)
-            for k,v in out.items():
-                if 'normal' in k:
-                    v = v / 2 + 0.5
-                if 'depth' in k:
-                    color = image_utils.save_depth(v, None, znear=-1, zfar=1)
-                    logger.add_imgs(TF.to_tensor(color)[None], f'diffuse/{k}_color', it)
-                    
-                logger.add_imgs(v.clip(-1, 1), f'diffuse/{k}', it)
+            for kk, vv in image.items():
+                out = self.sd_loss.model.decode_samples(vv)
+                for k,v in out.items():
+                    if 'normal' in k:
+                        v = v / 2 + 0.5
+                    if 'depth' in k:
+                        color = image_utils.save_depth(v, None, znear=-1, zfar=1)
+                        logger.add_imgs(TF.to_tensor(color)[None], f'diffuse/{k}_{kk}_color', it)
+                        
+                    logger.add_imgs(v.clip(-1, 1), f'diffuse/{k}_{kk}', it)
 
             # try free generation? 
             noise_step = self.sd_loss.max_step
-            noisy = self.sd_loss.get_noisy_image(image, noise_step-1)
-            out = self.sd_loss.vis_multi_step(noisy, noise_step, 1)
+            noisy = self.sd_loss.get_noisy_image(image['image'], noise_step-1)
+            out = self.sd_loss.vis_multi_step(noisy, noise_step, 1, image.get('cond_image', None))
             out = self.sd_loss.model.decode_samples(out)
             for k,v in out.items():
                 if 'normal' in k:
@@ -837,6 +849,8 @@ class Trainer(nn.Module):
                     
                 logger.add_imgs(v.clip(-1, 1), f'diffuse_sample/{k}', it)
 
+        color = image_utils.save_depth(to_img_fn(ret['iObj']['depth'].unsqueeze(-1)), None, znear=-1, zfar=1)
+        logger.add_imgs(TF.to_tensor(color)[None], f'diffuse/obj_depth_nomask', it)
         mask = torch.cat([
             to_img_fn(ret['hand_mask_target'].unsqueeze(-1).float()).repeat(1, 3, 1, 1),
             to_img_fn(ret['obj_mask_target'].unsqueeze(-1)).repeat(1, 3, 1, 1),

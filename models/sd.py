@@ -32,6 +32,7 @@ class SDLoss:
         self.cfg = cfg
         self.const_str = prompt
         self.reso = 64
+        self.cond = False
 
     def to(self, device):
         self.model.to(device)
@@ -51,12 +52,14 @@ class SDLoss:
         self.max_step = int(self.max_step * self.num_step)
         self.alphas = self.diffusion.alphas_cumprod
         self.in_channles = self.model.template_size[0]
-        
+        if self.model.cfg.mode.cond:  # False or None.. 
+            self.cond = True
         self.to(device)  # do this since loss is not a nn.Module?
         
-    def apply_sd(self, latents, weight,
+    def apply_sd(self, image, weight=1,
             w_mask=1, w_normal=1, w_depth=1, w_spatial=False, 
-            t=None, noise=None):
+            t=None, noise=None, cond_image=None):
+        latents = image
         device = latents.device
         batch_size = len(latents)
         guidance_scale = self.guidance_scale
@@ -71,10 +74,9 @@ class SDLoss:
             latents_noisy = self.diffusion.q_sample(latents, t, noise)
             # pred noise
             model_fn = self.get_cfg_model_fn(self.unet, guidance_scale)
-            noise_pred = self.get_pred_noise(model_fn, latents_noisy, t)
+            noise_pred = self.get_pred_noise(model_fn, latents_noisy, t, cond_image)
 
         # w(t), sigma_t^2
-        # TODO: judy: replace w EDM? 
         w = 1 - _extract_into_tensor(self.alphas, t, noise_pred.shape) 
         # w = (1 - self.alphas[t])
         # w = self.alphas[t] ** 0.5 * (1 - self.alphas[t])
@@ -112,7 +114,7 @@ class SDLoss:
         noisy_image = self.diffusion.q_sample(image, t, noise)
         return noisy_image
 
-    def vis_single_step(self, noisy, t, guidance_scale=None, noise=None):
+    def vis_single_step(self, noisy, t, guidance_scale=None, noise=None, cond_image=None):
         if guidance_scale is None:
             guidance_scale = self.guidance_scale
 
@@ -121,7 +123,7 @@ class SDLoss:
         t = torch.tensor([t] * len(noisy), dtype=torch.long, device=device)
         model_fn = self.get_cfg_model_fn(self.unet, guidance_scale)
         model_fn = self.diffusion._wrap_model(model_fn)
-        noise_pred = self.get_pred_noise(model_fn, noisy, t)
+        noise_pred = self.get_pred_noise(model_fn, noisy, t, cond_image)
         # noise_pred = noise
         start_pred = self.diffusion.eps_to_pred_xstart(noisy, noise_pred, t)
         return start_pred
@@ -137,6 +139,7 @@ class SDLoss:
         """
         th = torch
         def cfg_model_fn(x_t, ts, **kwargs):
+            # with classifier-free guidance
             _3 = x_t.shape[1] // 2
             half = x_t[: len(x_t) // 2]
             combined = th.cat([half, half], dim=0)
@@ -151,7 +154,7 @@ class SDLoss:
             self._warp = self.diffusion._wrap_model(cfg_model_fn)
         return self._warp # self.diffusion._wrap_model(cfg_model_fn)
 
-    def vis_multi_step(self, noisy, t, guidance_scale=None, loop='plms'):
+    def vis_multi_step(self, noisy, t, guidance_scale=None, cond_image=None, loop='plms'):
         N = len(noisy)
         device = noisy.device
         t = torch.tensor([t] * len(noisy), dtype=torch.long, device=device)
@@ -159,7 +162,7 @@ class SDLoss:
         ## something about xxx_loop_progressive
 
         # Pack the tokens together into model kwargs.
-        model_kwargs = self.get_model_kwargs(device, N)
+        model_kwargs = self.get_model_kwargs(device, N, cond_image)
         if guidance_scale is None:
             guidance_scale = self.guidance_scale
 
@@ -281,15 +284,12 @@ class SDLoss:
         # use out['sample']
         return out['sample']
 
-    def get_model_kwargs(self, device, batch_size):
+    def get_model_kwargs(self, device, batch_size, cond_image):
         tokens = self.unet.tokenizer.encode(self.const_str)
         # TODO change to constant string~~
         tokenizer = self.unet.tokenizer
         tokens = tokenizer.encode(self.const_str)
         tokens, mask = tokenizer.padded_tokens_and_mask(tokens, self.options["text_ctx"])
-        # print(tokens.shape, type(tokens))
-        # tokens = torch.tensor(tokens)  # + uncond_tokens)
-        # mask = torch.tensor(mask, dtype=torch.bool, device=device)  # + uncond_mask, dtype=th.bool)
 
         # tokens, mask = self.unet.tokenizer.padded_tokens_and_mask( [self.const_str], self.options["text_ctx"])
         uncond_tokens, uncond_mask = self.unet.tokenizer.padded_tokens_and_mask( [], self.options["text_ctx"])
@@ -300,9 +300,11 @@ class SDLoss:
                 device=device,
             )
         )
+        if cond_image is not None:
+            model_kwargs['cond_image'] = cond_image.repeat(2, 1, 1, 1)
         return model_kwargs
 
-    def get_pred_noise(self, model_fn, latents_noisy, t, ):
+    def get_pred_noise(self, model_fn, latents_noisy, t, cond_image):
         """
         inside the method, it 
         :param model_fn: CFG func! Wrapped! function
@@ -320,7 +322,7 @@ class SDLoss:
         with torch.no_grad():
             latent_model_input = torch.cat([latents_noisy] * 2)
             # apply CF-guidance
-            model_kwargs = self.get_model_kwargs(device, batch_size)
+            model_kwargs = self.get_model_kwargs(device, batch_size, cond_image)
             # from # GaussinDiffusion:L633 get_eps()
             tt = torch.cat([t, t], 0)
             model_output = model_fn(latent_model_input, tt, **model_kwargs)

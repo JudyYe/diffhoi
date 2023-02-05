@@ -55,8 +55,9 @@ def read_depth(image_file, ind, meta):
     :param image_file: _description_
     :param ind: _description_
     :param meta: _description_
-    :return: depth tensor in shape of [C=2, H, W], scale in cm
+    :return: depth tensor in shape of [C=2, H, W], scale in dm
     """
+    # saved depth in np.array is in mm. let us convert to dm/100mm
     cfg = meta['cfg']
     hand = np.array(Image.open(meta['hand_depth_list'][ind])).astype(np.float)
     hand_mask = hand > 0
@@ -72,7 +73,7 @@ def read_depth(image_file, ind, meta):
     # the scene has a boundary so range is bounded, dont' need inverse depth trick  
     hoi_depth = np.stack([hand, obj], 0) # (C, H, W)
     hoi_depth = torch.FloatTensor(hoi_depth)
-    # convert mm to cm
+    # convert mm to d?m
     
     # 1 is 100mm
     hoi_depth /= 100
@@ -153,11 +154,14 @@ def parse_data(data_dir, split, data_cfg, args):
 
 
 if __name__ == '__main__':
+    from attrdict import AttrDict
     out = parse_data('/home/yufeiy2/scratch//data/HO3D/crop_render/', 
-        '/home/yufeiy2/scratch//data/HO3D/Sets/SM2.txt', {})
+        '/home/yufeiy2/scratch//data/HO3D/Sets/SM2.txt', {}, AttrDict({'zfar': 1, 'mode': {'cond': False}}))
     save_dir = '/home/yufeiy2/scratch/result/vis'
     from ddpm.models.glide import GeomGlide
     from jutils import image_utils
+    geom_glide = GeomGlide(AttrDict({'ndim': 11, 'side_x': 56, 'side_y': 56, 
+                                     'mode': {'cond': False, 'mask': True, 'normal': True, 'depth': True}}))
     mean_list, var_list = [], []
     for i in range(10):
         img = get_image(out['image'][i], i, out['meta'])
@@ -165,7 +169,8 @@ if __name__ == '__main__':
         var_list.append( img.reshape(11, -1).std(-1))
         img = img[None]
 
-        rtn = GeomGlide.decode_samples(img)
+        rtn = geom_glide.decode_samples(img)
+
         for k, v in rtn.items():
             if 'normal' in k:
                 v = v /2 + 0.5
