@@ -588,6 +588,7 @@ class Trainer(nn.Module):
         rtn = {}
         if nv.mode == 'semantics':
             img = self.get_label(iHoi, iHand, iObj)
+            rtn['image'] = img
         elif nv.mode == 'geom':
             zfar = self.sd_loss.model.cfg.zfar
             mask = self.get_label(iHoi, iHand, iObj)

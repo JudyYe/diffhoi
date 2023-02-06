@@ -19,6 +19,7 @@ class Glide(BaseModule):
     
     def init_model(self,):
         cfg =self.cfg.model
+        
         if self.cfg.mode.cond:
             model_type='base-inpaint'
         else:

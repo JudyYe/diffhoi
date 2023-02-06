@@ -1,10 +1,12 @@
+
+
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
-    expname=dev/tmp \
-    training=diffuse novel_view=geom novel_view.diff_name='hand_ddpm_geom/train_seg_CondGeomGlide' \
-    novel_view.loss.w_mask=1 novel_view.loss.w_depth=0 novel_view.loss.w_normal=1 \
-    training.w_diffuse=1e-2 \
-    data=ho3d  data.len=2 \
-    environment.slurm=False environment.resume=False \
+    expname=train_seg_geom/\${data.index}_w_\${training.w_diffuse}_clip\${training.clip}_geom_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth} \
+    training=diffuse novel_view=geom novel_view.diff_name="geom/pretrained_ho3d_cam_train_seg_1_0.0001" \
+    novel_view.loss.w_mask=1 novel_view.loss.w_depth=1 novel_view.loss.w_normal=1 \
+    training.w_diffuse=0.01,1e-3 \
+    data=ho3d  data.len=2 data.index=SM2_0001_dt10,SMu1_0650_dt10,MDF10_1000_dt10 \
+    environment.slurm=True environment.resume=False \
 
 
 
