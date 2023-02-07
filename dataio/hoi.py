@@ -47,9 +47,14 @@ class SceneDataset(torch.utils.data.Dataset):
         self.cam_file = '{0}/cameras_hoi.npz'.format(self.instance_dir)
         camera_dict = np.load(self.cam_file)
         self.wTc = geom_utils.inverse_rt(mat=torch.from_numpy(camera_dict['cTw']).float(), return_mat=True)
-        self.wTh = torch.from_numpy(camera_dict['wTh']).float()  # a scaling mat that recenter hoi to -1, 1? 
-        self.hTo = camera_dict['hTo']  # compute from hA
-        self.onTo = camera_dict['onTo']
+        N = len(self.wTc)
+        idty = torch.eye(4)[None].repeat(N, 1, 1)
+        if 'wTh' in camera_dict:
+            self.wTh = torch.from_numpy(camera_dict['wTh']).float()  # a scaling mat that recenter hoi to -1, 1? 
+        else:
+            self.wTh = idty
+        self.hTo = camera_dict.get('hTo', idty)
+        self.onTo = camera_dict.get('onTo', idty)
         self.intrinsics_all = torch.from_numpy(camera_dict['K_pix']).float()  # (N, 4, 4)
         # downscale * self.H is the orignal height before resize. 
         self.intrinsics_all = mesh_utils.intr_from_screen_to_ndc(
@@ -127,6 +132,9 @@ class SceneDataset(torch.utils.data.Dataset):
             object_mask = object_mask.reshape(-1)
             self.hand_masks.append(torch.from_numpy(object_mask).to(dtype=torch.bool))
 
+        if len(self.object_masks) == 0:
+            for obj_mask, hand_mask in zip(self.obj_masks, self.hand_masks):
+                self.object_masks.append(torch.logical_or(obj_mask, hand_mask))
 
     def __len__(self):
         return self.n_images - 1

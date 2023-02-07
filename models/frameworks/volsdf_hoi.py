@@ -284,14 +284,14 @@ class Trainer(nn.Module):
         oTh = self.model.oTh(indices.to(device), model_input, ground_truth)
         oTh_n = self.model.oTh(model_input['inds_n'].to(device), model_input, ground_truth)
 
-        onTo = model_input['onTo'].to(device)
-        onTo_n = model_input['onTo_n'].to(device)
-
-        oTc = oTh @ hTw @ wTc
-        oTc_n = oTh_n @ hTw_n @ wTc_n         
-
         # NOTE: the mesh / vol rendering needs to be in the same coord system (joint), in order to compare their depth!!
         if self.joint_frame == 'object_norm':
+            onTo = model_input['onTo'].to(device)
+            onTo_n = model_input['onTo_n'].to(device)
+
+            oTc = oTh @ hTw @ wTc
+            oTc_n = oTh_n @ hTw_n @ wTc_n         
+
             jTh = onTo @ oTh
             jTh_n = onTo_n @ oTh_n 
             jTc = onTo @ oTc # wTc
@@ -411,7 +411,7 @@ class Trainer(nn.Module):
 
         if args.training.w_rgb > 0:
             losses['loss_img'] = F.l1_loss(iHoi['rgb'], target_rgb, reduction='none')
-            # TODO: unify mask_ignore
+            # TODO: unify mask_ignore?? what does it do again? 
             if mask_ignore is not None:
                 losses['loss_img'] = (losses['loss_img'] * mask_ignore[..., None].float()).sum() / (mask_ignore.sum() + 1e-10)
             else:
@@ -588,7 +588,7 @@ class Trainer(nn.Module):
         rtn = {}
         if nv.mode == 'semantics':
             img = self.get_label(iHoi, iHand, iObj)
-            rtn['image'] = img
+            rtn['image'] =img
         elif nv.mode == 'geom':
             zfar = self.sd_loss.model.cfg.zfar
             mask = self.get_label(iHoi, iHand, iObj)

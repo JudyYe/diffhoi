@@ -254,13 +254,6 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     if is_master() and i_val > 0 and int_it % i_val == 1 or test_train or int_it in special_i_val_mesh:
                         logging.info('vis tool_clip run_render')
                         one_time_loader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=mesh_utils.collate_meshes)
-                        with torch.no_grad():
-                            file_list = tool_clip.run_render(
-                                one_time_loader, trainer, 
-                                os.path.join(logger.log_dir, 'nvs'), '%08d' % it, render_kwargs_surface)
-                        for file in file_list:
-                            name = os.path.basename(file)[9:-4]
-                            logger.add_gif_files(file, 'nvs/' + name, it)
                         try:
                             with torch.no_grad():
                                 file_list = tool_clip.run(
@@ -274,6 +267,13 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                         except ValueError:
                             log.warn('No surface extracted; pass')
                             pass
+                        with torch.no_grad():
+                            file_list = tool_clip.run_render(
+                                one_time_loader, trainer, 
+                                os.path.join(logger.log_dir, 'nvs'), '%08d' % it, render_kwargs_surface)
+                        for file in file_list:
+                            name = os.path.basename(file)[9:-4]
+                            logger.add_gif_files(file, 'nvs/' + name, it)
                     #-------------------
                     # validate novel view rendering~~
                     #-------------------
