@@ -64,7 +64,8 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
         img_dir=os.path.join(exp_dir, 'imgs'),
         monitoring=args.training.get('monitoring', 'tensorboard'),
         monitoring_dir=os.path.join(exp_dir, 'events'),
-        rank=rank, is_master=is_master(), multi_process_logging=(world_size > 1))
+        rank=rank, is_master=is_master(), multi_process_logging=(world_size > 1),
+        cfg=args,)
 
     log.info("=> Experiments dir: {}".format(exp_dir))
 

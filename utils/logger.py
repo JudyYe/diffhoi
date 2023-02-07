@@ -33,7 +33,9 @@ class Logger(object):
                  monitoring_dir=None,
                  rank=0,
                  is_master=True,
-                 multi_process_logging=True):
+                 multi_process_logging=True, 
+                 cfg={}):
+        self.cfg = cfg
         self.stats = dict()
         self.log_dir = log_dir
         self.img_dir = img_dir
@@ -75,12 +77,13 @@ class Logger(object):
                 cnt = 0; succeed = False
                 while cnt <= 10 and not succeed:
                     try:
+                        cfg =self.cfg.environment.wandb
                         cnt  += 1
                         wandb.init(
                             project='vhoi_%s' % log_dir.split('/')[-2],
                             name='/'.join(log_dir.split('/')[-2:]),
                             dir=log_dir,
-                            entity='judyye',
+                            entity=cfg.user,
                             resume="allow",
                             # id='_'.join(log_dir.split('/')[-2:]),
                         )
