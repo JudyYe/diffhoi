@@ -54,7 +54,9 @@ class SceneDataset(torch.utils.data.Dataset):
         else:
             self.wTh = idty
         self.hTo = camera_dict.get('hTo', idty)
-        self.onTo = camera_dict.get('onTo', idty)
+        scale = idty.clone()
+        scale[:, 0, 0] = scale[:, 1, 1] = scale[:, 2, 2] = 10
+        self.onTo = camera_dict.get('onTo', scale)
         self.intrinsics_all = torch.from_numpy(camera_dict['K_pix']).float()  # (N, 4, 4)
         # downscale * self.H is the orignal height before resize. 
         self.intrinsics_all = mesh_utils.intr_from_screen_to_ndc(

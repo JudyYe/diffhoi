@@ -1,11 +1,13 @@
 
 
+
+
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
     expname=hoi4d/\${data.index}_w_\${training.w_diffuse}_clip\${training.clip}_geom_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth} \
     training=diffuse novel_view=geom novel_view.diff_name="geom/pretrained_ho3d_cam_train_seg_1_0.0001" \
     training.w_diffuse=0 training.render_full_frame=False \
     data=hoi4d \
-    environment.slurm=False environment.resume=False logging.mode=none \
+    environment.slurm=True environment.resume=False  \
 
 
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
@@ -13,7 +15,7 @@ CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nog
     training=diffuse novel_view=geom novel_view.diff_name="geom/pretrained_ho3d_cam_train_seg_1_0.0001" \
     novel_view.loss.w_mask=1 novel_view.loss.w_depth=1 novel_view.loss.w_normal=1 \
     training.w_diffuse=0.01,1e-3 \
-    data=hoi4d \
+    data=hoi4d data.index=ZY20210800001_H1_C2_N31_S92_s05_T2_00029_00159, \
     environment.slurm=True environment.resume=False \
 
 

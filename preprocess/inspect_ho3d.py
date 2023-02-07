@@ -10,7 +10,6 @@ import pickle
 from PIL import Image
 
 import torch
-import torch.nn.functional as F
 from torchvision.transforms import ToTensor
 from pytorch3d.renderer.cameras import PerspectiveCameras
 

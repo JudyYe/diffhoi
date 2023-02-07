@@ -1,3 +1,5 @@
+from scipy.spatial.transform import Rotation as Rt
+from glob import glob
 import pickle
 import numpy as np
 import imageio
@@ -33,6 +35,10 @@ mapping = [
     'Safe', 'Bowl', 'Bucket', 'Scissors', '', 'Pliers', 'Kettle',
     'Knife', 'TrashCan', '', '', 'Lamp', 'Stapler', '', 'Chair'
 ]
+rigid = [
+    'Bowl', 'Bottle', 'Mug', 'ToyCar', 'Knife', 'Kettle',
+]
+
 name2id = {}
 for i, name in enumerate(mapping):
     name2id[name] = i
@@ -46,31 +52,22 @@ def read_masks(index, t):
         if not osp.exists(fname):
             print(fname)
     mask = imageio.imread(fname)
+    th = mask.max() / 2
+    green_only = (mask[..., 0] < th) * (mask[..., 2] < th) * (mask[..., 1] > th)
 
-    # use 2d box
-    # anno_file = osp.join(data_dir, 'HOI4D_annotations', index, f'objpose/{t:d}.json')
-    # with open(anno_file) as fp:
-    #     anno = json.load(fp)
-    #     print(anno_file)
-    # bbox_list = []
-    # for o, obj in enumerate(anno['dataList']):
-    #     if 'camera1' not in obj['2dBox']:
-    #         print(obj['2dBox'].keys(), anno_file)
-    #         continue
-    #     print(obj['2dBox'])
-    #     xy1, xy2 = obj['2dBox']['camera1']
-    #     x1, y1 = xy1
-    #     x2, y2 = xy2
-    #     bbox = [x1, y1, x2, y2]
-    #     bbox_list.append(bbox)
-    # bbox = image_utils.joint_bbox(*bbox_list)
     
-    bbox = image_utils.mask_to_bbox((mask[..., 0] + mask[..., 2]) > mask.max() / 2)
+    bbox = image_utils.mask_to_bbox((mask[..., 0] + mask[..., 2]) > th)
     if mapping[int(index.split('/')[2][1:])] == 'Stapler':
-        red_only = (mask[..., 0] > mask.max() / 2) * (mask[..., 2] < mask.max() / 2) * (mask[..., 1] < mask.max() / 2)
-        blue_only = (mask[..., 2] > mask.max() / 2) * (mask[..., 0] < mask.max() / 2) * (mask[..., 1] < mask.max() / 2)
+        red_only = (mask[..., 0] > th) * (mask[..., 2] < th) * (mask[..., 1] < th)
+        blue_only = (mask[..., 2] > th) * (mask[..., 0] < th) * (mask[..., 1] < th)
         bbox = image_utils.mask_to_bbox(red_only + blue_only)
-    
+    elif mapping[int(index.split('/')[2][1:])] in rigid: 
+        red_only = (mask[..., 0] > th) * (mask[..., 2] < th) * (mask[..., 1] < th)
+        bbox = image_utils.mask_to_bbox(red_only)
+        mask = np.stack([red_only, green_only, np.zeros_like(red_only)], -1) * 255
+    else:
+        print(mapping[int(index.split('/')[2][1:])])
+
     x, y = (bbox[0:2] + bbox[2:4]) / 2
     m = 75
     min_box = np.array([x - m, y - m, x+m, y+m])
@@ -111,13 +108,16 @@ def get_one_clip(index, t_start, t_end):
 
         blend = (mask_crop > 10) * crop + (mask_crop <= 10) * (0.5*crop)
         image_list.append(blend.clip(0, 255).astype(np.uint8))
-        
+
+        cMesh = vis_obj(bbox_sq, index, t)
         hA, beta, cTw, cam_intr_crop = vis_hand(hand_wrapper, crop, bbox_sq, index, t)
         f, p = mesh_utils.get_fxfy_pxpy(mesh_utils.intr_from_screen_to_ndc(cam_intr_crop, H, H))
 
         cHand, cJoints = hand_wrapper(cTw, hA, th_betas=beta)
+        cHand.textures = mesh_utils.pad_texture(cHand, 'blue')
         cameras = PerspectiveCameras(f, p).to(device)
-        iHand = mesh_utils.render_mesh(cHand, cameras, out_size=H)
+        cHoi = mesh_utils.join_scene([cHand, cMesh])
+        iHand = mesh_utils.render_mesh(cHoi, cameras, out_size=H)
         # _, _, iHand = hand_wrapper.weak_proj(cam, pose, out_size=int(hoi_box[2] - hoi_box[0]), render=True)
         image_utils.save_images(iHand['image'], save_pref.format('overlay', t-f_start, )[:-4],
                                 bg=TF.to_tensor(crop), mask=iHand['mask'],)
@@ -127,10 +127,7 @@ def get_one_clip(index, t_start, t_end):
         hand_dict['hA'].append(hA.cpu().detach().numpy()[0])
         hand_dict['beta'].append(beta.cpu().detach().numpy()[0])
 
-    cmd = 'ffmpeg -framerate 10 -i %s -c:v libx264 -pix_fmt yuv420p %s.mp4' % \
-            (osp.join(save_dir, save_index, 'overlay/%05d.png'), osp.join(save_dir, save_index, 'overlay'))
-    cmd += ' -hide_banner -loglevel error'
-    os.system(cmd)
+    make_gif(osp.join(save_dir, save_index, 'overlay/*.png'), osp.join(save_dir, save_index, 'overlay'))
 
     imageio.mimsave(osp.join(save_dir, save_index, 'image.gif'), image_list)
     
@@ -144,6 +141,12 @@ def get_one_clip(index, t_start, t_end):
     np.savez_compressed(osp.join(save_dir, save_index, 'hands.npz'), **hand_dict)
 
     return
+
+
+def make_gif(inp_file, save_file):
+    image_list = [imageio.imread(img_file) for img_file in sorted(glob(inp_file))]
+    os.makedirs(osp.dirname(save_file), exist_ok=True)
+    imageio.mimsave(save_file + '.gif', image_list)
 
 
 def imwrite(fname, image):
@@ -210,11 +213,15 @@ def batch_clip(num=1):
     cat_exist = {}
     for index in index_list:
         cat = int(index.split('/')[2][1:])
+
         if cat in cat_exist:
             if cat_exist[cat] >= num:
                 continue
         else:
             cat_exist[cat] = 0
+        if mapping[cat] not in rigid:
+            print('continue', mapping[cat])
+            continue
         cat_exist[cat] += 1
         clips = continuous_clip(index)
         print(clips)
@@ -223,6 +230,54 @@ def batch_clip(num=1):
             get_one_clip(index, cc[0], cc[1])
     return
 
+def read_rtd(file, num=0):
+    with open(file, 'r') as f:
+        cont = f.read()
+        cont = eval(cont)
+    if "dataList" in cont:
+        anno = cont["dataList"][num]
+    else:
+        anno = cont["objects"][num]
+
+    trans, rot, dim = anno["center"], anno["rotation"], anno["dimensions"]
+    trans = np.array([trans['x'], trans['y'], trans['z']], dtype=np.float32)
+    rot = np.array([rot['x'], rot['y'], rot['z']])
+    dim = np.array([dim['length'], dim['width'], dim['height']], dtype=np.float32)
+    rot = Rt.from_euler('XYZ', rot).as_matrix()
+    return np.array(rot, dtype=np.float32), trans, dim
+
+
+
+def load_intr(hoi_box, vid, fnum=0):
+    cam_id = vid.split('/')[0]
+    K = torch.FloatTensor(np.load(osp.join(data_dir, 'camera_params/%s/intrin.npy' % cam_id)))[None].to(device)
+    cam_intr = image_utils.crop_cam_intr(K[0], torch.FloatTensor(hoi_box).to(device), (H, H))[None]
+    return cam_intr
+
+
+def vis_obj(hoi_box, vid, fnum):
+    pose_dir = osp.join(data_dir, 'HOI4D_annotations/{}/objpose/{:d}.json')
+    obj_dir = osp.join(data_dir, 'HOI4D_CAD_Model_for_release/rigid/{}/{:03d}.obj')
+    rt, trans, dim = read_rtd(pose_dir.format(vid, fnum), 0)
+
+    rt = torch.FloatTensor(rt)[None].to(device)
+    trans = torch.FloatTensor(trans)[None].to(device)
+
+    cat = mapping[int(vid.split('/')[2][1:])]
+    obj_id = int(vid.split('/')[3][1:])
+    oMesh = mesh_utils.load_mesh(obj_dir.format(cat, obj_id)).to(device)
+    cTo = geom_utils.rt_to_homo(rt, trans)
+    cMesh = mesh_utils.apply_transform(oMesh, cTo)
+
+    # cam_intr_crop = load_intr(hoi_box, vid, )
+    # f, p = mesh_utils.get_fxfy_pxpy(mesh_utils.intr_from_screen_to_ndc(cam_intr_crop, H, H))
+
+    # cameras = PerspectiveCameras(f, p).to(device)
+
+    # iMesh = mesh_utils.render_mesh(cMesh, cameras, out_size=H)
+    # image_utils.save_images(iMesh['image'], osp.join(vis_dir, vid.replace('/', '_') + f'_{fnum}'))
+    cMesh.textures = mesh_utils.pad_texture(cMesh, 'white')
+    return cMesh
 
 
 def vis_hand(hand_wrapper, crop, hoi_box, vid, fnum):
@@ -259,7 +314,7 @@ def vis_hand(hand_wrapper, crop, hoi_box, vid, fnum):
     
     rot, trans = hand_utils.cvt_axisang_t_i2o(rot, trans)
     cTw = se3 = geom_utils.axis_angle_t_to_matrix(rot, trans)
-    pose = torch.FloatTensor([pose]).to(device)
+    pose = torch.FloatTensor(pose[None]).to(device)
 
     # cHand, cJoints = hand_wrapper(cTw, hA, th_betas=beta)
 
@@ -271,9 +326,10 @@ def vis_hand(hand_wrapper, crop, hoi_box, vid, fnum):
 
 if __name__ == '__main__':
     # decode_video('/home/yufeiy2/scratch/data/HOI4D/HOI4D_release/', 'test_vid_ins.txt')
-    # index = 'ZY20210800001/H1/C18/N46/S202/s03/T2'
+    # index = 'ZY20210800002/H2/C5/N45/S261/s02/T2'
     # clips = continuous_clip(index)
     # for cc in clips:
+    #     # vis_obj()
     #     get_one_clip(index, cc[0], cc[1])
 
     batch_clip()
