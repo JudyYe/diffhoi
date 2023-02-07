@@ -5,12 +5,11 @@ speed_factor: 10.0
 
 render_full_frame: True
 
-# lr: 5.0e-4
 lr: 
   model: 5.0e-4
-  pose: 1.0e-3
-  focal: 1.0e-3
-  oTh: 1.0e-3
+  pose: 1.e-5
+  focal: 1.e-5
+  oTh: 1.0e-5
   text: 1.0e-3
 
 w_eikonal: 0.1
