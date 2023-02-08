@@ -1,8 +1,8 @@
 # modified from https://github.com/ashawkey/stable-dreamfusion/blob/main/nerf/sd.py
 import torch
 import torch.nn as nn
-from ddpm.utils.train_util import load_from_checkpoint
-from ddpm.models.glide_base import BaseModule
+from ddpm2d.utils.train_util import load_from_checkpoint
+from ddpm2d.models.glide_base import BaseModule
 from jutils import model_utils
 from glide_text2im.model_creation import create_gaussian_diffusion
 from glide_text2im.gaussian_diffusion import _extract_into_tensor

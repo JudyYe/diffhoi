@@ -1,4 +1,4 @@
-module: ddpm.models.glide
+module: ddpm2d.models.glide
 model:  Glide # | InpaintText2ImUNet | InsertText2ImUNet
 
 grad_clip: 0. 

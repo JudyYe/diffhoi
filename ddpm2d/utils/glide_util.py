@@ -16,7 +16,7 @@ from glide_text2im.model_creation import (
 )
 from glide_text2im.tokenizer.bpe import get_encoder, Encoder
 from glide_text2im.text2im_model import Text2ImUNet
-from ddpm.models.network import ImageText2ImUNet
+from ..models.network import ImageText2ImUNet
 from jutils import model_utils
 
 

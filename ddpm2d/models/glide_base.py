@@ -19,9 +19,9 @@ from pytorch_lightning.utilities.distributed import rank_zero_only
 from hydra import main
 from omegaconf import OmegaConf
 from pytorch_lightning.callbacks import ModelCheckpoint, ModelSummary
-from ddpm.utils import glide_util
-from ddpm.utils.logger import LoggerCallback, build_logger
-from ddpm.dataset.dataset import build_dataloader
+from ddpm2d.utils import glide_util
+from ddpm2d.utils.logger import LoggerCallback, build_logger
+from ddpm2d.dataset.dataset import build_dataloader
 
 
 class BaseModule(pl.LightningModule):

@@ -16,9 +16,11 @@ def load_from_checkpoint(ckpt, cfg_file=None):
         cfg_file = ckpt.split('checkpoints')[0] + '/config.yaml'
     print('use cfg file', cfg_file)
     cfg = OmegaConf.load(cfg_file)
+    # legacy:
+    cfg.model.module = cfg.model.module.replace('ddpm.', 'ddpm2d.')
     cfg.model.resume_ckpt = None  # save time to load base model :p
-    if not cfg.model.module.startswith('ddpm.'):
-        cfg.model.module = 'ddpm.' + cfg.model.module
+    if not cfg.model.module.startswith('ddpm2d.'):
+        cfg.model.module = 'ddpm2d.' + cfg.model.module
     module = importlib.import_module(cfg.model.module)
     model_cls = getattr(module, cfg.model.model)
     model = model_cls(cfg, )

@@ -1,13 +1,20 @@
 defaults:
   - environment: grogu
   - hydra: default
-  - data@trainsets: ho3d
-  - data@testsets: ho3d
+  - data@trainsets: ho3d_crop_cam
+  - data@testsets: ho3d_crop_cam
   - model: glide
 
-ndim: 3  # or 11
+ndim: 11
+zfar: 1
 
-worker: ddpm.models.glide_base
+mode:
+  mask: 1
+  normal: 1
+  depth: 1
+  cond: False
+
+worker: ddpm2d.models.glide_base
 train_prob: 
   - 1
   - 1
@@ -42,7 +49,7 @@ uncond_p: 0.2
 use_flip: False
 
 device: cuda
-log_frequency: 1000
+log_frequency: 2500
 print_frequency: 100
 save_frequency: 5000
 save_topk: 1
