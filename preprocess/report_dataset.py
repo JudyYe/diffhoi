@@ -54,5 +54,23 @@ def add_hhor(data_dir='/home/yufeiy2/scratch/result/HOI4D/'):
     
     return 
 
+def add_ho3d_det(data_dir='/home/yufeiy2/scratch/result/ho3d_det/'):
+    # Bottle: C5
+    #     
+    file_list = sorted(glob(osp.join(data_dir, '*', 'image.gif')))
+    print(file_list, osp.join(data_dir, '*', 'image.gif'))
+    # np.random.shuffle(file_list)
+    cell_list = []
+    for image_file in file_list:
+        line = []
+        line.append(image_file.split('/')[-2])
+        line.append(image_file)
+        line.append(image_file.replace('image.gif', 'overlay.gif'))
+
+        cell_list.append(line)
+    web_utils.run(osp.join(data_dir, 'vis'), cell_list)
+
+        
 if __name__ == '__main__':
-    add_hhor()
+    # add_hhor()
+    add_ho3d_det()

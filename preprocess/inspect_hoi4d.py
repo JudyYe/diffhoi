@@ -324,6 +324,10 @@ def vis_hand(hand_wrapper, crop, hoi_box, vid, fnum):
     return hA, beta, cTw, cam_intr
 
 
+def render_batch():
+    """train instance render 
+    """
+
 if __name__ == '__main__':
     # decode_video('/home/yufeiy2/scratch/data/HOI4D/HOI4D_release/', 'test_vid_ins.txt')
     # index = 'ZY20210800002/H2/C5/N45/S261/s02/T2'
@@ -333,3 +337,5 @@ if __name__ == '__main__':
     #     get_one_clip(index, cc[0], cc[1])
 
     batch_clip()
+
+    render_batch()
