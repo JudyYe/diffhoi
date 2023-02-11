@@ -1,3 +1,5 @@
+from tqdm import tqdm
+import pandas
 from scipy.spatial.transform import Rotation as Rt
 from glob import glob
 import pickle
@@ -9,11 +11,13 @@ import os
 import os.path as osp
 import logging as log
 from PIL import Image
-
+import argparse
 import torch
 import torchvision.transforms.functional as TF
 from pytorch3d.renderer.cameras import PerspectiveCameras
 from jutils import image_utils, geom_utils, mesh_utils, hand_utils
+
+from . import amodal_utils as rend_utils
 
 W = H = 512
 device = 'cuda:0'
@@ -109,7 +113,7 @@ def get_one_clip(index, t_start, t_end):
         blend = (mask_crop > 10) * crop + (mask_crop <= 10) * (0.5*crop)
         image_list.append(blend.clip(0, 255).astype(np.uint8))
 
-        cMesh = vis_obj(bbox_sq, index, t)
+        cMesh, cTo = vis_obj(bbox_sq, index, t)
         hA, beta, cTw, cam_intr_crop = vis_hand(hand_wrapper, crop, bbox_sq, index, t)
         f, p = mesh_utils.get_fxfy_pxpy(mesh_utils.intr_from_screen_to_ndc(cam_intr_crop, H, H))
 
@@ -277,10 +281,10 @@ def vis_obj(hoi_box, vid, fnum):
     # iMesh = mesh_utils.render_mesh(cMesh, cameras, out_size=H)
     # image_utils.save_images(iMesh['image'], osp.join(vis_dir, vid.replace('/', '_') + f'_{fnum}'))
     cMesh.textures = mesh_utils.pad_texture(cMesh, 'white')
-    return cMesh
+    return cMesh, cTo
 
 
-def vis_hand(hand_wrapper, crop, hoi_box, vid, fnum):
+def vis_hand(hand_wrapper, crop, hoi_box, vid, fnum, H=512):
     device = 'cuda:0'
     # "poseCoeff" : refers to 3 global rotation + 45 mano pose parameters
     # "beta" : refers to 10 mano shape parameters. Shape of each human ID H* are the same.
@@ -301,6 +305,7 @@ def vis_hand(hand_wrapper, crop, hoi_box, vid, fnum):
             obj = pickle.load(fp)
     else:
         print(right_bbox_dir.format(vid, fnum))
+        raise FileNotFoundError
     
     pose = obj['poseCoeff']
     beta = obj['beta']
@@ -326,9 +331,111 @@ def vis_hand(hand_wrapper, crop, hoi_box, vid, fnum):
 
 def render_batch():
     """train instance render 
+    384k frame, 2k videos. ~10
+    rigid only 72k frame
     """
+    save_dir = '/home/yufeiy2/scratch/data/HOI4D/amodal'
+    hand_wrapper = hand_utils.ManopthWrapper().to(device)
+    # use??
+    df = pandas.read_csv(osp.join(data_dir, 'Sets/all_contact_train.csv'))
+    if args.num <= 0:
+        num = len(df)
+        num //= 10
+    else:
+        num = args.num
+    df = df[df["class"].isin(rigid)]
+    print('rigid', len(df))
+    df = df.sample(num, random_state=123)
+    
+    for i, row in tqdm(df.iterrows(), total=len(df)):
+        save_pref = osp.join(save_dir, '{}', 
+                             row['vid_index'].replace('/', '_') + \
+                                  '_%04d' % row['frame_number'])
+        lock = save_pref.format('locks')
+        done = save_pref.format('done')
+        if args.skip and osp.exists(done):
+            continue
+        try:
+            os.makedirs(lock)
+        except FileExistsError:
+            if args.skip:
+                continue
+        try:
+            render_amodal(row['vid_index'], row['frame_number'], save_pref, hand_wrapper, gt_camera=False, H=224)
+        except FileNotFoundError:
+            continue
+        os.makedirs(done, exist_ok=True)
+        os.system(f'rm -r {lock}')
+
+def debug():
+    save_dir = '/home/yufeiy2/scratch/data/HOI4D/amodal'
+    fnum = 64
+    vid = 'ZY20210800001/H1/C13/N48/S238/s03/T4'
+
+    fnum = 192
+    vid = 'ZY20210800004/H4/C1/N25/S239/s02/T1/'
+    hand_wrapper = hand_utils.ManopthWrapper().to(device)
+
+    hand_wrapper = hand_utils.ManopthWrapper().to(device)
+    for i in range(1):
+        save_pref = osp.join(save_dir, '{}', 
+                                vid.replace('/', '_') + \
+                                    '_%04d_%d' % (fnum, i))
+        
+        hHand, hObj, cTh, cam_intr_crop = render_amodal(vid, fnum, save_pref, hand_wrapper, gt_camera=True, render=False)
+        dist = mesh_utils.pairwise_dist_sq(hHand, hObj)
+        dist = dist.min()
+        image_list = mesh_utils.render_geom_rot(mesh_utils.join_scene([hHand, hObj]), scale_geom=True)
+        image_utils.save_gif(image_list, save_pref.format('debug'))
+        image_list = mesh_utils.render_geom_rot(mesh_utils.join_scene([hHand,]), scale_geom=True)
+        image_utils.save_gif(image_list, save_pref.format('debug') + '_hand')
+        image_list = mesh_utils.render_geom_rot(mesh_utils.join_scene([hObj,]), scale_geom=True)
+        image_utils.save_gif(image_list, save_pref.format('debug') + '_obj')
+
+        print(dist, hHand.verts_padded())
+        print(cTh)
+
+def render_amodal(vid_index, frame_index, save_index, hand_wrapper, gt_camera,H=224 ,render=True, th=0.1):
+    masks, bbox = read_masks(vid_index, frame_index)
+    bbox_sq = image_utils.square_bbox(bbox, 0.8)
+    cObj, cTo = vis_obj(bbox_sq, vid_index, frame_index)
+    hA, beta, cTh, cam_intr_crop = vis_hand(None, None, bbox_sq, vid_index, frame_index, H=H)
+    # cHand, cJoints = hand_wrapper(cTh, hA, th_betas=beta)
+    hHand, cJoints = hand_wrapper(None, hA, th_betas=beta)
+    hTc = geom_utils.inverse_rt(mat=cTh)
+    hObj = mesh_utils.apply_transform(cObj, hTc)
+
+    dist = mesh_utils.pairwise_dist_sq(hHand, hObj)
+    dist = dist.min()
+    if dist > th ** 2:
+        print('too far away', dist, vid_index, frame_index)
+        return
+
+    if not gt_camera:
+        cTh = mesh_utils.sample_camera_extr_like(cTw=cTh, t_std=0.1)
+        cam_intr_crop[:, 0, 2] = H / 2
+        cam_intr_crop[:, 1, 2] = H / 2
+
+    if not render:
+        return hHand, hObj, cTh, cam_intr_crop
+    iHand, iObj = rend_utils.render_amodal_from_camera(hHand, hObj, cTh, cam_intr_crop, H, H)
+    rend_utils.save_amodal_to(iHand, iObj, save_index, cTh)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--skip", action='store_true')
+    parser.add_argument("--clip", action='store_true')
+    parser.add_argument("--render", action='store_true')
+    parser.add_argument("--debug", action='store_true')
+    parser.add_argument("--num", default=-1, type=int)
+    args, unknown = parser.parse_known_args()
+
+    return args
+
 
 if __name__ == '__main__':
+    args = parse_args()
     # decode_video('/home/yufeiy2/scratch/data/HOI4D/HOI4D_release/', 'test_vid_ins.txt')
     # index = 'ZY20210800002/H2/C5/N45/S261/s02/T2'
     # clips = continuous_clip(index)
@@ -336,6 +443,9 @@ if __name__ == '__main__':
     #     # vis_obj()
     #     get_one_clip(index, cc[0], cc[1])
 
-    batch_clip()
-
-    render_batch()
+    if args.clip:
+        batch_clip()
+    if args.render:
+        render_batch()
+    if args.debug:
+        debug()
