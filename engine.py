@@ -129,7 +129,7 @@ def hydra_main(config):
         os.system('rm -r %s' % config.training.exp_dir)
     # add slurm 
     slurm_utils.slurm_wrapper_hydra(config, Worker())
-
+    
 
 if __name__ == '__main__':
     hydra_main()

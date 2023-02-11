@@ -558,8 +558,8 @@ class Trainer(nn.Module):
             _, _, jTc_scale = geom_utils.homo_to_rt(jTc)  # (N, 3)            
             jTc_scale = jTc_scale.mean(-1).reshape(N, 1) / 10  # *10: m -> dm
 
-            hand_mask = (iHand['mask'] > 0.5).float()
-            obj_mask = (iObj['mask'] > 0.5).float()
+            hand_mask = iHand['mask'] # (iHand['mask'] > 0.5).float()
+            obj_mask = iObj['mask']  # (iObj['mask'] > 0.5).float()
             
             jHand_depth_camera = iHand['depth'] * hand_mask
             jObj_depth_camera = iObj['depth'] * obj_mask
@@ -850,8 +850,8 @@ class Trainer(nn.Module):
                     
                 logger.add_imgs(v.clip(-1, 1), f'diffuse_sample/{k}', it)
 
-        color = image_utils.save_depth(to_img_fn(ret['iObj']['depth'].unsqueeze(-1)), None, znear=-1, zfar=1)
-        logger.add_imgs(TF.to_tensor(color)[None], f'diffuse/obj_depth_nomask', it)
+        # color = image_utils.save_depth(to_img_fn(ret['iObj']['depth'].unsqueeze(-1)), None, znear=-1, zfar=1)
+        # logger.add_imgs(TF.to_tensor(color)[None], f'diffuse/obj_depth_nomask', it)
         mask = torch.cat([
             to_img_fn(ret['hand_mask_target'].unsqueeze(-1).float()).repeat(1, 3, 1, 1),
             to_img_fn(ret['obj_mask_target'].unsqueeze(-1)).repeat(1, 3, 1, 1),
