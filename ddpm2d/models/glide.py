@@ -2,15 +2,16 @@
 # Written by Yufei Ye (https://github.com/JudyYe)
 # Created on Sat Sep 17 2022
 # --------------------------------------------------------
+import os.path as osp
 import wandb
 import torch
 import torch.nn.functional as F
 import torchvision.utils as vutils
 from pytorch_lightning.utilities.distributed import rank_zero_only
-
+from pytorch3d.renderer.cameras import PerspectiveCameras
 from .glide_base import BaseModule
 from ..utils import glide_util
-from jutils import image_utils, model_utils
+from jutils import image_utils, model_utils, mesh_utils, geom_utils, plot_utils
 
 class Glide(BaseModule):
     def __init__(self, cfg, *args, **kwargs) -> None:
@@ -111,11 +112,44 @@ class GeomGlide(Glide):
 
     @rank_zero_only
     def vis_samples(self, batch, samples, sample_list, pref, log, step=None):        
+
         out = self.decode_samples(samples)
         for k, v in out.items():
             if 'depth' in k:
                 log[f"{pref}{k}_color"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
             log[f"{pref}sample_{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
+    
+        log = self.vis_depth_as_pc(out['hand_depth'], out['obj_depth'], f'{pref}sample', log, step)
+        return log
+
+    def vis_depth_as_pc(self, depth_hand, depth_obj, pref, log, step, f=10):
+        if step is None:
+            step = self.global_step
+        # move z to around 2focal 
+        dist = 2*f
+        depth_hand = depth_hand +  dist
+        depth_obj = depth_obj + dist
+        cameras = PerspectiveCameras(f, device=self.device)
+        print(depth_hand.device, depth_obj.device, self.device)        
+        depth_hand = mesh_utils.depth_to_pc(depth_hand, cameras=cameras)
+        depth_obj = mesh_utils.depth_to_pc(depth_obj, cameras=cameras)
+        
+        depth_hand_mesh = plot_utils.pc_to_cubic_meshes(pc=depth_hand, eps=5e-2)
+        depth_obj_mesh = plot_utils.pc_to_cubic_meshes(pc=depth_obj, eps=5e-2)
+
+        mesh_utils.dump_meshes(
+            osp.join(self.log_dir, f'meshes/{step:08d}_{pref}_hand'), 
+            depth_hand_mesh)
+        mesh_utils.dump_meshes(
+            osp.join(self.log_dir, f'meshes/{step:08d}_{pref}_obj'), 
+            depth_obj_mesh)
+        log[f"{pref}pc"] = wandb.Object3D(depth_hand.points_list()[0].cpu().detach().numpy())
+
+        depth_hoi = mesh_utils.join_scene_w_labels([depth_hand_mesh, depth_obj_mesh], 3)
+        image_list = mesh_utils.render_geom_rot(depth_hoi, 'circle', cameras=cameras, view_centric=True)
+        image_utils.save_gif(image_list, osp.join(self.log_dir, f'gifs/{step:08d}_{pref}_hoi'))
+        log[f'{pref}gif_pc'] = wandb.Video(osp.join(self.log_dir, f'gifs/{step:08d}_{pref}_hoi') + '.gif')
+
         return log
 
     @rank_zero_only
@@ -125,6 +159,7 @@ class GeomGlide(Glide):
             if 'depth' in k:
                 log[f"{pref}{k}_color"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
             log[f"{pref}{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
+        log = self.vis_depth_as_pc(out['hand_depth'], out['obj_depth'], f'{pref}gt', log, step)
         return log
     
 
@@ -177,25 +212,7 @@ class ObjGeomGlide(Glide):
         grad[:, 1+3:1+3+1] *= w_depth
         return grad
 
-    @rank_zero_only
-    def vis_samples(self, batch, samples, sample_list, pref, log, step=None):        
-        out = self.decode_samples(samples)
-        for k, v in out.items():
-            if 'depth' in k:
-                log[f"{pref}{k}_color"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
-            log[f"{pref}sample_{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
-        return log
-
-    @rank_zero_only
-    def vis_input(self, batch, pref, log, step=None ):
-        out = self.decode_samples(batch['image'])
-        for k, v in out.items():
-            if 'depth' in k:
-                log[f"{pref}{k}_color"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
-            log[f"{pref}{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
-
-
-class CondGeomGlide(Glide):
+class CondGeomGlide(GeomGlide):
     def __init__(self, cfg, *args, **kwargs) -> None:
         super().__init__(cfg, *args, **kwargs)
 
@@ -254,6 +271,9 @@ class CondGeomGlide(Glide):
             if 'depth' in k:
                 log[f"{pref}{k}_color"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
             log[f"{pref}sample_{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
+        out_cond = self.decode_samples(batch['cond_image'])
+
+        log = self.vis_depth_as_pc(out_cond['obj_depth'], out['obj_depth'], f'{pref}sample', log, step)
         return log
 
     @rank_zero_only
@@ -264,9 +284,10 @@ class CondGeomGlide(Glide):
                 log[f"{pref}{k}_color"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
             log[f"{pref}{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
         
-        out = self.decode_samples(batch['cond_image'])
-        for k, v in out.items():
+        out_cond = self.decode_samples(batch['cond_image'])
+        for k, v in out_cond.items():
             if 'depth' in k:
                 log[f"{pref}{k}_color_cond"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
             log[f"{pref}{k}_cond"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
+        log = self.vis_depth_as_pc(out_cond['obj_depth'], out['obj_depth'], f'{pref}gt', log, step)        
         return log

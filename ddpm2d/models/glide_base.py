@@ -22,7 +22,8 @@ from pytorch_lightning.callbacks import ModelCheckpoint, ModelSummary
 from ddpm2d.utils import glide_util
 from ddpm2d.utils.logger import LoggerCallback, build_logger
 from ddpm2d.dataset.dataset import build_dataloader
-
+from ddpm2d.utils.train_util import load_from_checkpoint
+from jutils import model_utils
 
 class BaseModule(pl.LightningModule):
     def __init__(self, cfg, *args, **kwargs) -> None:
@@ -36,6 +37,7 @@ class BaseModule(pl.LightningModule):
         
         self.val_batch = None
         self.train_batch = None
+        self.log_dir = osp.join(cfg.exp_dir, 'log')
     
     def train_dataloader(self):
         cfg = self.cfg
@@ -47,6 +49,9 @@ class BaseModule(pl.LightningModule):
             break
         return dataloader
 
+    def test_dataloader(self):
+        return self.val_dataloader()
+    
     def val_dataloader(self):
         cfg =self.cfg
         val_dataloader = build_dataloader(cfg,  cfg.testsets, # cfg.data.test_data_dir, 
@@ -73,6 +78,7 @@ class BaseModule(pl.LightningModule):
         return optimizer
 
     def test_step(self, batch, batch_idx):
+        self.validation_step(batch, batch_idx)
         return
 
     def training_step(self, batch, batch_idx):
@@ -91,7 +97,7 @@ class BaseModule(pl.LightningModule):
         return loss 
     
     def validation_step(self, batch, batch_idx):
-        val_batch = self.val_batch
+        val_batch = model_utils.to_cuda(self.val_batch, self.device)
         train_batch = self.train_batch
 
         log = {}
@@ -121,6 +127,7 @@ class BaseModule(pl.LightningModule):
 
     def generate_sample_step(self, batch, pref, log, step=None, S=2):
         cfg = self.cfg 
+        print('device', self.device)
         if step is None: step = self.global_step
         file_list = []
         step = self.global_step
@@ -183,6 +190,7 @@ def main_worker(cfg):
     model_cls = getattr(module, cfg.model.model)
     model = model_cls(cfg, )
     model.init_model()
+    model.cuda()
 
     if cfg.environment.overwrite:
         logging.warn('#### Dangerous, overwrite %s' % cfg.exp_dir)
@@ -190,11 +198,13 @@ def main_worker(cfg):
 
     # instantiate model
     if cfg.eval:
-        trainer = pl.Trainer(gpus='0,',
+        trainer = pl.Trainer(gpus=-1,
                              default_root_dir=cfg.exp_dir,
                              )
+        model = load_from_checkpoint(cfg.ckpt)
         print(cfg.exp_dir, cfg.ckpt)
-
+        cfg.outputs_dir = osp.join(cfg.exp_dir, cfg.test_name)
+        model.log_dir = cfg.outputs_dir
         model.freeze()
         trainer.test(model=model, verbose=False)
     else:

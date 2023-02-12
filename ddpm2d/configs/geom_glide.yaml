@@ -25,6 +25,7 @@ checkpoints_dir: ${output}/${expname}
 outputs_dir: ${checkpoints_dir}/log
 exp_dir: ${checkpoints_dir}
 project_name: 'vhoiddpm_'
+test_name: default_test
 
 ho3d:
   split: train_seg
@@ -33,6 +34,7 @@ test_batch_size: 8
 
 resume_ckpt: ${model.resume_ckpt}
 resume_train_from: ${exp_dir}/checkpoints/last.ckpt
+ckpt: ${resume_train_from}
 use_fp16: False
 
 

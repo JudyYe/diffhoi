@@ -1,4 +1,12 @@
 PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
+  expname=ddpm_novel_only/hoi4d_\${model.model} \
+  model.model=CondGeomGlide mode.cond=True \
+  data@trainsets=hoi4d data@testsets=hoi4d \
+  environment.slurm=False eval=True \
+
+
+
+PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
   expname=ddpm_novel_only/\${ho3d.split}_\${model.model} \
   model.model=GeomGlide mode.cond=False \
   ho3d.split=SM2,train_seg \

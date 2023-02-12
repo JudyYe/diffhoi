@@ -43,7 +43,6 @@ def parse_data(data_dir, split, data_cfg, args):
         img_func = get_obj_image
         cond_func = get_hand_image
 
-    if 
     meta['cfg'] = args
     return {
         'image': image_list,
