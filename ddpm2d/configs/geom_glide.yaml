@@ -39,7 +39,7 @@ use_fp16: False
 eval: False
 logging: wandb
 batch_size: 8
-learning_rate: 1e-5
+learning_rate: 1e-4
 adam_weight_decay: 0.01
 side_x: 64
 side_y: ${side_x}

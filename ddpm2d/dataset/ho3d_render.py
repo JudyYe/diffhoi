@@ -126,7 +126,8 @@ def parse_data(data_dir, split, data_cfg, args):
     }
     for index in index_list:
         s, vid, f_index = index.split('/')
-        for suf in ['origin', 'novel']:
+        # for suf in ['origin', 'novel']:
+        for suf in ['novel']:
             img_file = f'{data_dir}/{{}}/{vid}_{f_index}_{suf}.png'
             image_list.append(img_file.format('amodal_mask'))
             meta['hand_depth_list'].append(img_file.format('hand_depth'))
@@ -158,7 +159,7 @@ if __name__ == '__main__':
     out = parse_data('/home/yufeiy2/scratch//data/HO3D/crop_render/', 
         '/home/yufeiy2/scratch//data/HO3D/Sets/SM2.txt', {}, AttrDict({'zfar': 1, 'mode': {'cond': False}}))
     save_dir = '/home/yufeiy2/scratch/result/vis'
-    from ddpm.models.glide import GeomGlide
+    from ddpm2d.models.glide import GeomGlide
     from jutils import image_utils
     geom_glide = GeomGlide(AttrDict({'ndim': 11, 'side_x': 56, 'side_y': 56, 
                                      'mode': {'cond': False, 'mask': True, 'normal': True, 'depth': True}}))

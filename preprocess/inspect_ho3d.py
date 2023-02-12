@@ -1,3 +1,4 @@
+import shutil
 from tqdm import tqdm
 import argparse
 from glob import glob
@@ -15,6 +16,7 @@ from pytorch3d.renderer.cameras import PerspectiveCameras
 
 from jutils import image_utils, mesh_utils, geom_utils
 from jutils.hand_utils import ManopthWrapper, cvt_axisang_t_i2o, cvt_axisang_t_o2i
+from . import amodal_utils as rend_utils
 
 
 # get psuedo mask
@@ -75,76 +77,8 @@ def render_amodal(split, vid_index, frame_index, save_index, hand_wrapper, gt_ca
     oMesh = mesh_utils.load_mesh(mesh_file)
     hObj = mesh_utils.apply_transform(oMesh, hTo)
 
-    iHand, iObj = render_amodal_from_camera(hHand, hObj, cTh, cam_intr_crop, H, W)
-    
-    # save everything
-    image_utils.save_images(
-        torch.cat([iHand['mask'], iObj['mask'], torch.zeros_like(iObj['mask']) ], 1), 
-        save_index.format('amodal_mask'))
-
-    save_depth(iHand['depth'], save_index.format('hand_depth'))
-    save_depth(iObj['depth'], save_index.format('obj_depth'))
-
-    os.makedirs(osp.dirname(save_index.format('hand_normal')), exist_ok=True)
-    np.save(save_index.format('hand_normal'), iHand['normal'][0].cpu().detach().numpy())  # (3, H, W)
-    os.makedirs(osp.dirname(save_index.format('obj_normal')), exist_ok=True)
-    np.save(save_index.format('obj_normal'), iObj['normal'][0].cpu().detach().numpy())
-
-    image_utils.save_images(iHand['normal'], osp.join(vis_dir, f'{vid_index}_{frame_index}'), scale=True)
-    
-
-def save_depth(image, save_path):
-    os.makedirs(osp.dirname(save_path), exist_ok=True)
-    image = image.cpu().detach()
-    image = image[0].permute([1, 2, 0]).numpy()[..., 0]
-    # image = np.clip(image, 0, 1<<8-1)
-    # image = image.astype(np.uint8)
-    image = np.clip(image, 0, 1<<16-1)
-    image = image.astype(np.uint16)
-    os.makedirs(osp.dirname(save_path), exist_ok=True)
-    image = Image.fromarray(image)
-    image.save(save_path + '.png')
-
-
-def render_amodal_from_camera(hHand, hObj, cTh, cam_intr, H, W):
-    hHand = hHand.to(device)
-    hObj = hObj.to(device)
-    cTh = cTh.to(device)
-
-    cHand = mesh_utils.apply_transform(hHand, cTh)
-    cObj = mesh_utils.apply_transform(hObj, cTh)
-    f, p = mesh_utils.get_fxfy_pxpy(mesh_utils.intr_from_screen_to_ndc(cam_intr, H, W))
-    cameras = PerspectiveCameras(f, p).to(device)
-    
-    iHand = mesh_utils.render_mesh(cHand, cameras, 
-        depth_mode=args.depth, 
-        normal_mode=args.normal,
-        out_size=max(H, W))
-    iHand['depth'] *= iHand['mask']
-    iObj = mesh_utils.render_mesh(cObj, cameras, 
-        depth_mode=args.depth, 
-        normal_mode=args.normal,
-        out_size=max(H, W))
-    iObj['depth'] *= iObj['mask']
-
-    # rescale to [0, 1] to be consistent with midas convention
-    iHand['normal'] = iHand['normal'] / 2 + 0.5
-    iObj['normal'] = iObj['normal'] / 2 + 0.5
-
-    # sustract common min depth and scale to avoid overflow
-    min_depth_hand = torch.min(torch.masked_select(iHand['depth'], iHand['mask'].bool()))
-    min_depth_obj = torch.min(torch.masked_select(iObj['depth'], iObj['mask'].bool()))
-    min_depth = min(min_depth_hand, min_depth_obj) - 2/1000
-        # torch.masked_select(iHand['depth'], iHand['mask'].bool()).min(), 
-        # torch.masked_select(iObj['depth'], iObj['mask'].bool()).min()) - 2/1000
-    # print('norm', torch.norm(iHand['normal'], -1))
-    iHand['depth'] *= 1000
-    iObj['depth']  *= 1000   
-    iHand['depth'] -= min_depth * 1000  # in mm
-    iObj['depth'] -= min_depth * 1000
-    return iHand, iObj
-
-
+    iHand, iObj = rend_utils.render_amodal_from_camera(hHand, hObj, cTh, cam_intr_crop, H, H)
+    rend_utils.save_amodal_to(iHand, iObj, save_index, cTh)
 
 
 def render_from_original(split='train'):
@@ -226,7 +160,6 @@ def render(vid_index, start, dt=10, split='train', skip=True):
 
         wTh = torch.eye(4)[None].to(device)
         cTw = cTh
-
         mesh_file = osp.join(shape_dir, anno['objName'], 'textured_simple.obj')
         oMesh = mesh_utils.load_mesh(mesh_file)
         _,  onTo = mesh_utils.center_norm_geom(oMesh, 0)  # obj norm
@@ -626,14 +559,6 @@ def init_collect(collect, vid):
 
 
 def split_yana(split='evaluation'):
-    # hand_mask/  
-    # image/  
-    #   00000.png
-    # mask/  
-    # obj_mask/
-    # image.gif  
-    # cameras_hoi.npz  
-    # hands.npz      
     save_dir = '/home/yufeiy2/scratch/result/ho3d_det/'
     all_anno = pickle.load(open(f'/home/yufeiy2/scratch/data/HO3D/yana_det/{split}.pkl', 'rb'))
     boxes = pickle.load(open(f'/home/yufeiy2/scratch/data/HO3D/boxes/boxes_ho3d_{split}.pkl', 'rb'))
@@ -648,6 +573,15 @@ def split_yana(split='evaluation'):
 
 
 def put_one_clip(hand_wrapper, save_dir, vid, anno, box_anno, f_list, split='evaluation'):
+    # hand_mask/  
+    # mask/  
+    # obj_mask/
+    # image/  
+    #   00000.png
+    # image.gif  
+    # cameras_hoi.npz  
+    # hands.npz      
+    # gt_obj.obj
     index = f'{vid}_{f_list[0]:04d}'
     save_pref   = osp.join(save_dir, index, '{}/{:04d}.png')
     overlay_list, image_list = [], []
@@ -699,7 +633,12 @@ def put_one_clip(hand_wrapper, save_dir, vid, anno, box_anno, f_list, split='eva
         iHand = mesh_utils.render_mesh(cHand, cameras, out_size=H)
         overlay = image_utils.save_images(iHand['image'], None, bg=bg, mask=iHand['mask'])
         overlay_list.append(overlay)
-            
+    
+    with open(osp.join(data_dir, '%s/%s/meta/%04d.pkl' % (split, vid, f_list[0])), 'rb') as fp:
+        gt = pickle.load(fp)
+    mesh_file = osp.join(shape_dir, gt['objName'], 'textured_simple.obj')
+    if not osp.exists(osp.join(save_dir, index, 'oObj.obj')):
+        shutil.copyfile(mesh_file, osp.join(save_dir, index, 'oObj.obj'))
     imageio.mimsave(osp.join(save_dir, index, 'image.gif'), image_list)
     imageio.mimsave(osp.join(save_dir, index, 'overlay.gif'), overlay_list)
     np.savez_compressed(osp.join(save_dir, index, 'cameras_hoi.npz'), **camera_dict)

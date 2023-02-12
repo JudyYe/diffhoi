@@ -1,3 +1,40 @@
+PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
+  expname=ddpm_novel_only/\${ho3d.split}_\${model.model} \
+  model.model=GeomGlide mode.cond=False \
+  ho3d.split=SM2,train_seg \
+  environment.slurm=True  \
+
+
+PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
+  expname=ddpm_novel_only/\${ho3d.split}_\${model.model} \
+  model.model=CondGeomGlide mode.cond=True \
+  ho3d.split=SM2,train_seg \
+  environment.slurm=True  \
+
+PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
+  expname=ddpm_novel_only/hoi4d_\${model.model} \
+  model.model=CondGeomGlide mode.cond=True \
+  data@trainsets=hoi4d \
+  environment.slurm=True  \
+
+
+
+CUDA_VISIBLE_DEVICES=7  PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
+  expname=ddpm_novel_only/hoi4d_\${model.model} \
+  model.model=GeomGlide mode.cond=False \
+  data@trainsets=hoi4d data@testsets=hoi4d \
+  environment.slurm=True 
+
+CUDA_VISIBLE_DEVICES=7  PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
+  expname=ddpm_novel_only/hoi4d_\${model.model} \
+  model.model=ObjGeomGlide mode.cond=False  \
+  data@trainsets=hoi4d data@testsets=hoi4d \
+  environment.slurm=True 
+
+
+
+
+
 PYTHONPATH=. python -m ddpm.engine -m --config-name geom_glide  \
   expname=hand_ddpm_geom/\${ho3d.split}_\${model.model} \
   model.model=CondGeomGlide mode.cond=True learning_rate=1e-4 \

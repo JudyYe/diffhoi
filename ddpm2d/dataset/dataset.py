@@ -63,7 +63,7 @@ def get_data_parsed(data_cfg, cfg):
     """
     :param data_cfg: a dict with keys: target, data_dir, split, .... defined in data/xxx.yaml
     """
-    mod = importlib.import_module('.' + data_cfg.target, 'ddpm.dataset')
+    mod = importlib.import_module('.' + data_cfg.target, 'ddpm2d.dataset')
     met = getattr(mod, 'parse_data')
     parsed_data = met(data_cfg.data_dir, data_cfg.split, data_cfg, cfg)
     return parsed_data

@@ -164,6 +164,7 @@ def build_logger(cfg):
             runid = open(f"{cfg.exp_dir}/runid.txt").read()
         
         log = MyWandbLogger(
+            entity=cfg.environment.user,
             project=cfg.project_name + osp.dirname(cfg.expname),
             name=osp.basename(cfg.expname),
             save_dir=osp.join(cfg.exp_dir, 'log'),

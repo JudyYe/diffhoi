@@ -19,7 +19,7 @@ from jutils import image_utils, geom_utils, mesh_utils, hand_utils
 
 from . import amodal_utils as rend_utils
 
-W = H = 512
+W = H = 224
 device = 'cuda:0'
 # hand_mask/  
 # image/  
@@ -130,7 +130,9 @@ def get_one_clip(index, t_start, t_end):
         camera_dict['K_pix'].append(cam_intr_crop.cpu().detach().numpy()[0])
         hand_dict['hA'].append(hA.cpu().detach().numpy()[0])
         hand_dict['beta'].append(beta.cpu().detach().numpy()[0])
-
+    
+    oMesh = mesh_utils.apply_transform(cMesh, geom_utils.inverse_rt(mat=cTo, return_mat=True))
+    mesh_utils.dump_meshes([osp.join(save_dir, save_index, 'oObj')], oMesh)
     make_gif(osp.join(save_dir, save_index, 'overlay/*.png'), osp.join(save_dir, save_index, 'overlay'))
 
     imageio.mimsave(osp.join(save_dir, save_index, 'image.gif'), image_list)
@@ -215,11 +217,11 @@ def batch_clip(num=1):
     with open(osp.join(data_dir, 'Sets/test_vid_ins.txt')) as fp:
         index_list = [line.strip() for line in fp]
     cat_exist = {}
-    for index in index_list:
+    for index in tqdm(index_list):
         cat = int(index.split('/')[2][1:])
 
         if cat in cat_exist:
-            if cat_exist[cat] >= num:
+            if num > 0 and cat_exist[cat] >= num:
                 continue
         else:
             cat_exist[cat] = 0
@@ -228,9 +230,9 @@ def batch_clip(num=1):
             continue
         cat_exist[cat] += 1
         clips = continuous_clip(index)
-        print(clips)
+        print(clips, index)
 
-        for cc in clips:
+        for cc in clips:        
             get_one_clip(index, cc[0], cc[1])
     return
 
@@ -444,7 +446,7 @@ if __name__ == '__main__':
     #     get_one_clip(index, cc[0], cc[1])
 
     if args.clip:
-        batch_clip()
+        batch_clip(args.num)
     if args.render:
         render_batch()
     if args.debug:
