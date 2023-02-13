@@ -1,18 +1,20 @@
 defaults:
   - environment: grogu
   - hydra: default
-  - data@trainsets: ho3d_crop_cam
-  - data@testsets: ho3d_crop_cam
+  - data@trainsets: hoi4d # ho3d_crop_cam
+  - data@testsets: hoi4d # ho3d_crop_cam
   - model: glide
 
-ndim: 11
+ndim: 
+ndim_cond: 0
 zfar: 1
 
 mode:
   mask: 1
   normal: 1
   depth: 1
-  cond: False
+  uv: False
+  cond: 1
 
 worker: ddpm2d.models.glide_base
 train_prob: 
@@ -56,7 +58,7 @@ print_frequency: 100
 save_frequency: 5000
 save_topk: 1
 sanity_step: 1
-max_steps: 100000
+max_steps: 500000
 
 enable_inpaint: False
 enable_upsample: False

@@ -182,10 +182,16 @@ def main_worker(cfg):
     # handle learning rate 
     print('main worker')
     torch.backends.cudnn.benchmark = True
-    if cfg.mode.cond:
-        cfg.ndim = cfg.mode.mask +  (3 * cfg.mode.normal + cfg.mode.depth) * (2 - cfg.mode.cond)
-    else:
-        cfg.ndim = cfg.mode.mask * 3 +  (3 * cfg.mode.normal + cfg.mode.depth) * (2 - cfg.mode.cond)
+    if cfg.ndim is None:
+        if cfg.mode.cond == 1: 
+            cfg.ndim_cond = cfg.mode.mask + 3 * cfg.mode.normal + cfg.mode.depth + 2 * cfg.mode.uv
+            cfg.ndim = cfg.mode.mask + 3 * cfg.mode.normal + cfg.mode.depth
+        elif cfg.mode.cond == 0:  # geom 
+            cfg.ndim_cond = 0
+            cfg.ndim = cfg.mode.mask * 3 +  (3 * cfg.mode.normal + cfg.mode.depth) * 2
+        elif cfg.mode.cond == -1:
+            cfg.ndim_cond = 0
+            cfg.ndim = cfg.mode.mask + 3 * cfg.mode.normal + cfg.mode.depth
     module = importlib.import_module(cfg.model.module)
     model_cls = getattr(module, cfg.model.model)
     model = model_cls(cfg, )

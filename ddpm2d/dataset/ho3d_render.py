@@ -12,6 +12,9 @@ def get_hand_image(image_file, ind, meta):
     depth = read_depth(image_file, ind, meta)
 
     image = torch.cat([mask[0:1], normal[0:3], depth[0:1]], 0)
+    if meta['cfg'].mode.uv:
+        uv = read_uv(image_file, ind, meta)
+        image = torch.cat([image, uv], 0)
     return image
 
 
@@ -19,7 +22,6 @@ def get_obj_image(image_file, ind, meta):
     mask = sem_mask(image_file, ind, meta)
     normal = surface_normal(image_file, ind, meta)
     depth = read_depth(image_file, ind, meta)
-
     image = torch.cat([mask[1:2], normal[3:6], depth[1:2]], 0)
     return image
 
@@ -80,6 +82,12 @@ def read_depth(image_file, ind, meta):
     return hoi_depth
 
 
+def read_uv(image_file, ind, meta):
+    hand_uv = np.load(meta['hand_uv_list'][ind])['array']
+    hand_uv = torch.FloatTensor(hand_uv)
+    return hand_uv
+
+
 def surface_normal(image_file, ind, meta):
 # https://github.com/autonomousvision/monosdf/blob/e6f923c4a9c319ca0c6b5c7fad7d0b1b32b7550f/code/datasets/scene_dataset.py
     """
@@ -91,8 +99,13 @@ def surface_normal(image_file, ind, meta):
     :param meta: _description_
     :return: normal tensor in shape of [C, H, W]
     """
-    hand_normal = np.load(meta['hand_normal_list'][ind])
-    obj_normal = np.load(meta['obj_normal_list'][ind])
+    # legacy
+    if osp.exists(meta['hand_normal_list'][ind]):
+        hand_normal = np.load(meta['hand_normal_list'][ind])['array']
+        obj_normal = np.load(meta['obj_normal_list'][ind])['array']
+    else:
+        hand_normal = np.load(meta['hand_normal_list'][ind][:-1] + 'y')
+        obj_normal = np.load(meta['obj_normal_list'][ind][:-1] + 'y')
 
     # important as the output of omnidata is normalized
     hand_normal = hand_normal * 2. - 1.
@@ -123,6 +136,7 @@ def parse_data(data_dir, split, data_cfg, args):
         'obj_depth_list': [],
         'hand_normal_list': [],
         'obj_normal_list': [],
+        'hand_uv_list': [],
     }
     for index in index_list:
         s, vid, f_index = index.split('/')
@@ -132,17 +146,21 @@ def parse_data(data_dir, split, data_cfg, args):
             image_list.append(img_file.format('amodal_mask'))
             meta['hand_depth_list'].append(img_file.format('hand_depth'))
             meta['obj_depth_list'].append(img_file.format('obj_depth'))
-            meta['hand_normal_list'].append(img_file.format('hand_normal')[:-3] + 'npy')
-            meta['obj_normal_list'].append(img_file.format('obj_normal')[:-3] + 'npy')
+            meta['hand_normal_list'].append(img_file.format('hand_normal')[:-3] + 'npz')
+            meta['obj_normal_list'].append(img_file.format('obj_normal')[:-3] + 'npz')
+            meta['hand_uv_list'].append(img_file.format('hand_uv')[:-3] + 'npz')
         
     text_list = ['a semantic segmentation of a hand grasping an object'] * len(image_list)
     print(args.mode.cond)
-    if not args.mode.cond:
+    if args.mode.cond == 0:
         img_func = get_image
         cond_func = None
-    else:
+    elif args.mode.cond == 1:
         img_func = get_obj_image
         cond_func = get_hand_image
+    elif args.mode.cond == -1:
+        img_func = get_obj_image
+        cond_func = None
 
     meta['cfg'] = args
     return {

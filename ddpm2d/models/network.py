@@ -8,13 +8,8 @@ class ImageText2ImUNet(Text2ImUNet):
     """
 
     def __init__(self, *args, **kwargs):
-        if "in_channels" in kwargs:
-            kwargs = dict(kwargs)
-            kwargs["in_channels"] = kwargs["in_channels"] * 2
-        else:
-            # Curse you, Python. Or really, just curse positional arguments :|.
-            args = list(args)
-            args[1] = args[1] * 2 + 1
+        kwargs = dict(kwargs)
+        kwargs["in_channels"] = kwargs["in_channels"] + kwargs.pop("cond_channels")
         super().__init__(*args, **kwargs)
 
     def forward(self, x, timesteps, cond_image=None, **kwargs):

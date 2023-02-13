@@ -323,7 +323,6 @@ def vis_hand(hand_wrapper, crop, hoi_box, vid, fnum, H=512):
     cTw = se3 = geom_utils.axis_angle_t_to_matrix(rot, trans)
     pose = torch.FloatTensor(pose[None]).to(device)
 
-    # cHand, cJoints = hand_wrapper(cTw, hA, th_betas=beta)
 
     # K_crop = crop_intrinsics(K, hoi_box)
     cam_intr = image_utils.crop_cam_intr(K[0], torch.FloatTensor(hoi_box).to(device), (H, H))[None]
@@ -403,7 +402,7 @@ def render_amodal(vid_index, frame_index, save_index, hand_wrapper, gt_camera,H=
     cObj, cTo = vis_obj(bbox_sq, vid_index, frame_index)
     hA, beta, cTh, cam_intr_crop = vis_hand(None, None, bbox_sq, vid_index, frame_index, H=H)
     # cHand, cJoints = hand_wrapper(cTh, hA, th_betas=beta)
-    hHand, cJoints = hand_wrapper(None, hA, th_betas=beta)
+    hHand, cJoints = hand_wrapper(None, hA, th_betas=beta, texture='uv')
     hTc = geom_utils.inverse_rt(mat=cTh)
     hObj = mesh_utils.apply_transform(cObj, hTc)
 
@@ -421,7 +420,7 @@ def render_amodal(vid_index, frame_index, save_index, hand_wrapper, gt_camera,H=
     if not render:
         return hHand, hObj, cTh, cam_intr_crop
     iHand, iObj = rend_utils.render_amodal_from_camera(hHand, hObj, cTh, cam_intr_crop, H, H)
-    rend_utils.save_amodal_to(iHand, iObj, save_index, cTh)
+    rend_utils.save_amodal_to(iHand, iObj, save_index, cTh, hA)
 
 
 def parse_args():

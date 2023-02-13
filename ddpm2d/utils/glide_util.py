@@ -67,6 +67,7 @@ def create_model_and_diffusion(
     inpaint,
     super_res,
     in_channels=3,
+    cond_channels=0,
 ):
     model = create_model(
         image_size,
@@ -91,6 +92,7 @@ def create_model_and_diffusion(
         inpaint=inpaint,
         super_res=super_res,
         in_channels=in_channels,
+        cond_channels=cond_channels,
     )
     diffusion = create_gaussian_diffusion(
         steps=diffusion_steps,
@@ -123,6 +125,7 @@ def create_model(
     inpaint,
     super_res,
     in_channels,
+    cond_channels,
 ):
     if channel_mult == "":
         if image_size == 256:
@@ -143,8 +146,10 @@ def create_model(
 
     if not inpaint:
         Model = Text2ImUNet
+        model_kwargs = {}
     else:
         Model = ImageText2ImUNet
+        model_kwargs = {'cond_channels': cond_channels}
     return Model(
         text_ctx=text_ctx,
         xf_width=xf_width,
@@ -167,6 +172,7 @@ def create_model(
         use_scale_shift_norm=use_scale_shift_norm,
         resblock_updown=resblock_updown,
         cache_text_emb=cache_text_emb,
+        **model_kwargs,
     )
  
 
@@ -197,6 +203,7 @@ def load_model(
     activation_checkpointing: bool = False,
     model_type: str = "base",
     in_channels=3,
+    cond_channels=0,
 ):
     assert model_type in MODEL_TYPES, f"Model must be one of {MODEL_TYPES}. Exiting."
     if model_type in ["base", "base-inpaint"]:
@@ -209,7 +216,7 @@ def load_model(
     options["use_fp16"] = use_fp16
     if disable_transformer:
         options["xf_width"] = 0
-    glide_model, glide_diffusion = create_model_and_diffusion(**options, in_channels=in_channels)
+    glide_model, glide_diffusion = create_model_and_diffusion(**options, in_channels=in_channels, cond_channels=cond_channels)
     if activation_checkpointing:
         glide_model.use_checkpoint = True
 

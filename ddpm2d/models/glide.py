@@ -17,14 +17,15 @@ class Glide(BaseModule):
     def __init__(self, cfg, *args, **kwargs) -> None:
         super().__init__(cfg, *args, **kwargs)
         self.template_size = [cfg.ndim, cfg.side_y, cfg.side_x]
-    
+
+    def decode_samples(self, tensor):
+        return {
+            'semantics': tensor, 
+        }
+        
     def init_model(self,):
         cfg =self.cfg.model
-        
-        if self.cfg.mode.cond:
-            model_type='base-inpaint'
-        else:
-            model_type='base'
+        model_type='base-inpaint' if self.cfg.ndim_cond > 0 else 'base'
         glide_model, glide_diffusion, glide_options = glide_util.load_model(
             glide_path=cfg.resume_ckpt,
             use_fp16=self.cfg.use_fp16,
@@ -34,6 +35,7 @@ class Glide(BaseModule):
             activation_checkpointing=cfg.activation_checkpointing,
             model_type=model_type,
             in_channels=self.cfg.ndim,
+            cond_channels=self.cfg.ndim_cond
         )
         self.glide_model = glide_model
         self.diffusion = glide_diffusion
@@ -83,6 +85,7 @@ class Glide(BaseModule):
             log[f"{pref}sample_{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
         return log
 
+
 class GeomGlide(Glide):
     def __init__(self, cfg, *args, **kwargs) -> None:
         super().__init__(cfg, *args, **kwargs)
@@ -102,6 +105,7 @@ class GeomGlide(Glide):
         if mode.depth:
             out['hand_depth'] = tensor[:, cur:cur+1]
             out['obj_depth'] = tensor[:, cur+1:cur+2]
+            cur += 2
         return out
     
     def distribute_weight(self, grad, w_mask, w_normal, w_depth, *args, **kwargs):
@@ -131,8 +135,8 @@ class GeomGlide(Glide):
         depth_obj = depth_obj + dist
         cameras = PerspectiveCameras(f, device=self.device)
         print(depth_hand.device, depth_obj.device, self.device)        
-        depth_hand = mesh_utils.depth_to_pc(depth_hand, cameras=cameras)
-        depth_obj = mesh_utils.depth_to_pc(depth_obj, cameras=cameras)
+        depth_hand = mesh_utils.depth_to_pc(depth_hand.to(self.device), cameras=cameras)
+        depth_obj = mesh_utils.depth_to_pc(depth_obj.to(self.device), cameras=cameras)
         
         depth_hand_mesh = plot_utils.pc_to_cubic_meshes(pc=depth_hand, eps=5e-2)
         depth_obj_mesh = plot_utils.pc_to_cubic_meshes(pc=depth_obj, eps=5e-2)
@@ -204,6 +208,7 @@ class ObjGeomGlide(Glide):
             cur += 3
         if mode.depth:
             out['obj_depth'] = tensor[:, cur:cur+1]
+            cur += 1
         return out
     
     def distribute_weight(self, grad, w_mask, w_normal, w_depth, *args, **kwargs):
@@ -211,6 +216,25 @@ class ObjGeomGlide(Glide):
         grad[:, 1:1+3] *= w_normal
         grad[:, 1+3:1+3+1] *= w_depth
         return grad
+
+    @rank_zero_only
+    def vis_samples(self, batch, samples, sample_list, pref, log, step=None):        
+        out = self.decode_samples(samples)
+        for k, v in out.items():
+            if 'depth' in k:
+                log[f"{pref}{k}_color"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
+            log[f"{pref}sample_{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
+        return log
+
+    @rank_zero_only
+    def vis_input(self, batch, pref, log, step=None ):
+        out = self.decode_samples(batch['image'])
+        for k, v in out.items():
+            if 'depth' in k:
+                log[f"{pref}{k}_color"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
+            log[f"{pref}{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
+        return log
+
 
 class CondGeomGlide(GeomGlide):
     def __init__(self, cfg, *args, **kwargs) -> None:
@@ -256,6 +280,14 @@ class CondGeomGlide(GeomGlide):
             cur += 3
         if mode.depth:
             out['obj_depth'] = tensor[:, cur:cur+1]
+            cur += 1
+        if mode.uv:
+            # only do hand
+            if cur < tensor.shape[1]:
+                out['obj_uv'] = torch.cat(
+                    [tensor[:, cur:cur+2], torch.zeros_like(tensor[:, cur:cur+1])], 
+                1)
+                cur += 2
         return out
     
     def distribute_weight(self, grad, w_mask, w_normal, w_depth, *args, **kwargs):

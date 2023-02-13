@@ -9,7 +9,7 @@ from jutils import image_utils, geom_utils, mesh_utils
 
 device = 'cuda:0'
 
-def render_amodal_from_camera(hHand, hObj, cTh, cam_intr, H, W, depth=True,normal=True):
+def render_amodal_from_camera(hHand, hObj, cTh, cam_intr, H, W, depth=True,normal=True,uv=True):
     """_summary_
 
     :param hHand: _description_
@@ -38,6 +38,7 @@ def render_amodal_from_camera(hHand, hObj, cTh, cam_intr, H, W, depth=True,norma
     iHand = mesh_utils.render_mesh(cHand, cameras, 
         depth_mode=depth, 
         normal_mode=normal,
+        uv_mode=uv,
         out_size=max(H, W))
     iHand['depth'] *= iHand['mask']
     iObj = mesh_utils.render_mesh(cObj, cameras, 
@@ -64,7 +65,7 @@ def render_amodal_from_camera(hHand, hObj, cTh, cam_intr, H, W, depth=True,norma
     return iHand, iObj
 
 
-def save_amodal_to(iHand, iObj, save_index, cTh, debug=False):
+def save_amodal_to(iHand, iObj, save_index, cTh, hA, debug=False):
     image_utils.save_images(
         torch.cat([iHand['mask'], iObj['mask'], torch.zeros_like(iObj['mask']) ], 1), 
         save_index.format('amodal_mask'))
@@ -73,11 +74,16 @@ def save_amodal_to(iHand, iObj, save_index, cTh, debug=False):
     save_depth(iObj['depth'], save_index.format('obj_depth'))
 
     os.makedirs(osp.dirname(save_index.format('hand_normal')), exist_ok=True)
-    np.save(save_index.format('hand_normal'), iHand['normal'][0].cpu().detach().numpy())  # (3, H, W)
+    np.savez_compressed(save_index.format('hand_normal'), array=iHand['normal'][0].cpu().detach().numpy())  # (3, H, W)
     os.makedirs(osp.dirname(save_index.format('obj_normal')), exist_ok=True)
-    np.save(save_index.format('obj_normal'), iObj['normal'][0].cpu().detach().numpy())
+    np.savez_compressed(save_index.format('obj_normal'), array=iObj['normal'][0].cpu().detach().numpy())
     os.makedirs(osp.dirname(save_index.format('cTh')), exist_ok=True)
-    np.save(save_index.format('cTh'), cTh[0].cpu().detach().numpy())
+    os.makedirs(osp.dirname(save_index.format('hand_uv')), exist_ok=True)
+    np.savez_compressed(save_index.format('hand_uv'), array=iHand['uv'][0].cpu().detach().numpy())  # (3, H, W)
+
+    np.savez_compressed(save_index.format('cTh'), 
+                        cTh=cTh[0].cpu().detach().numpy(),
+                        hA=hA[0].cpu().detach().numpy())
     if debug:
         image_utils.save_images(iHand['normal'], save_index.format('hand_normal_vis'), scale=True)
         image_utils.save_images(iHand['normal'], save_index.format('obj_normal_vis'), scale=True)

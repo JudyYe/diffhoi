@@ -1,5 +1,5 @@
 module: ddpm2d.models.glide
-model:  Glide # | InpaintText2ImUNet | InsertText2ImUNet
+model:  Glide
 
 grad_clip: 0. 
 disable_transformer: False

@@ -24,24 +24,30 @@ def parse_data(data_dir, split, data_cfg, args):
         'obj_depth_list': [],
         'hand_normal_list': [],
         'obj_normal_list': [],
+        'hand_uv_list': [],
+
     }
     for index in index_list:
         img_file = f'{data_dir}/{{}}/{index}.png'
         image_list.append(img_file.format('amodal_mask'))
         meta['hand_depth_list'].append(img_file.format('hand_depth'))
         meta['obj_depth_list'].append(img_file.format('obj_depth'))
-        meta['hand_normal_list'].append(img_file.format('hand_normal')[:-3] + 'npy')
-        meta['obj_normal_list'].append(img_file.format('obj_normal')[:-3] + 'npy')
+        meta['hand_normal_list'].append(img_file.format('hand_normal')[:-3] + 'npz')
+        meta['obj_normal_list'].append(img_file.format('obj_normal')[:-3] + 'npz')
+        meta['hand_uv_list'].append(img_file.format('hand_uv')[:-3] + 'npz')
         
     text_list = ['a semantic segmentation of a hand grasping an object'] * len(image_list)
     print(args.mode.cond)
     # print(args.mode.out)
-    if not args.mode.cond:
+    if args.mode.cond == 0:
         img_func = get_image
         cond_func = None
-    else:
+    elif args.mode.cond == 1:
         img_func = get_obj_image
         cond_func = get_hand_image
+    elif args.mode.cond == -1:
+        img_func = get_obj_image
+        cond_func = None
 
     meta['cfg'] = args
     return {
@@ -62,7 +68,7 @@ if __name__ == '__main__':
     save_dir = '/home/yufeiy2/scratch/result/vis'
     from ddpm2d.models.glide import GeomGlide
     from jutils import image_utils
-    geom_glide = GeomGlide(AttrDict({'ndim': 11, 'side_x': 56, 'side_y': 56, 
+    geom_glide = GeomGlide(AttrDict({'exp_dir': save_dir, 'ndim': 11, 'side_x': 56, 'side_y': 56, 
                                      'mode': {'cond': False, 'mask': True, 'normal': True, 'depth': True}}))
     mean_list, var_list = [], []
     for i in range(10):
