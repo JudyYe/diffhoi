@@ -18,8 +18,9 @@ from utils.logger import Logger
 from utils.checkpoints import CheckpointIO
 from dataio import get_data
 
-from jutils import slurm_utils, mesh_utils
+from jutils import slurm_utils, mesh_utils, plot_utils, image_utils, geom_utils
 import os
+import os.path as osp
 import sys
 import time
 import functools
@@ -36,7 +37,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 import tools.vis_clips as tool_clip
-
+import tools.icp_recon as icp_tool
 
 def main_function(gpu=None, ngpus_per_node=None, args=None):
 
@@ -216,6 +217,43 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                                             val_ind, val_in, val_gt)
                                 
                                 logger.add_imgs(to_img(ret['normals_volume']/2.+0.5), 'obj/predicted_normals', it)
+                    # TODO: this validation step is very ugly... 
+                    #-------------------
+                    # validate mesh
+                    #-------------------
+                    if is_master():
+                        if i_val > 0 and int_it % i_val == 1 or test_train or int_it in special_i_val_mesh:
+                            print('validating mesh!!!!!')
+                            with torch.no_grad():
+                                io_util.cond_mkdir(mesh_dir)
+                                try:
+                                    mesh_util.extract_mesh(
+                                        model.implicit_surface, 
+                                        N=64,
+                                        filepath=os.path.join(mesh_dir, '{:08d}.ply'.format(it)),
+                                        volume_size=args.data.get('volume_size', 2.0),
+                                        show_progress=is_master())
+                                    logger.add_meshes('obj', os.path.join('meshes', '{:08d}.ply'.format(it)), it)
+                                    
+                                    jObj = mesh_utils.load_mesh(os.path.join(mesh_dir, '{:08d}.ply'.format(it)))
+                                    
+                                    # compute F-score and CD 
+                                    gt_oObj = val_dataset.oObj
+                                    if gt_oObj is not None:
+                                        jTh = ret['jTh']
+                                        hObj = mesh_utils.apply_transform(jObj, geom_utils.inverse_rt(mat=jTh, return_mat=True).cpu())
+
+                                        metric = quant_log(hObj, gt_oObj, scale=False)                  
+                                        logger.log_metrics({f'no_scale/{k}': v for k,v in metric.items()}, it)
+                                        quant_log(hObj, gt_oObj,  scale=True)                  
+                                        logger.log_metrics({f'scale/{k}': v for k,v in metric.items()}, it)
+                                        jHand = ret['hand']
+                                        jHoi = mesh_utils.join_scene([jObj.to(device), jHand.to(device)])
+                                        image_list = mesh_utils.render_geom_rot(jHoi, scale_geom=True)
+                                        logger.add_gifs(image_list, 'render/hoi_one_frame', it)
+                                except ValueError:
+                                    log.warn('No surface extracted; pass')
+                                    pass
                     #-------------------
                     # validate camera pose 
                     #-------------------
@@ -229,24 +267,25 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                                 novel_list = []
                                 for val_ind, val_in, val_gt in valloader:
                                     val_ind = val_ind.to(device)
-                                    c2w = posenet(val_ind, val_in, val_gt).cpu().detach().numpy()
+                                    c2w = posenet(val_ind, val_in, val_gt)
                                     intrinsics = focal_net(val_ind, val_in, val_gt, H=valH, W=valW).cpu().detach().numpy()
                                     novel = trainer.sample_jTc(val_ind, val_in, val_gt)[0]
                                     
-                                    extrinsics_list.append(np.linalg.inv(c2w))  # c2w=wTc=jTc camera extrinsics are w2c matrix
-                                    novel_list.append(np.linalg.inv(novel.cpu().detach().numpy()))
+                                    extrinsics_list.append(c2w)  # c2w=wTc=jTc camera extrinsics are w2c matrix
+                                    novel_list.append(novel)
                                     intrinsics_list.append(intrinsics)
-
-                            extrinsics = np.concatenate(extrinsics_list, 0)
-                            vis_camera.visualize(intrinsics_list[0][0], extrinsics, 
+                            extrinsics_list = torch.cat(extrinsics_list)
+                            novel_list = torch.cat(novel_list)
+                            cams_orign = plot_utils.vis_cam(wTc=extrinsics_list, color='blue', size=0.05, focal=2) # size can be specified
+                            cams_novel = plot_utils.vis_cam(wTc=novel_list, color='red', size=0.05, focal=2) # size can be specified
+                            coord = plot_utils.create_coord(device)
+                            scene = mesh_utils.join_scene(cams_orign + cams_novel + [coord])
+                            image_utils.save_gif(
+                                mesh_utils.render_geom_rot(scene, scale_geom=True, out_size=1024), 
                                 os.path.join(logger.log_dir, 'cams', '%08d' % it))
-                            novel = np.concatenate(novel_list + extrinsics_list, 0)
-                            vis_camera.visualize(intrinsics_list[0][0], novel, 
-                                os.path.join(logger.log_dir, 'cams', '%08d_nvs' % it))
                             logger.log_metrics({
-                                'cams': wandb.Image(os.path.join(logger.log_dir, 'cams', '%08d.png' % it)),
-                                'cams_nv': wandb.Image(os.path.join(logger.log_dir, 'cams', '%08d_nvs.png' % it)),
-                                }, it)
+                                'cam': wandb.Video(os.path.join(logger.log_dir, 'cams', '%08d' % it) + '.gif')
+                            }, it)
 
                     #-------------------
                     # validate rendering
@@ -278,32 +317,6 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     #-------------------
                     # validate novel view rendering~~
                     #-------------------
-
-                    #-------------------
-                    # validate mesh
-                    #-------------------
-                    if is_master():
-                        if i_val > 0 and int_it % i_val == 1 or test_train or int_it in special_i_val_mesh:
-                            print('validating mesh!!!!!')
-                            with torch.no_grad():
-                                io_util.cond_mkdir(mesh_dir)
-                                try:
-                                    mesh_util.extract_mesh(
-                                        model.implicit_surface, 
-                                        N=64,
-                                        filepath=os.path.join(mesh_dir, '{:08d}.ply'.format(it)),
-                                        volume_size=args.data.get('volume_size', 2.0),
-                                        show_progress=is_master())
-                                    logger.add_meshes('obj', os.path.join('meshes', '{:08d}.ply'.format(it)), it)
-                                    
-                                    jObj = mesh_utils.load_mesh(os.path.join(mesh_dir, '{:08d}.ply'.format(it)))
-                                    jHand = ret['hand']
-                                    jHoi = mesh_utils.join_scene([jObj.to(device), jHand.to(device)])
-                                    image_list = mesh_utils.render_geom_rot(jHoi, scale_geom=True)
-                                    logger.add_gifs(image_list, 'render/hoi_one_frame', it)
-                                except ValueError:
-                                    log.warn('No surface extracted; pass')
-                                    pass
 
                     if it >= args.training.num_iters:
                         end = True
@@ -430,6 +443,16 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
         # log.info("Everything done.")
 
 
+def quant_log(hObj, gt_oObj, scale=False):
+    oObj, _ = icp_tool.register_meshes(hObj, gt_oObj, scale=scale)
+    metrics = {}
+    metrics['cd'] = mesh_utils.cdscore(oObj, gt_oObj)
+    th_list = np.array([2, 5, 10, 15, 20, 50, 100]) * 1e-3
+    f_list = mesh_utils.fscore(oObj, gt_oObj, th=th_list)
+    for t in range(len(th_list)):
+        metrics[th_list[t]] = f_list[t]
+    return metrics
+
 
 
 def main():
@@ -443,6 +466,7 @@ def main():
 
     
     slurm_utils.slurm_wrapper(args, config.training.exp_dir, main_function, {'args':config})
+
 
 if __name__ == "__main__":
     # hydra_main()

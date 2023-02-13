@@ -8,11 +8,40 @@ import torch
 from tqdm import tqdm
 
 from chamferdist import ChamferDistance
-
+from pytorch3d.structures import Meshes
 from jutils import image_utils, mesh_utils, geom_utils
 from jutils.mesh_utils import Meshes
 
-def register(source, target, type='icp_common'):
+
+def register_meshes(source: Meshes, target: Meshes, type='icp_common', scale=True):
+    device = source.device
+    # first normalize bc icp only works with mesh with coarse alignment
+    # record the transformation of target
+    if scale:
+        source, cTo_s = mesh_utils.center_norm_geom(source)
+        target, cTo_t = mesh_utils.center_norm_geom(target)
+    else:
+        # substract 
+        source, cTo_s = mesh_utils.center_norm_geom(source, max_norm=None)
+        target, cTo_t = mesh_utils.center_norm_geom(target, max_norm=None)
+
+    source_list = mesh_utils.to_trimeshes(source)
+    target_list = mesh_utils.to_trimeshes(target)
+    new_source_list = []
+    new_target_list = []
+    for s, t in zip(source_list, target_list):
+        s, t = register(s, t, type, scale=scale)
+        new_source_list.append(s)
+        new_target_list.append(t)
+    new_source = mesh_utils.from_trimeshes(new_source_list).to(device)
+    new_target = mesh_utils.from_trimeshes(new_target_list).to(device)
+
+    new_target = mesh_utils.apply_transform(new_target, cTo_t.inverse())
+    new_source = mesh_utils.apply_transform(new_source, cTo_t.inverse())
+    return new_source, new_target
+
+
+def register(source, target, type='icp_common', scale=True):
     if type == 'icp_common':
         from trimesh.registration import mesh_other
     elif type == 'icp_constrained':
@@ -21,7 +50,7 @@ def register(source, target, type='icp_common'):
         raise ValueError('Registration Type Should Be in {icp_common} and {icp_constrained}.')
 
     # register
-    source2target, cost = mesh_other(source, target, scale=True)
+    source2target, cost = mesh_other(source, target, scale=scale)
     # source2target, cost = mesh_other(source, target, scale=False)
 
     # transform
@@ -72,9 +101,9 @@ def compare(source_file, target_file, iters=1, flip_x=False, flip_y=False, flip_
 def test():
     data_dir = '/home/yufeiy2/scratch/result/vis'
     device = 'cuda:0'
-    source_file = osp.join(data_dir, 'a.ply')
-    target_file = osp.join(data_dir, 'b.obj')
-    
+    source_file = osp.join(data_dir, 'a.obj')
+    target_file = osp.join(data_dir, 'b.ply')
+
     source = trimesh.load(source_file, force='mesh')  # reconstructed mesh
     target = trimesh.load(target_file, force='mesh')  # ground truth mesh
 
@@ -95,21 +124,15 @@ def test():
     hoi = mesh_utils.join_scene_w_labels([mesh_s, mesh_f])
     image_list = mesh_utils.render_geom_rot(hoi, scale_geom=True)
     image_utils.save_gif(image_list, osp.join(data_dir, 'before'))
-    mesh_utils.dump_meshes([osp.join(data_dir, 'before_s')], mesh_s)
-    mesh_utils.dump_meshes([osp.join(data_dir, 'before_f')], mesh_f)
-    for i in range(args.iter):
 
+    for i in range(args.iter):
         # register
-        new_source, _ = register(source, target)
+        new_s, _ = register_meshes(mesh_s, mesh_f)
     
-        mesh_s = Meshes(
-            [torch.FloatTensor(new_source.vertices)], 
-            [torch.LongTensor(new_source.faces)]).to(device)
-        hoi = mesh_utils.join_scene_w_labels([mesh_s, mesh_f])
+        hoi = mesh_utils.join_scene_w_labels([new_s, mesh_f])
         image_list = mesh_utils.render_geom_rot(hoi, scale_geom=True)
         image_utils.save_gif(image_list, osp.join(data_dir, 'align_%d' % i))
         mesh_utils.dump_meshes([osp.join(data_dir, 'align_%d' % i)], mesh_s)
-        # new_source = source
 
 
 

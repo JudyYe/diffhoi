@@ -38,5 +38,8 @@ image_utils.save_images(uv_color, osp.join(save_dir, 'uv'))
 image_list = mesh_utils.render_geom_rot(cHand, 'el', scale_geom=True)
 image_utils.save_gif(image_list, osp.join(save_dir, 'image'))
 
+image_list = mesh_utils.render_geom_rot(cHand, scale_geom=True)
+image_utils.save_gif(image_list, osp.join(save_dir, 'image_az'))
+
 
 image_utils.save_images(tex.permute(0, 3, 1, 2), osp.join(save_dir, 'tex'))

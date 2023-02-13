@@ -1,3 +1,19 @@
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=hoi4d_degrade_diffuse/cond_w\${training.w_diffuse}_\${data.len}_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth}_\${data.index}  \
+    training=diffuse novel_view=geom novel_view.diff_name="ddpm_novel_only/hoi4d_CondGeomGlide" \
+    training.ckpt_file=\${output}/hoi4d_w_hoi4d/cond_w0.01_1000_m0_n0_d0_ZY20210800001_H1_C2_N31_S92_s05_T2_00029_00159/ckpts/latest.pt \
+    training.w_diffuse=1e-2,0,1e-3,1e-4 \
+    data=hoi4d  \
+    environment.slurm=True environment.resume=False  \
+
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=hoi4d_w_hoi4d/cond_w\${training.w_diffuse}_\${data.len}_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth}_\${data.index}  \
+    training=diffuse novel_view=geom novel_view.diff_name="ddpm_novel_only/hoi4d_CondGeomGlide" \
+    novel_view.loss.w_mask=0,1 novel_view.loss.w_depth=0,1 novel_view.loss.w_normal=0,1 \
+    data=hoi4d  \
+    environment.slurm=True environment.resume=False
+
 
 
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \

@@ -114,7 +114,7 @@ def get_one_clip(index, t_start, t_end):
         image_list.append(blend.clip(0, 255).astype(np.uint8))
 
         cMesh, cTo = vis_obj(bbox_sq, index, t)
-        hA, beta, cTw, cam_intr_crop = vis_hand(hand_wrapper, crop, bbox_sq, index, t)
+        hA, beta, cTw, cam_intr_crop = vis_hand(hand_wrapper, crop, bbox_sq, index, t, H=H)
         f, p = mesh_utils.get_fxfy_pxpy(mesh_utils.intr_from_screen_to_ndc(cam_intr_crop, H, H))
 
         cHand, cJoints = hand_wrapper(cTw, hA, th_betas=beta)
