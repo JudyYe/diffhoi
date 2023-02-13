@@ -1,4 +1,11 @@
 
+CUDA_VISIBLE_DEVICES=7   PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
+  expname=dev/tmp \
+  model.model=CondGeomGlide mode.cond=1 mode.uv=1 \
+  environment.slurm=False 
+
+
+
 CUDA_VISIBLE_DEVICES=4   PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
   expname=ddpm_novel_sunday/hoi4d_\${model.model}_\${mode.uv} \
   model.model=CondGeomGlide mode.cond=1 mode.uv=0,1 \

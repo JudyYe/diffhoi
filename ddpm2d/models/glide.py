@@ -123,10 +123,12 @@ class GeomGlide(Glide):
                 log[f"{pref}{k}_color"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
             log[f"{pref}sample_{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
     
-        log = self.vis_depth_as_pc(out['hand_depth'], out['obj_depth'], f'{pref}sample', log, step)
+        log = self.vis_depth_as_pc(out['hand_depth'], out['obj_depth'], f'{pref}sample', log, step, 
+                                   out['semantics'][:, 1], out['semantics'][:, 0])
         return log
 
-    def vis_depth_as_pc(self, depth_hand, depth_obj, pref, log, step, f=10):
+    def vis_depth_as_pc(self, depth_hand, depth_obj,pref, log, step, mask_hand=None, mask_obj=None, f=10):
+        device= self.device
         if step is None:
             step = self.global_step
         # move z to around 2focal 
@@ -134,12 +136,11 @@ class GeomGlide(Glide):
         depth_hand = depth_hand +  dist
         depth_obj = depth_obj + dist
         cameras = PerspectiveCameras(f, device=self.device)
-        print(depth_hand.device, depth_obj.device, self.device)        
-        depth_hand = mesh_utils.depth_to_pc(depth_hand.to(self.device), cameras=cameras)
-        depth_obj = mesh_utils.depth_to_pc(depth_obj.to(self.device), cameras=cameras)
+        depth_hand_pc = mesh_utils.depth_to_pc(depth_hand.to(self.device), cameras=cameras)
+        depth_obj_pc = mesh_utils.depth_to_pc(depth_obj.to(self.device), cameras=cameras)
         
-        depth_hand_mesh = plot_utils.pc_to_cubic_meshes(pc=depth_hand, eps=5e-2)
-        depth_obj_mesh = plot_utils.pc_to_cubic_meshes(pc=depth_obj, eps=5e-2)
+        depth_hand_mesh = plot_utils.pc_to_cubic_meshes(pc=depth_hand_pc, eps=5e-2)
+        depth_obj_mesh = plot_utils.pc_to_cubic_meshes(pc=depth_obj_pc, eps=5e-2)
 
         mesh_utils.dump_meshes(
             osp.join(self.log_dir, f'meshes/{step:08d}_{pref}_hand'), 
@@ -147,7 +148,18 @@ class GeomGlide(Glide):
         mesh_utils.dump_meshes(
             osp.join(self.log_dir, f'meshes/{step:08d}_{pref}_obj'), 
             depth_obj_mesh)
-        log[f"{pref}pc"] = wandb.Object3D(depth_hand.points_list()[0].cpu().detach().numpy())
+        
+        depth_hand_fg = mesh_utils.depth_to_pc(depth_hand.to(self.device), cameras=cameras, mask=mask_hand.to(device),)
+        depth_obj_fg = mesh_utils.depth_to_pc(depth_obj.to(self.device), cameras=cameras, mask=mask_obj.to(device))
+        depth_hand_fg = depth_hand_fg.points_list()[0]
+        depth_obj_fg = depth_obj_fg.points_list()[0]
+        color_hand_fg = torch.zeros_like(depth_hand_fg); color_hand_fg[..., 1] = 1
+        color_obj_fg = torch.zeros_like(depth_obj_fg); color_obj_fg[..., 0] = 1
+        hoi_point = torch.cat([
+            torch.cat([depth_hand_fg, color_hand_fg], -1),
+            torch.cat([depth_obj_fg, color_obj_fg], -1),
+        ], -2)
+        log[f"{pref}pc"] = wandb.Object3D(hoi_point.cpu().detach().numpy())
 
         depth_hoi = mesh_utils.join_scene_w_labels([depth_hand_mesh, depth_obj_mesh], 3)
         image_list = mesh_utils.render_geom_rot(depth_hoi, 'circle', cameras=cameras, view_centric=True)
@@ -163,7 +175,8 @@ class GeomGlide(Glide):
             if 'depth' in k:
                 log[f"{pref}{k}_color"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
             log[f"{pref}{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
-        log = self.vis_depth_as_pc(out['hand_depth'], out['obj_depth'], f'{pref}gt', log, step)
+        log = self.vis_depth_as_pc(out['hand_depth'], out['obj_depth'], f'{pref}gt', log, step,
+                                   out['semantics'][:, 1], out['semantics'][:, 0])
         return log
     
 
@@ -305,7 +318,8 @@ class CondGeomGlide(GeomGlide):
             log[f"{pref}sample_{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
         out_cond = self.decode_samples(batch['cond_image'])
 
-        log = self.vis_depth_as_pc(out_cond['obj_depth'], out['obj_depth'], f'{pref}sample', log, step)
+        log = self.vis_depth_as_pc(out_cond['obj_depth'], out['obj_depth'], f'{pref}sample', log, step,
+                                   out_cond['semantics'], out['semantics'])
         return log
 
     @rank_zero_only
@@ -321,5 +335,6 @@ class CondGeomGlide(GeomGlide):
             if 'depth' in k:
                 log[f"{pref}{k}_color_cond"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
             log[f"{pref}{k}_cond"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
-        log = self.vis_depth_as_pc(out_cond['obj_depth'], out['obj_depth'], f'{pref}gt', log, step)        
+        log = self.vis_depth_as_pc(out_cond['obj_depth'], out['obj_depth'], f'{pref}gt', log, step,
+                                   out_cond['semantics'], out['semantics'])
         return log
