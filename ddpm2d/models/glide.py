@@ -153,8 +153,8 @@ class GeomGlide(Glide):
         depth_obj_fg = mesh_utils.depth_to_pc(depth_obj.to(self.device), cameras=cameras, mask=mask_obj.to(device))
         depth_hand_fg = depth_hand_fg.points_list()[0]
         depth_obj_fg = depth_obj_fg.points_list()[0]
-        color_hand_fg = torch.zeros_like(depth_hand_fg); color_hand_fg[..., 1] = 1
-        color_obj_fg = torch.zeros_like(depth_obj_fg); color_obj_fg[..., 0] = 1
+        color_hand_fg = torch.zeros_like(depth_hand_fg); color_hand_fg[..., 1] = 255
+        color_obj_fg = torch.zeros_like(depth_obj_fg); color_obj_fg[..., 0] = 255
         hoi_point = torch.cat([
             torch.cat([depth_hand_fg, color_hand_fg], -1),
             torch.cat([depth_obj_fg, color_obj_fg], -1),
