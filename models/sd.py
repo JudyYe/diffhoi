@@ -1,9 +1,15 @@
 # modified from https://github.com/ashawkey/stable-dreamfusion/blob/main/nerf/sd.py
+from tqdm import tqdm
+import pickle
+import numpy as np
+import os.path as osp
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
 from ddpm2d.utils.train_util import load_from_checkpoint
 from ddpm2d.models.glide_base import BaseModule
-from jutils import model_utils
+from jutils import model_utils, image_utils
 from glide_text2im.model_creation import create_gaussian_diffusion
 from glide_text2im.gaussian_diffusion import _extract_into_tensor
 from glide_text2im.respace import _WrappedModel
@@ -28,7 +34,7 @@ class SDLoss:
         self.ckpt_path = ckpt_path
         self.model: BaseModule = None
         self.in_channles = 0
-        self.alphas = None #  self.scheduler.alphas_cumprod.to(self.device) # for convenience
+        self.alphas_bar = None #  self.scheduler.alphas_cumprod.to(self.device) # for convenience
         self.cfg = cfg
         self.const_str = prompt
         self.reso = 64
@@ -43,6 +49,7 @@ class SDLoss:
         model_utils.freeze(self.model)
         self.unet = self.model.glide_model
         self.options = self.model.glide_options
+        print(self.options['noise_schedule'])
         self.diffusion = create_gaussian_diffusion(
             steps=self.options["diffusion_steps"],
             noise_schedule=self.options["noise_schedule"],
@@ -50,15 +57,30 @@ class SDLoss:
         )        
         self.min_step = int(self.min_step * self.num_step)
         self.max_step = int(self.max_step * self.num_step)
-        self.alphas = self.diffusion.alphas_cumprod
+        self.alphas_bar = self.diffusion.alphas_cumprod
         self.in_channles = self.model.template_size[0]
         if self.model.cfg.mode.cond:  # False or None.. 
             self.cond = True
         self.to(device)  # do this since loss is not a nn.Module?
-        
+    
+    def get_weight(self, t, shape, method):
+        if method == 'dream':
+            w = 1 - _extract_into_tensor(self.alphas_bar, t, shape) 
+        elif method == 'decay':
+            w = (1 - _extract_into_tensor(self.alphas_bar, t, shape))**1.5 \
+                / _extract_into_tensor(np.sqrt(self.alphas_bar), t, shape)
+            # w *= sqrt(1-alpha_bar) / sqrt(alpha_bar)
+        elif method == 'bell':
+            w = (1 - _extract_into_tensor(self.alphas_bar, t, shape)) ** 0.5 \
+                * _extract_into_tensor(np.sqrt(self.alphas_bar), t, shape)
+        elif method == 'idty':
+            w = 1. + torch.zeros(shape)
+        return w
+
     def apply_sd(self, image, weight=1,
             w_mask=1, w_normal=1, w_depth=1, w_spatial=False, 
-            t=None, noise=None, cond_image=None):
+            t=None, noise=None, cond_image=None, w_schdl='dream', 
+            debug=False):
         latents = image
         device = latents.device
         batch_size = len(latents)
@@ -66,25 +88,33 @@ class SDLoss:
         # timestep ~ U(0.02, 0.98) to avoid very high/low noise level
         if t is None:
             t = torch.randint(self.min_step, self.max_step + 1, [batch_size], dtype=torch.long, device=device)
+        if not torch.is_tensor(t):
+            t = torch.tensor([t] * batch_size, dtype=torch.long, device=device,)
+        if noise is None:
+            noise = torch.randn_like(image)
+
         # predict the noise residual with unet, NO grad!
         with torch.no_grad():
             # add noise
-            if noise is None:
-                noise = torch.randn_like(latents, device=device)
-            latents_noisy = self.diffusion.q_sample(latents, t, noise)
+            latents_noisy = self.get_noisy_image(latents, t, noise)
             # pred noise
             model_fn = self.get_cfg_model_fn(self.unet, guidance_scale)
             noise_pred = self.get_pred_noise(model_fn, latents_noisy, t, cond_image)
 
         # w(t), sigma_t^2
-        w = 1 - _extract_into_tensor(self.alphas, t, noise_pred.shape) 
-        # w = (1 - self.alphas[t])
-        # w = self.alphas[t] ** 0.5 * (1 - self.alphas[t])
+        w = self.get_weight(t, noise_pred.shape, w_schdl)
+        w = w.to(device)
+        # w = 1 - _extract_into_tensor(self.alphas_bar, t, noise_pred.shape) 
+        # TODO: 
+        # w *= sqrt(1-alpha_bar) / sqrt(alpha_bar)
+        
         grad = weight * w * (noise_pred - noise)
         grad = self.model.distribute_weight(grad, w_mask, w_normal, w_depth)  # interpolate your own image
         grad = torch.nan_to_num(grad)
         # latents.retain_grad()  # just for debug
         # manually backward, since we omitted an item in grad and cannot simply autodiff.
+        if debug:
+            return grad, {'noisy': latents_noisy, }
         latents.backward(gradient=grad, retain_graph=True)    
 
     def get_text_embeds(self, prompt, negative_prompt):
@@ -110,7 +140,8 @@ class SDLoss:
         """return I_t"""
         if noise is None:
             noise = torch.randn_like(image)
-        t = torch.tensor([t] * len(image), dtype=torch.long, device=image.device)
+        if not torch.is_tensor(t):
+            t = torch.tensor([t] * len(image), dtype=torch.long, device=image.device)
         noisy_image = self.diffusion.q_sample(image, t, noise)
         return noisy_image
 
@@ -126,7 +157,7 @@ class SDLoss:
         noise_pred = self.get_pred_noise(model_fn, noisy, t, cond_image)
         # noise_pred = noise
         start_pred = self.diffusion.eps_to_pred_xstart(noisy, noise_pred, t)
-        return start_pred
+        return start_pred, {'noise': noise_pred}
     
     def get_cfg_model_fn(self, glide_model, guidance_scale):
         """
@@ -285,6 +316,7 @@ class SDLoss:
         return out['sample']
 
     def get_model_kwargs(self, device, batch_size, cond_image):
+        uncond_image = self.model.cfg.get('uncond_image', False)
         tokens = self.unet.tokenizer.encode(self.const_str)
         # TODO change to constant string~~
         tokenizer = self.unet.tokenizer
@@ -301,7 +333,12 @@ class SDLoss:
             )
         )
         if cond_image is not None:
-            model_kwargs['cond_image'] = cond_image.repeat(2, 1, 1, 1)
+            if uncond_image:
+                model_kwargs['cond_image'] = torch.cat([
+                    torch.zeros_like(cond_image), cond_image,
+                ], 0)
+            else:
+                model_kwargs['cond_image'] = cond_image.repeat(2, 1, 1, 1)
         return model_kwargs
 
     def get_pred_noise(self, model_fn, latents_noisy, t, cond_image):
@@ -349,5 +386,135 @@ def test_sd():
     print(image.grad.shape)  # 1.46G, 0.547s
 
 
+def vis_alpha():
+    from tqdm import tqdm
+    device = 'cpu'
+    num = 100
+    vis_dir = '/home/yufeiy2/scratch/result/vis/'
+    sd = SDLoss('/home/yufeiy2/scratch/result/vhoi/hand_ddpm_geom/train_seg_CondGeomGlide/checkpoints/last.ckpt')
+    sd.init_model(device)
+
+    ms = ['dream', 'decay']
+    for method in ms:
+        ts = list(range(sd.min_step, sd.max_step))
+        ws = []
+        for t in tqdm(ts):
+            w = sd.get_weight(torch.LongTensor([t]), [1, ], method)
+            print(w.shape)
+            ws.append(w[0].cpu().detach().numpy())
+        ws = np.array(ws)
+        xs = np.array(ts)/sd.num_step
+        plt.plot(xs, ws)
+    plt.plot(xs, sd.alphas_bar[ts])
+    plt.plot(xs, 1-sd.alphas_bar[ts])
+    plt.plot(xs, np.sqrt((1-sd.alphas_bar[ts]) * sd.alphas_bar[ts]))
+    plt.legend(ms+['alpha_bar', '1 - alpha_bar', 'alpha*(1-alpha)'])
+    plt.savefig(osp.join(vis_dir, 'schedule.png'))
+
+    return 
+
+
+def get_wgrad(sd: SDLoss, ts, image, method):
+    ws = []
+    for t in ts:
+        print(t)
+        # w = sd.get_weight(torch.LongTensor([t]), [1, ], method)
+        grad, extra = sd.apply_sd(**image, t=t, w_schdl=method, debug=True)
+        grad_norm = grad.reshape(len(image['image']), -1).norm(2, dim=-1).mean()
+        print(grad_norm)
+        ws.append(grad_norm.detach().cpu().numpy())
+
+        # noisy = sd.get_noisy_image(image['image'], t)
+        # noisy = extra['noisy']
+        # start_pred, _ = sd.vis_single_step(noisy, t, cond_image = image['cond_image'])
+    #     # out = sd.model.decode_samples(start_pred)
+    #     for k, v in out.items():
+    #         image_utils.save_images(v[0:4], osp.join(save_dir, f'{k}_{t}'))
+    # out = sd.model.decode_samples(image['image'])
+    # for k, v in out.items():
+    #     image_utils.save_images(v[0:4], osp.join(save_dir, f'{k}_inp'))
+    # out = sd.model.decode_samples(image['cond_image'])
+    # for k, v in out.items():
+    #     image_utils.save_images(v[0:4], osp.join(save_dir, f'{k}_cond'))
+    return ws
+
+
+def read_input(inp_file, mode, scale=False):
+    obj = pickle.load(open(inp_file, 'rb'))
+    print(obj['image'].shape, obj['cond_image'].shape)
+
+    def get_inp(image):
+        if mode == 'mask':
+            img = image[:, 0:1]
+            if scale:
+                img *= 0.5
+        elif mode == 'normal':
+            img = image[:, 1:4]
+        elif mode == 'depth':
+            img = image[:, 4:5]
+            if scale:
+                img[img==1] = 0
+        elif mode == 'all':
+            img = image
+            if scale:
+                img[:, 0:1] *= 0.5
+                depth = img[:, 4:5]
+                depth[depth==1] = 0
+                img[:, 4:5] = depth
+        return img
+    out = {}
+    out['image'] = get_inp(obj['image'])
+    out['cond_image'] = get_inp(obj['cond_image'])
+    return out
+
+
+def vis_wgrad():
+    import sys
+    device = 'cuda:0'
+    torch.manual_seed(123)
+    N = 40
+    ckpt = sys.argv[1] # 'ddpm_novel_sunday/hoi4d_CondGeomGlide_1'
+    vis_dir = '/home/yufeiy2/scratch/result/vis/'
+    sd = SDLoss(f'/home/yufeiy2/scratch/result/vhoi/{ckpt}/checkpoints/last.ckpt')
+    sd.init_model(device)
+    ms = ['idty', 'dream', 'decay', 'bell']
+    # ms = ['idty']
+    image = read_input('/home/yufeiy2/scratch/result/vis_ddpm/input/handuv.pkl', 'all')
+    image = model_utils.to_cuda(image, device)
+    ts = list(range(sd.min_step, sd.max_step, ))
+    # ts = [1, 2, 95, 98,]
+    xs = np.array(ts)/sd.num_step
+
+    plt.subplot(1, 2, 2)
+    # plt.close()
+    for method in ms:
+        ws_list = []
+        for t in ts:
+            w = sd.get_weight(torch.tensor([t]).long(), [1, ], method)
+            ws_list.append(w[0].detach().cpu().numpy())
+        ws = np.array(ws_list)
+        plt.plot(xs, ws)
+
+    plt.subplot(1, 2, 1)
+    for k,v in image.items():
+        image[k] = v.repeat(N, 1, 1, 1)
+    for method in ms:
+        ws = get_wgrad(sd, ts, image, method)
+        ws = np.array(ws)
+        plt.plot(xs, ws)
+
+    plt.legend(ms)
+    # plt.savefig(osp.join(vis_dir, 'wgrad.png'))
+
+    plt.legend(ms)
+    save_index = ckpt.replace('/', '_')
+    plt.savefig(osp.join(vis_dir, f'wgrad_alpa_{save_index}.png'))
+    return
+
+
 if __name__ == '__main__':
-    test_sd()
+    # test_sd()
+    # vis_alpha()
+    save_dir = '/home/yufeiy2/scratch/result/vis/'
+
+    vis_wgrad()
