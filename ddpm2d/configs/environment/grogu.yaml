@@ -33,7 +33,7 @@ gpu_mem_gb: '20G'
 slurm_partition: abhinavlong,shubhamlong,all
 slurm_timeout: 2880
 nodelist: ""
-exclude_nodes: ""
+exclude_nodes: "grogu-1-9+grogu-1-24"
 seed: 
 gpu:
 ngpu: 1

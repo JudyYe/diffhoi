@@ -2,7 +2,7 @@ defaults:
   - environment: grogu_judy
   - logging: wandb
   - hydra: default
-  - data: 100doh
+  - data: hoi4d
   - camera: delta
   - oTh: learn
   - training: default

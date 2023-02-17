@@ -1,0 +1,7 @@
+name: cond_geom
+
+mask: 1
+normal: 1
+depth: 1
+uv: False
+cond: 1

@@ -30,5 +30,5 @@ gpu_mem_gb: '20G'
 slurm: False
 slurm_timeout: 30 # 2880  # in min 1440 is one day
 nodelist: ""
-exclude_nodes: ""
+exclude_nodes: "grogu-1-9+grogu-1-24"
 

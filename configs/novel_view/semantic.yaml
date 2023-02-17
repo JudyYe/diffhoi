@@ -18,4 +18,4 @@ loss:
   w_mask: 1. 
   w_normal: 0.
   w_depth: 0. 
-
+  w_schdl: dream

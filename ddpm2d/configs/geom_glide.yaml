@@ -4,17 +4,19 @@ defaults:
   - data@trainsets: hoi4d # ho3d_crop_cam
   - data@testsets: hoi4d # ho3d_crop_cam
   - model: glide
-
+  - mode: geom
 ndim: 
 ndim_cond: 0
 zfar: 1
+bin: 1
 
-mode:
-  mask: 1
-  normal: 1
-  depth: 1
-  uv: False
-  cond: 1
+uncond_image: false
+# mode:
+#   mask: 1
+#   normal: 1
+#   depth: 1
+#   uv: False
+#   cond: 1
 
 worker: ddpm2d.models.glide_base
 train_prob: 
@@ -31,6 +33,8 @@ test_name: default_test
 
 ho3d:
   split: train_seg
+hoi4d:
+  split: 
 
 test_batch_size: 8
 
@@ -73,3 +77,5 @@ seed: 123
 upsample_factor: 4
 
 cudnn_benchmark: True
+
+beta_schdl: 'squaredcos_cap_v2'

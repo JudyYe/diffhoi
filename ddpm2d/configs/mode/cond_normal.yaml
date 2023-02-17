@@ -1,0 +1,7 @@
+name: cond_normal
+
+mask: 0
+normal: 1
+depth: 0
+uv: true
+cond: 1

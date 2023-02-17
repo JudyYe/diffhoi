@@ -30,7 +30,7 @@ occ_mask: label  # union | indp | label?
 label_prob: 1
 
 
-num_iters: 2000 # 50000
+num_iters: 50000 # 50000
 
 # lr decay
 scheduler:
@@ -50,3 +50,5 @@ i_val: 199 # 1000
 i_val_mesh: 199 # 1000
 
 print_freq: 11
+
+warmup: 0
