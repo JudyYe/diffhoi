@@ -426,6 +426,7 @@ def render(renderer, jHand, jObj, jTc, intrinsics, H, W, zfar=-1):
             intrinsics, 
             jMeshes, 
             H, W, zfar,
+            uv_mode=False,
             )
         image = iMesh['image']
         mask = iMesh['mask']

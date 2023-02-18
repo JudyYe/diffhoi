@@ -36,6 +36,7 @@ class SDLoss:
         self.in_channles = 0
         self.alphas_bar = None #  self.scheduler.alphas_cumprod.to(self.device) # for convenience
         self.cfg = cfg
+        # TODO: change constant prompt
         self.const_str = prompt
         self.reso = 64
         self.cond = False

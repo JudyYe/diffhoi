@@ -20,4 +20,4 @@ loss:
   w_mask: 1. 
   w_normal: 1. 
   w_depth: 1. 
-  w_schdl: dream
+  w_schdl: bell

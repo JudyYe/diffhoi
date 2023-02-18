@@ -1,8 +1,48 @@
+CUDA_VISIBLE_DEVICES=4  PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
+  expname=single_mode/\${mode.name}_\${beta_schdl}_cat\${cat_level}_cfg\${uncond_image} \
+  model.model=CondGeomGlide mode=cond_all beta_schdl=linear  cat_level=True \
+  environment.slurm=False logging=none
+
+
+
+CUDA_VISIBLE_DEVICES=4  PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
+  expname=single_mode/\${mode.name}_\${beta_schdl}_\${zfar}_\${bin}_cfg\${uncond_image} \
+  model.model=CondGeomGlide mode=cond_all beta_schdl=linear zfar=0 bin=0.5 uncond_image=True \
+  environment.slurm=False logging=none
+
+
+CUDA_VISIBLE_DEVICES=4  PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
+  expname=single_mode/\${mode.name}_\${beta_schdl}_\${zfar}_\${bin} \
+  model.model=CondGeomGlide mode=cond_all beta_schdl=linear zfar=0 bin=0.5 \
+  environment.slurm=False logging=none
+
+
+CUDA_VISIBLE_DEVICES=4  PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
+  expname=single_mode/\${mode.name}_\${beta_schdl} \
+  model.model=CondGeomGlide mode=cond_mask beta_schdl=linear,sqrt \
+  environment.slurm=False logging=none
+
+
+CUDA_VISIBLE_DEVICES=4  PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
+  expname=single_mode/\${mode.name}_\${beta_schdl} \
+  model.model=CondGeomGlide mode=cond_normal beta_schdl=linear,sqrt \
+  environment.slurm=False logging=none
+
+-
+CUDA_VISIBLE_DEVICES=4   PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
+  expname=ddpm_novel_sunday/hoi4d_\${model.model}_\${mode.uv}_cfg\${uncond_image} \
+  model.model=CondGeomGlide mode.cond=1 mode.uv=1 uncond_image=True \
+  environment.slurm=False logging=none
+
+
+
 
 CUDA_VISIBLE_DEVICES=7   PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
-  expname=dev/tmp \
+  expname=ddpm_novel_sunday/hoi4dC2_\${model.model}_\${mode.uv} \
   model.model=CondGeomGlide mode.cond=1 mode.uv=1 \
-  environment.slurm=False 
+  hoi4d.split=C2 \
+  environment.slurm=False logging=none
+
 
 
 

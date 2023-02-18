@@ -6,31 +6,57 @@ from ..utils.train_util import pil_image_to_norm_tensor
 
 import torch
 
-def get_hand_image(image_file, ind, meta):
-    mask = sem_mask(image_file, ind, meta)
-    normal = surface_normal(image_file, ind, meta)
-    depth = read_depth(image_file, ind, meta)
+def get_caption(image_file, ind, meta):
+    return 
 
-    image = torch.cat([mask[0:1], normal[0:3], depth[0:1]], 0)
-    if meta['cfg'].mode.uv:
+def get_hand_image(image_file, ind, meta):
+    image_list = []
+    cfg = meta['cfg'].mode
+    if cfg.mask:
+        mask = sem_mask(image_file, ind, meta)
+        image_list.append(mask[0:1])
+    if cfg.normal:
+        normal = surface_normal(image_file, ind, meta)
+        image_list.append(normal[0:3])
+    if cfg.depth:
+        depth = read_depth(image_file, ind, meta)
+        image_list.append(depth[0:1])
+    if cfg.uv:
         uv = read_uv(image_file, ind, meta)
-        image = torch.cat([image, uv], 0)
+        image_list.append(uv)
+    image = torch.cat(image_list, 0)
     return image
 
 
 def get_obj_image(image_file, ind, meta):
-    mask = sem_mask(image_file, ind, meta)
-    normal = surface_normal(image_file, ind, meta)
-    depth = read_depth(image_file, ind, meta)
-    image = torch.cat([mask[1:2], normal[3:6], depth[1:2]], 0)
+    image_list = []
+    cfg = meta['cfg'].mode
+    if cfg.mask:
+        mask = sem_mask(image_file, ind, meta)
+        image_list.append(mask[1:2])
+    if cfg.normal:
+        normal = surface_normal(image_file, ind, meta)
+        image_list.append(normal[3:6])
+    if cfg.depth:
+        depth = read_depth(image_file, ind, meta)
+        image_list.append(depth[1:2])
+    image = torch.cat(image_list, 0)
     return image
 
 
 def get_image(image_file, ind, meta):
-    mask = sem_mask(image_file, ind, meta)
-    normal = surface_normal(image_file, ind, meta)
-    depth = read_depth(image_file, ind, meta)
-    image = torch.cat([mask, normal, depth], 0)
+    image_list = []
+    cfg = meta['cfg'].mode
+    if cfg.mask:
+        mask = sem_mask(image_file, ind, meta)
+        image_list.append(mask)
+    if cfg.normal:
+        normal = surface_normal(image_file, ind, meta)
+        image_list.append(normal)
+    if cfg.depth:
+        depth = read_depth(image_file, ind, meta)
+        image_list.append(depth)
+    image = torch.cat(image_list, 0)
     return image
 
 
@@ -45,7 +71,9 @@ def sem_mask(image_file, ind, meta):
     out[..., 1] = (image[..., 1] > 50) * 255
     
     out = out.astype(np.uint8)
-    return pil_image_to_norm_tensor(Image.fromarray(out))
+    out = pil_image_to_norm_tensor(Image.fromarray(out))
+    out *= meta['cfg'].bin
+    return out
 
 
 def read_depth(image_file, ind, meta):
@@ -149,7 +177,7 @@ def parse_data(data_dir, split, data_cfg, args):
             meta['hand_normal_list'].append(img_file.format('hand_normal')[:-3] + 'npz')
             meta['obj_normal_list'].append(img_file.format('obj_normal')[:-3] + 'npz')
             meta['hand_uv_list'].append(img_file.format('hand_uv')[:-3] + 'npz')
-        
+
     text_list = ['a semantic segmentation of a hand grasping an object'] * len(image_list)
     print(args.mode.cond)
     if args.mode.cond == 0:

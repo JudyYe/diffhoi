@@ -121,6 +121,7 @@ class BaseModule(pl.LightningModule):
             prediction_respacing=cfg.sample_respacing,
             image_to_upsample=None,
             val_batch=batch,
+            uncond_image=cfg.get('uncond_image', False),
             **kwargs,
         )
         return samples, sample_list
@@ -144,6 +145,7 @@ class BaseModule(pl.LightningModule):
                 prediction_respacing=cfg.sample_respacing,
                 image_to_upsample=None,
                 val_batch=batch,
+                uncond_image=cfg.get('uncond_image', False),
             )
             self.vis_samples(batch, samples, sample_list, pref + '%d_' % n, log, step)
         return file_list

@@ -75,6 +75,10 @@ class Logger(object):
                 os.makedirs(os.path.join(log_dir, 'wandb'), exist_ok=True)
                 # try 10 times to connect wandb
                 cnt = 0; succeed = False
+                runid = None
+                if os.path.exists(f"{log_dir}/runid.txt"):
+                    runid = open(f"{log_dir}/runid.txt").read()
+
                 while cnt <= 10 and not succeed:
                     try:
                         cfg =self.cfg.environment.wandb
@@ -85,9 +89,11 @@ class Logger(object):
                             dir=log_dir,
                             entity=cfg.user,
                             resume="allow",
+                            id=runid,
                             # id='_'.join(log_dir.split('/')[-2:]),
                         )
                         succeed = True
+                        open(f"{log_dir}/runid.txt", 'w').write(wandb.run.id)
                     except UsageError:
                         sec = np.random.randint(0, 10)
                         logging.warn('Try to connect to wandb [%d/10], %d' % (cnt, sec))

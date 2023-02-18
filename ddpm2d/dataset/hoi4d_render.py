@@ -15,7 +15,10 @@ def parse_data(data_dir, split, data_cfg, args):
         'img_func': 
         'meta': {}
     """
-    img_list = glob(f'{data_dir}/amodal_mask/*.png')
+    if args.hoi4d.split is None:
+        img_list = glob(f'{data_dir}/amodal_mask/*.png')
+    else:
+        img_list = glob(f'{data_dir}/amodal_mask/*{args.hoi4d.split}*.png')
     index_list = [osp.basename(e)[:-4] for e in img_list]
 
     image_list = []
@@ -36,7 +39,19 @@ def parse_data(data_dir, split, data_cfg, args):
         meta['obj_normal_list'].append(img_file.format('obj_normal')[:-3] + 'npz')
         meta['hand_uv_list'].append(img_file.format('hand_uv')[:-3] + 'npz')
         
-    text_list = ['a semantic segmentation of a hand grasping an object'] * len(image_list)
+    if args.cat_level:
+        mapping = [
+            '', 'ToyCar', 'Mug', 'Laptop', 'StorageFurniture', 'Bottle',
+            'Safe', 'Bowl', 'Bucket', 'Scissors', '', 'Pliers', 'Kettle',
+            'Knife', 'TrashCan', '', '', 'Lamp', 'Stapler', '', 'Chair'
+        ]
+        text_list = []
+        for i in range(len(image_list)):
+            index = osp.basename(image_list[i])
+            c = mapping[int(index.split('_')[2][1:])].lower()
+            text_list.append(f'an image of a hand grasping a {c}')
+    else:
+        text_list = ['a semantic segmentation of a hand grasping an object'] * len(image_list)
     print(args.mode.cond)
     # print(args.mode.out)
     if args.mode.cond == 0:
@@ -62,32 +77,45 @@ def parse_data(data_dir, split, data_cfg, args):
 
 if __name__ == '__main__':
     from attrdict import AttrDict
+    import pickle
     import torch
-    out = parse_data('/home/yufeiy2/scratch//data/HOI4D/amodal/', 
-        '', {}, AttrDict({'zfar': 1, 'mode': {'cond': False}}))
+    out = parse_data('/home/yufeiy2/scratch/result/HOI4D/vis/', '', 
+        {}, AttrDict({'zfar': 1, 'mode': {'cond': True, 'uv': True}, 'hoi4d': {'split': 'ZY20210800001_H1_C2_N31_S92_s'}}))
+    # out = parse_data('/home/yufeiy2/scratch//data/HOI4D/amodal/', 
+    #     '', {}, AttrDict({'zfar': 1, 'mode': {'cond': True, 'uv': True}}))
     save_dir = '/home/yufeiy2/scratch/result/vis'
-    from ddpm2d.models.glide import GeomGlide
+    from ddpm2d.models.glide import GeomGlide, CondGeomGlide
     from jutils import image_utils
-    geom_glide = GeomGlide(AttrDict({'exp_dir': save_dir, 'ndim': 11, 'side_x': 56, 'side_y': 56, 
+    # geom_glide = GeomGlide(AttrDict({'exp_dir': save_dir, 'ndim': 11, 'side_x': 56, 'side_y': 56, 
+    #                                  'mode': {'cond': False, 'mask': True, 'normal': True, 'depth': True}}))
+
+    geom_glide = CondGeomGlide(AttrDict({'exp_dir': save_dir, 'ndim': 11, 'side_x': 56, 'side_y': 56, 
                                      'mode': {'cond': False, 'mask': True, 'normal': True, 'depth': True}}))
+
+
     mean_list, var_list = [], []
     for i in range(10):
-        img = get_image(out['image'][i], i, out['meta'])
-        mean_list.append(img.reshape(11, -1).mean(-1),)
-        var_list.append( img.reshape(11, -1).std(-1))
-        img = img[None]
+        img = get_obj_image(out['image'][i], i, out['meta'])
+        cond = get_hand_image(out['image'][i], i, out['meta'])
+        print(img.shape, cond.shape)
+        with open('/home/yufeiy2/scratch/result/vis_ddpm/input/handuv.pkl', 'wb') as fp:
+            pickle.dump({'image': img[None], 'cond_image': cond[None]}, fp)
 
-        rtn = geom_glide.decode_samples(img)
+    #     mean_list.append(img.reshape(11, -1).mean(-1),)
+    #     var_list.append( img.reshape(11, -1).std(-1))
+    #     img = img[None]
 
-        for k, v in rtn.items():
-            if 'normal' in k:
-                v = v /2 + 0.5
-            if 'depth' in k:
-                print(k, v.max(), v.min(), )
-                image_utils.save_depth(v.clip(-1, 10), osp.join(save_dir, f'{i}_{k}'), znear=-1, zfar=1)
-                image_utils.save_images(v.clip(-1, 10), osp.join(save_dir, f'{i}_{k}2'), )
-            else:
-                image_utils.save_images(v.clip(-1, 1), osp.join(save_dir, f'{i}_{k}'))
+    #     rtn = geom_glide.decode_samples(img)
 
-    print('mean', torch.stack(mean_list).mean(0))
-    print('std' , torch.stack(var_list).mean(0))
+    #     for k, v in rtn.items():
+    #         if 'normal' in k:
+    #             v = v /2 + 0.5
+    #         if 'depth' in k:
+    #             print(k, v.max(), v.min(), )
+    #             image_utils.save_depth(v.clip(-1, 10), osp.join(save_dir, f'{i}_{k}'), znear=-1, zfar=1)
+    #             image_utils.save_images(v.clip(-1, 10), osp.join(save_dir, f'{i}_{k}2'), )
+    #         else:
+    #             image_utils.save_images(v.clip(-1, 1), osp.join(save_dir, f'{i}_{k}'))
+
+    # print('mean', torch.stack(mean_list).mean(0))
+    # print('std' , torch.stack(var_list).mean(0))

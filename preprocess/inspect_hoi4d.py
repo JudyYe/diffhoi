@@ -18,6 +18,8 @@ from pytorch3d.renderer.cameras import PerspectiveCameras
 from jutils import image_utils, geom_utils, mesh_utils, hand_utils
 
 from . import amodal_utils as rend_utils
+from ddpm2d.dataset.ho3d_render import *
+
 
 W = H = 224
 device = 'cuda:0'
@@ -329,13 +331,21 @@ def vis_hand(hand_wrapper, crop, hoi_box, vid, fnum, H=512):
     # K_crop_intr = mesh_utils.intr_from_screen_to_ndc(cam_intr, H, H)
     return hA, beta, cTw, cam_intr
 
+def render_one():
+    hand_wrapper = hand_utils.ManopthWrapper().to(device)
+    row = {'vid_index': args.vid, 'frame_number': args.frame}
+    save_pref = osp.join(vis_dir, '{}', 
+                        row['vid_index'].replace('/', '_') + \
+                            '_%04d' % row['frame_number'])
+    render_amodal(row['vid_index'], row['frame_number'], save_pref, hand_wrapper, gt_camera=True, H=64)
+    
+    
 
 def render_batch():
     """train instance render 
     384k frame, 2k videos. ~10
     rigid only 72k frame
     """
-    save_dir = '/home/yufeiy2/scratch/data/HOI4D/amodal'
     hand_wrapper = hand_utils.ManopthWrapper().to(device)
     # use??
     df = pandas.read_csv(osp.join(data_dir, 'Sets/all_contact_train.csv'))
@@ -369,32 +379,33 @@ def render_batch():
         os.system(f'rm -r {lock}')
 
 def debug():
-    save_dir = '/home/yufeiy2/scratch/data/HOI4D/amodal'
     fnum = 64
     vid = 'ZY20210800001/H1/C13/N48/S238/s03/T4'
 
-    fnum = 192
-    vid = 'ZY20210800004/H4/C1/N25/S239/s02/T1/'
+    # fnum = 192
+    # vid = 'ZY20210800004/H4/C1/N25/S239/s02/T1/'
     hand_wrapper = hand_utils.ManopthWrapper().to(device)
 
-    hand_wrapper = hand_utils.ManopthWrapper().to(device)
     for i in range(1):
         save_pref = osp.join(save_dir, '{}', 
                                 vid.replace('/', '_') + \
                                     '_%04d_%d' % (fnum, i))
         
-        hHand, hObj, cTh, cam_intr_crop = render_amodal(vid, fnum, save_pref, hand_wrapper, gt_camera=True, render=False)
+        hHand, hObj, cTh, cam_intr_crop = render_amodal(vid, fnum, save_pref, hand_wrapper, gt_camera=False, render=False)
+        if hHand is None:
+            continue
         dist = mesh_utils.pairwise_dist_sq(hHand, hObj)
         dist = dist.min()
         image_list = mesh_utils.render_geom_rot(mesh_utils.join_scene([hHand, hObj]), scale_geom=True)
         image_utils.save_gif(image_list, save_pref.format('debug'))
-        image_list = mesh_utils.render_geom_rot(mesh_utils.join_scene([hHand,]), scale_geom=True)
-        image_utils.save_gif(image_list, save_pref.format('debug') + '_hand')
-        image_list = mesh_utils.render_geom_rot(mesh_utils.join_scene([hObj,]), scale_geom=True)
-        image_utils.save_gif(image_list, save_pref.format('debug') + '_obj')
+        # image_list = mesh_utils.render_geom_rot(mesh_utils.join_scene([hHand,]), scale_geom=True)
+        # image_utils.save_gif(image_list, save_pref.format('debug') + '_hand')
+        # image_list = mesh_utils.render_geom_rot(mesh_utils.join_scene([hObj,]), scale_geom=True)
+        # image_utils.save_gif(image_list, save_pref.format('debug') + '_obj')
 
         print(dist, hHand.verts_padded())
         print(cTh)
+
 
 def render_amodal(vid_index, frame_index, save_index, hand_wrapper, gt_camera,H=224 ,render=True, th=0.1):
     masks, bbox = read_masks(vid_index, frame_index)
@@ -410,10 +421,13 @@ def render_amodal(vid_index, frame_index, save_index, hand_wrapper, gt_camera,H=
     dist = dist.min()
     if dist > th ** 2:
         print('too far away', dist, vid_index, frame_index)
-        return
+        return None ,None, None, None
 
     if not gt_camera:
-        cTh = mesh_utils.sample_camera_extr_like(cTw=cTh, t_std=0.1)
+        if args.sample == 'so3':
+            cTh = mesh_utils.sample_camera_extr_like(cTw=cTh, t_std=0.1)
+        elif args.sample == 'so2':
+            cTh = mesh_utils.sample_lookat_like(cTw=cTh, t_std=0.1)
         cam_intr_crop[:, 0, 2] = H / 2
         cam_intr_crop[:, 1, 2] = H / 2
 
@@ -421,15 +435,25 @@ def render_amodal(vid_index, frame_index, save_index, hand_wrapper, gt_camera,H=
         return hHand, hObj, cTh, cam_intr_crop
     iHand, iObj = rend_utils.render_amodal_from_camera(hHand, hObj, cTh, cam_intr_crop, H, H)
     rend_utils.save_amodal_to(iHand, iObj, save_index, cTh, hA)
+    
+    # image_list = mesh_utils.render_geom_rot(
+    #     mesh_utils.join_scene([ hHand, hObj]), scale_geom=True
+    # ) 
+    # image_utils.save_gif(image_list, save_index.format('debug'))
 
+    # image_utils.save_images(iHand['normal'] * 0.5+0.5, save_index.format('hand_normal_vis'))
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--skip", action='store_true')
     parser.add_argument("--clip", action='store_true')
     parser.add_argument("--render", action='store_true')
+    parser.add_argument("--render_one", action='store_true')
     parser.add_argument("--debug", action='store_true')
     parser.add_argument("--num", default=-1, type=int)
+    parser.add_argument("--sample", default='so2', type=str)
+    parser.add_argument("--frame", default=29, type=int)
+    parser.add_argument("--vid", default='ZY20210800001/H1/C2/N31/S92/s05/T2', type=str)
     args, unknown = parser.parse_known_args()
 
     return args
@@ -443,6 +467,9 @@ if __name__ == '__main__':
     # for cc in clips:
     #     # vis_obj()
     #     get_one_clip(index, cc[0], cc[1])
+    # save_dir = '/home/yufeiy2/scratch/data/HOI4D/amodal'
+
+    save_dir = '/home/yufeiy2/scratch/data/HOI4D/handup'
 
     if args.clip:
         batch_clip(args.num)
@@ -450,3 +477,5 @@ if __name__ == '__main__':
         render_batch()
     if args.debug:
         debug()
+    if args.render_one:
+        render_one()

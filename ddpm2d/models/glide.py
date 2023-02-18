@@ -13,6 +13,7 @@ from .glide_base import BaseModule
 from ..utils import glide_util
 from jutils import image_utils, model_utils, mesh_utils, geom_utils, plot_utils
 
+
 class Glide(BaseModule):
     def __init__(self, cfg, *args, **kwargs) -> None:
         super().__init__(cfg, *args, **kwargs)
@@ -26,6 +27,7 @@ class Glide(BaseModule):
     def init_model(self,):
         cfg =self.cfg.model
         model_type='base-inpaint' if self.cfg.ndim_cond > 0 else 'base'
+        print(model_type)
         glide_model, glide_diffusion, glide_options = glide_util.load_model(
             glide_path=cfg.resume_ckpt,
             use_fp16=self.cfg.use_fp16,
@@ -35,7 +37,8 @@ class Glide(BaseModule):
             activation_checkpointing=cfg.activation_checkpointing,
             model_type=model_type,
             in_channels=self.cfg.ndim,
-            cond_channels=self.cfg.ndim_cond
+            cond_channels=self.cfg.ndim_cond,
+            beta_schdl=self.cfg.get('beta_schdl', 'squaredcos_cap_v2')
         )
         self.glide_model = glide_model
         self.diffusion = glide_diffusion
@@ -109,9 +112,17 @@ class GeomGlide(Glide):
         return out
     
     def distribute_weight(self, grad, w_mask, w_normal, w_depth, *args, **kwargs):
-        grad[:, 0:3] *= w_mask
-        grad[:, 3:3+3*2] *= w_normal
-        grad[:, 3+3*2:3+3*2+1*2] *= w_depth
+        cur = 0
+        mode = self.cfg.mode
+        if mode.mask:
+            grad[:, cur:cur+3] *= w_mask
+            cur += 3
+        if mode.normal:
+            grad[:, cur:cur+6] *= w_normal
+            cur += 6
+        if mode.depth:
+            grad[:, cur:cur+2] *= w_depth
+            cur += 2
         return grad
 
     @rank_zero_only
@@ -131,6 +142,9 @@ class GeomGlide(Glide):
         device= self.device
         if step is None:
             step = self.global_step
+        if mask_hand is not None:
+            mask_hand = mask_hand.to(device)
+            mask_obj = mask_obj.to(device)
         # move z to around 2focal 
         dist = 2*f
         depth_hand = depth_hand +  dist
@@ -149,8 +163,8 @@ class GeomGlide(Glide):
             osp.join(self.log_dir, f'meshes/{step:08d}_{pref}_obj'), 
             depth_obj_mesh)
         
-        depth_hand_fg = mesh_utils.depth_to_pc(depth_hand.to(self.device), cameras=cameras, mask=mask_hand.to(device),)
-        depth_obj_fg = mesh_utils.depth_to_pc(depth_obj.to(self.device), cameras=cameras, mask=mask_obj.to(device))
+        depth_hand_fg = mesh_utils.depth_to_pc(depth_hand.to(self.device), cameras=cameras, mask=mask_hand)
+        depth_obj_fg = mesh_utils.depth_to_pc(depth_obj.to(self.device), cameras=cameras, mask=mask_obj)
         depth_hand_fg = depth_hand_fg.points_list()[0]
         depth_obj_fg = depth_obj_fg.points_list()[0]
         color_hand_fg = torch.zeros_like(depth_hand_fg); color_hand_fg[..., 1] = 255
@@ -225,9 +239,17 @@ class ObjGeomGlide(Glide):
         return out
     
     def distribute_weight(self, grad, w_mask, w_normal, w_depth, *args, **kwargs):
-        grad[:, 0:1] *= w_mask
-        grad[:, 1:1+3] *= w_normal
-        grad[:, 1+3:1+3+1] *= w_depth
+        cur = 0
+        mode = self.cfg.mode
+        if mode.mask:
+            grad[:, cur:cur+1] *= w_mask
+            cur += 1
+        if mode.normal:
+            grad[:, cur:cur+3] *= w_normal
+            cur += 3
+        if mode.depth:
+            grad[:, cur:cur+1] *= w_depth
+            cur += 1
         return grad
 
     @rank_zero_only
@@ -296,6 +318,7 @@ class CondGeomGlide(GeomGlide):
             cur += 1
         if mode.uv:
             # only do hand
+            
             if cur < tensor.shape[1]:
                 out['obj_uv'] = torch.cat(
                     [tensor[:, cur:cur+2], torch.zeros_like(tensor[:, cur:cur+1])], 
@@ -304,9 +327,17 @@ class CondGeomGlide(GeomGlide):
         return out
     
     def distribute_weight(self, grad, w_mask, w_normal, w_depth, *args, **kwargs):
-        grad[:, 0:1] *= w_mask
-        grad[:, 1:1+3] *= w_normal
-        grad[:, 1+3:1+3+1] *= w_depth
+        cur = 0
+        mode = self.cfg.mode
+        if mode.mask:
+            grad[:, cur:cur+1] *= w_mask
+            cur += 1
+        if mode.normal:
+            grad[:, cur:cur+3] *= w_normal
+            cur += 3
+        if mode.depth:
+            grad[:, cur:cur+1] *= w_depth
+            cur += 1
         return grad
 
     @rank_zero_only
@@ -316,10 +347,14 @@ class CondGeomGlide(GeomGlide):
             if 'depth' in k:
                 log[f"{pref}{k}_color"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
             log[f"{pref}sample_{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
-        out_cond = self.decode_samples(batch['cond_image'])
-
-        log = self.vis_depth_as_pc(out_cond['obj_depth'], out['obj_depth'], f'{pref}sample', log, step,
-                                   out_cond['semantics'], out['semantics'])
+        out_cond = self.decode_samples(batch['cond_image'].to(self.device))
+        if 'semantics' in out:
+            hoi_mask = torch.cat(
+                [out['semantics'], out_cond['semantics'], torch.zeros_like(out['semantics'])], 1)
+            log[f'{pref}sample_hoi'] = hoi_mask
+        if 'obj_depth' in out_cond:
+            log = self.vis_depth_as_pc(out_cond['obj_depth'], out['obj_depth'], f'{pref}sample', log, step,
+                                       out_cond['semantics'], out['semantics'])
         return log
 
     @rank_zero_only
@@ -329,12 +364,12 @@ class CondGeomGlide(GeomGlide):
             if 'depth' in k:
                 log[f"{pref}{k}_color"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
             log[f"{pref}{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
-        
         out_cond = self.decode_samples(batch['cond_image'])
         for k, v in out_cond.items():
             if 'depth' in k:
                 log[f"{pref}{k}_color_cond"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
             log[f"{pref}{k}_cond"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
-        log = self.vis_depth_as_pc(out_cond['obj_depth'], out['obj_depth'], f'{pref}gt', log, step,
+        if 'obj_depth' in out_cond:
+            log = self.vis_depth_as_pc(out_cond['obj_depth'], out['obj_depth'], f'{pref}gt', log, step,
                                    out_cond['semantics'], out['semantics'])
         return log

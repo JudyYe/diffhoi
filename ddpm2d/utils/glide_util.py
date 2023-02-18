@@ -9,11 +9,13 @@ import numpy as np
 import torch as th
 from glide_text2im.download import load_checkpoint
 from glide_text2im.model_creation import (
-    create_gaussian_diffusion,
+    # create_gaussian_diffusion,
     # create_model_and_diffusion,
     model_and_diffusion_defaults,
     model_and_diffusion_defaults_upsampler,
+    get_named_beta_schedule,
 )
+from glide_text2im.respace import SpacedDiffusion, space_timesteps
 from glide_text2im.tokenizer.bpe import get_encoder, Encoder
 from glide_text2im.text2im_model import Text2ImUNet
 from ..models.network import ImageText2ImUNet
@@ -99,7 +101,57 @@ def create_model_and_diffusion(
         noise_schedule=noise_schedule,
         timestep_respacing=timestep_respacing,
     )
+
+    # diffusion = create_gaussian_diffusion(
+    #     steps=diffusion_steps,
+    #     noise_schedule=noise_schedule,
+    #     timestep_respacing=timestep_respacing,
+    # )
     return model, diffusion
+
+
+def create_gaussian_diffusion(
+    steps,
+    noise_schedule,
+    timestep_respacing,
+):
+    betas = make_beta_schedule(noise_schedule, steps)
+    if not timestep_respacing:
+        timestep_respacing = [steps]
+    return SpacedDiffusion(
+        use_timesteps=space_timesteps(steps, timestep_respacing),
+        betas=betas,
+    )
+
+
+def make_beta_schedule(schedule, n_timestep, linear_start=0.0015, linear_end=0.0195, cosine_s=8e-3):
+    """LDM"""
+    if schedule == "linear":
+        betas = (
+                th.linspace(linear_start ** 0.5, linear_end ** 0.5, n_timestep, dtype=th.float64) ** 2
+        )
+
+    elif schedule == "cosine":
+        timesteps = (
+                th.arange(n_timestep + 1, dtype=th.float64) / n_timestep + cosine_s
+        )
+        alphas = timesteps / (1 + cosine_s) * np.pi / 2
+        alphas = th.cos(alphas).pow(2)
+        alphas = alphas / alphas[0]
+        betas = 1 - alphas[1:] / alphas[:-1]
+        betas = np.clip(betas, a_min=0, a_max=0.999)
+
+    elif schedule == "sqrt_linear":
+        betas = th.linspace(linear_start, linear_end, n_timestep, dtype=th.float64)
+    elif schedule == "sqrt":
+        betas = th.linspace(linear_start, linear_end, n_timestep, dtype=th.float64) ** 0.5
+    else:
+        try:
+            betas = get_named_beta_schedule(schedule, n_timestep)
+            betas = th.FloatTensor(betas)
+        except NotImplementedError:
+            pass
+    return betas.numpy()
 
 
 def create_model(
@@ -204,6 +256,7 @@ def load_model(
     model_type: str = "base",
     in_channels=3,
     cond_channels=0,
+    beta_schdl=None,
 ):
     assert model_type in MODEL_TYPES, f"Model must be one of {MODEL_TYPES}. Exiting."
     if model_type in ["base", "base-inpaint"]:
@@ -212,7 +265,9 @@ def load_model(
         options = model_and_diffusion_defaults_upsampler()
     if "inpaint" in model_type:
         options["inpaint"] = True
-
+    
+    if beta_schdl is not None:
+        options['noise_schedule'] = beta_schdl
     options["use_fp16"] = use_fp16
     if disable_transformer:
         options["xf_width"] = 0
@@ -284,6 +339,7 @@ def sample(
     upsample_enabled=False,
     image_to_upsample='',
     upsample_temp=0.997,
+    uncond_image=False,
 ):
     glide_model.del_cache()
     eval_diffusion = create_gaussian_diffusion(
@@ -291,6 +347,7 @@ def sample(
         noise_schedule=glide_options["noise_schedule"],
         timestep_respacing=prediction_respacing,
     )
+    print(glide_options['noise_schedule'])
     # Create the text tokens to feed to the model.
     # tokens = glide_model.tokenizer.encode(prompt)
     # tokens, mask = glide_model.tokenizer.padded_tokens_and_mask(
@@ -318,7 +375,13 @@ def sample(
         # cond_image=val_batch.get('cond_image', None)
     )
     if 'cond_image' in val_batch:
-        model_kwargs['cond_image'] = val_batch['cond_image'].repeat(2, 1, 1, 1)
+        if uncond_image:
+            model_kwargs['cond_image'] = th.cat([
+                th.zeros_like(val_batch['cond_image']), val_batch['cond_image'],
+            ], 0)
+            print('condition on image!!!')
+        else:
+            model_kwargs['cond_image'] = val_batch['cond_image'].repeat(2, 1, 1, 1)
 
     def cfg_model_fn(x_t, ts, **kwargs):
         half = x_t[: len(x_t) // 2]

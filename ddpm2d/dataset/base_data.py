@@ -56,6 +56,7 @@ class TextImageDataset(Dataset):
         :param upscale_factor: _description_, defaults to 4
         """
         super().__init__()
+        self.cfg = cfg
         self.parsed_data = parsed_data
         self.image_files = parsed_data['image']
         if use_captions:
@@ -109,7 +110,8 @@ class TextImageDataset(Dataset):
 
     def __getitem__(self, ind):
         image_file = self.image_files[ind]
-        if self.text_files is None or random() < self.uncond_p:
+        uncond_iter = random() < self.uncond_p
+        if self.text_files is None or uncond_iter:
             tokens, mask = get_uncond_tokens_mask(self.tokenizer)
         else:
             tokens, mask = self.get_caption(ind)
@@ -142,5 +144,7 @@ class TextImageDataset(Dataset):
             # 'cond_image': hand_tensor,
             }
         if cond_tensor is not None:
+            if uncond_iter and self.cfg.uncond_image:
+                cond_tensor = torch.zeros_like(cond_tensor)
             out['cond_image'] = cond_tensor
         return out

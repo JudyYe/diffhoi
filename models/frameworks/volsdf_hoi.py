@@ -129,7 +129,7 @@ class MeshRenderer(nn.Module):
         # apply cameraTworld outside of rendering to support scaling.
         cMeshes = mesh_utils.apply_transform(meshes, cTw)  # to allow scaling                 
         image = mesh_utils.render_soft(cMeshes, cameras, 
-            rgb_mode=True, depth_mode=True, normal_mode=True, xy_mode=True, 
+            rgb_mode=True, depth_mode=True, normal_mode=True, xy_mode=True, uv_mode=kwargs.get('uv_mode', True),
             out_size=max(H, W))
         # image = mesh_utils.render_mesh(cMeshes, cameras, rgb_mode=True, depth_mode=True, out_size=max(H, W))
         # apply cameraTworld for depth 
@@ -479,8 +479,10 @@ class Trainer(nn.Module):
         elif nv.amodal == 'amodal':
             img = self.lin2img(torch.stack([
                 iHand['mask'], iObj['mask'], torch.zeros_like(iHand['mask']),
-            ], -1))
+            ], -1))  # rendered mask: [0,1]
         img = img * 2 - 1 # rescale from 0/1 to -1/1
+        img = img * self.sd_loss.model.cfg.get('bin', 1)
+        print('semantic mask', img.min(), img.max())       
         return img
 
     def get_normal(self, iHoi, iHand, iObj, jTc, jTh):
@@ -558,9 +560,12 @@ class Trainer(nn.Module):
             _, _, jTc_scale = geom_utils.homo_to_rt(jTc)  # (N, 3)            
             jTc_scale = jTc_scale.mean(-1).reshape(N, 1) / 10  # *10: m -> dm
 
-            hand_mask = iHand['mask'] # (iHand['mask'] > 0.5).float()
-            obj_mask = iObj['mask']  # (iObj['mask'] > 0.5).float()
-            
+            # hand_mask = iHand['mask']
+            # obj_mask = iObj['mask'] 
+
+            hand_mask = (iHand['mask'] > 0.5).float()
+            obj_mask = (iObj['mask'] > 0.5).float()
+
             jHand_depth_camera = iHand['depth'] * hand_mask
             jObj_depth_camera = iObj['depth'] * obj_mask
             
@@ -595,16 +600,18 @@ class Trainer(nn.Module):
             normal = self.get_normal(iHoi, iHand, iObj, extras['jTc'], extras['jTh'])
             depth = self.get_depth(iHoi, iHand, iObj, extras['jTc'], extras['jTh'], zfar)
 
-            if not self.sd_loss.cond:
+            if self.sd_loss.cond == 0:
                 img = torch.cat([mask, normal, depth], 1)
                 rtn['image'] = img
-            else:
+            elif self.sd_loss.cond == 1:
                 hand_mask, obj_mask = mask[:, 0:1], mask[:, 1:2]
                 hand_normal, obj_normal = normal.split([3, 3], 1)
                 hand_depth, obj_depth = depth.split([1, 1], 1)
-
                 rtn['image'] = torch.cat([obj_mask, obj_normal, obj_depth], 1)        
                 rtn['cond_image'] = torch.cat([hand_mask, hand_normal, hand_depth], 1)
+                if self.sd_loss.model.cfg.mode.uv:
+                    uv = iHand['uv']
+                    rtn['cond_image'] = torch.cat([rtn['cond_image'], uv], 1)
         else: 
             raise NotImplementedError(nv.mode)
         return rtn
@@ -617,6 +624,13 @@ class Trainer(nn.Module):
         args = self.args
         if args.training.w_diffuse > 0:
             img = self.get_diffusion_image(extras)
+            # import pickle
+            # import os
+            # os.makedirs('/home/yufeiy2/scratch/result/vis_ddpm/input/', exist_ok=True)
+            # with open('/home/yufeiy2/scratch/result/vis_ddpm/input/hoi4d.pkl', 'wb') as fp:
+            #     pickle.dump({k: v.cpu() for k, v in img.items()}, fp)
+            # assert False
+            
             self.sd_loss.apply_sd(**img, 
                 weight=args.training.w_diffuse, **args.novel_view.loss)
             extras['diffusion_inp'] = img
@@ -645,7 +659,8 @@ class Trainer(nn.Module):
         device = self.device
         N = len(indices)
         indices = indices.to(device)
-        full_frame_iter = self.training and self.args.training.render_full_frame and it % 2 == 0
+        full_frame_iter = self.training and self.args.training.render_full_frame \
+            and it % 2 == 0 and it >= self.args.training.warmup
         # 1. GET POSES
         if full_frame_iter:
             jTc, jTc_n, jTh, jTh_n = self.sample_jTc(indices, model_input, ground_truth)
@@ -825,23 +840,36 @@ class Trainer(nn.Module):
         # get_diffusion image
         if self.sd_loss is not None:
             image = self.get_diffusion_image(ret)
+            out = {}
             for kk, vv in image.items():
-                out = self.sd_loss.model.decode_samples(vv)
-                for k,v in out.items():
+                out[kk] = self.sd_loss.model.decode_samples(vv)
+                for k,v in out[kk].items():
                     if 'normal' in k:
                         v = v / 2 + 0.5
                     if 'depth' in k:
                         color = image_utils.save_depth(v, None, znear=-1, zfar=1)
+                        logger.log_metrics({f'depth_value/{k}_corner': v[0, 0, 1, 1]}, it)
+                        h = v.shape[-1] // 2
+                        logger.log_metrics({f'depth_value/{k}_middle': v[0, 0, h, h]}, it)
                         logger.add_imgs(TF.to_tensor(color)[None], f'diffuse/{k}_{kk}_color', it)
                         
                     logger.add_imgs(v.clip(-1, 1), f'diffuse/{k}_{kk}', it)
-
+                # do depth? 
+            if 'hand_depth' in out['image']:
+                hand_depth = out['image']['hand_depth']
+                obj_depth = out['image']['obj_depth']
+            else:
+                hand_depth = out['cond_image']['obj_depth']
+                obj_depth = out['image']['obj_depth']
+            log = {}
+            log = self.sd_loss.model.vis_depth_as_pc(hand_depth, obj_depth, 'diffuse/pc', log, it,)
+            logger.log_metrics(log, it)
             # try free generation? 
             noise_step = self.sd_loss.max_step
             noisy = self.sd_loss.get_noisy_image(image['image'], noise_step-1)
-            out = self.sd_loss.vis_multi_step(noisy, noise_step, 1, image.get('cond_image', None))
-            out = self.sd_loss.model.decode_samples(out)
-            for k,v in out.items():
+            out['image'] = self.sd_loss.vis_multi_step(noisy, noise_step, 1, image.get('cond_image', None))
+            out['image'] = self.sd_loss.model.decode_samples(out['image'])
+            for k,v in out['image'].items():
                 if 'normal' in k:
                     v = v / 2 + 0.5
                 if 'depth' in k:
@@ -849,6 +877,15 @@ class Trainer(nn.Module):
                     logger.add_imgs(TF.to_tensor(color)[None], f'diffuse_sample/{k}_color', it)
                     
                 logger.add_imgs(v.clip(-1, 1), f'diffuse_sample/{k}', it)
+            if 'hand_depth' in out['image']:
+                hand_depth = out['image']['hand_depth']
+                obj_depth = out['image']['obj_depth']
+            else:
+                hand_depth = out['cond_image']['obj_depth']
+                obj_depth = out['image']['obj_depth']
+            log = {}
+            log = self.sd_loss.model.vis_depth_as_pc(hand_depth, obj_depth, 'diffuse_sample/pc', log, it,)
+            logger.log_metrics(log, it)
 
         # color = image_utils.save_depth(to_img_fn(ret['iObj']['depth'].unsqueeze(-1)), None, znear=-1, zfar=1)
         # logger.add_imgs(TF.to_tensor(color)[None], f'diffuse/obj_depth_nomask', it)

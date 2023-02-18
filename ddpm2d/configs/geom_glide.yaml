@@ -7,9 +7,10 @@ defaults:
   - mode: geom
 ndim: 
 ndim_cond: 0
-zfar: 1
-bin: 1
+zfar: 0
+bin: 0.5
 
+cat_level: True
 uncond_image: false
 # mode:
 #   mask: 1

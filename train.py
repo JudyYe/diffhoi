@@ -267,7 +267,8 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                                 novel_list = []
                                 for val_ind, val_in, val_gt in valloader:
                                     val_ind = val_ind.to(device)
-                                    c2w = posenet(val_ind, val_in, val_gt)
+                                    # c2w = posenet(val_ind, val_in, val_gt)
+                                    c2w = trainer.get_jTc(val_ind, val_in, val_gt)[0]
                                     intrinsics = focal_net(val_ind, val_in, val_gt, H=valH, W=valW).cpu().detach().numpy()
                                     novel = trainer.sample_jTc(val_ind, val_in, val_gt)[0]
                                     
@@ -446,11 +447,12 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
 def quant_log(hObj, gt_oObj, scale=False):
     oObj, _ = icp_tool.register_meshes(hObj, gt_oObj, scale=scale)
     metrics = {}
-    metrics['cd'] = mesh_utils.cdscore(oObj, gt_oObj)
+    metrics['cd'] = mesh_utils.cdscore(oObj, gt_oObj)[0]
     th_list = np.array([2, 5, 10, 15, 20, 50, 100]) * 1e-3
     f_list = mesh_utils.fscore(oObj, gt_oObj, th=th_list)
     for t in range(len(th_list)):
-        metrics[th_list[t]] = f_list[t]
+        metrics[str(th_list[t])] = f_list[t][0]
+    print(metrics)
     return metrics
 
 
