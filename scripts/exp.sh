@@ -4,7 +4,7 @@ CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nog
     data=hoi4d data.len=1000 \
     data.index=ZY20210800001_H1_C2_N31_S92_s05_T2_00029_00159,ZY20210800002_H2_C5_N45_S261_s02_T2_00188_00259 \
     training.warmup=100,1000 novel_view.loss.w_schdl=bell \
-    environment.slurm=True environment.resume=False logging.mode=none 
+    environment.slurm=False environment.resume=False logging.mode=none 
 
 
 
