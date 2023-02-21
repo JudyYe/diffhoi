@@ -70,11 +70,6 @@ def convert():
         imageio.imwrite(osp.join(save_dir, 'vis', f'{index}_obj.png'), vis_obj)
 
 
-def left_to_right(poses):
-    poses[:, 1::3] *= -1
-    poses[:, 2::3] *= -1
-    return poses
-
 
 def calibrate_rt(Rh, Th):
     joint = geom_utils.rt_to_homo(Rh, Th)
@@ -97,36 +92,48 @@ def calibrate_rt(Rh, Th):
     # joint = cali_b @ joint
     # Rh, Th, _ = geom_utils.homo_to_rt(cali_b @ cali_a @ geom_utils.rt_to_homo(Rh, Th))
     Rh, Th, _ = geom_utils.homo_to_rt(joint)
-    # Th[..., 0] *= -1
+    Th[..., 0] *= -1
+    Rh = cali_a[..., 0:3, 0:3] @ Rh
     return Rh, Th
 
+    hand_wrapper = hand_utils.ManopthWrapper(side=side).to(device)
 
-def render_one(index):
-    cameras = read_cameras_binary(osp.join(data_dir, 'colmap/cameras.bin'))
+def get_hand_param(index, hand_wrapper):
+    # cameras = read_cameras_binary(osp.join(data_dir, 'colmap/cameras.bin'))
 
-    image = imageio.imread(osp.join(data_dir, 'colmap/images', f'{index:06d}.jpg'))
+    side = 'right'
+    bg = imageio.imread(osp.join(data_dir, 'colmap/images', f'{index:06d}.jpg'))
+    bg = pad_to_square(bg).copy().astype(np.uint8)
+    bg = cv2.resize(bg, (224, 224))
+    bg = TF.to_tensor(bg).to(device)
+    bg = bg[None]
+    if side == 'right':
+        bg = bg.flip([-1])
+
     smpl_data = json.load(open(osp.join(data_dir, 'output/smpl', f'{index:06d}.json')))[0]
-    hand_wrapper = hand_utils.ManopthWrapper().to(device)
+    # hand_wrapper = hand_utils.ManopthWrapper(side='left').to(device)
 
     rot = np.array(smpl_data['Rh'])
-    rot[1::3] *= -1; rot[2::3] *= -1
+    if side == 'right':
+        rot[1::3] *= -1
+        rot[2::3] *= -1
     Rh = torch.FloatTensor(cv2.Rodrigues(rot)[0])[None].to(device)  # (1, 3, 3?)
     Th = torch.FloatTensor(smpl_data['Th']).to(device)  # (1, 3)?
-    Rh, Th = calibrate_rt(Rh, Th)
+    if side == 'right':
+        Rh, Th = calibrate_rt(Rh, Th)
+    wTh = geom_utils.rt_to_homo(Rh, Th)
 
     poses = torch.FloatTensor(smpl_data['poses']).to(device)  # (1, 48??
     poses[:, 3:] = hand_wrapper.pca_to_pose(poses[:, 3:], True)
-    poses[:, 1::3] *= -1
-    poses[:, 2::3] *= -1
-    print(Rh.shape, Th.shape, poses.shape)
-    # convert from left hand pose to right hand pose
-    # poses = left_to_right(poses)
+
+    cTw = wTh
+    hA = poses[:, 3:]
+    return cTw, hA
+
+
     hHand, _ = hand_wrapper(None, poses[:, 3:])
-    wTh = geom_utils.rt_to_homo(Rh, Th)
     wHand = mesh_utils.apply_transform(hHand, wTh)
 
-    # image_list = mesh_utils.render_geom_rot(wHand, scale_geom=True)
-    # image_utils.save_gif(image_list, osp.join(save_dir, 'vis', f'{index:06d}_hand'))
     K = fxfy_pxpy_to_K(cameras[index].params)
     print(K)
     K = torch.FloatTensor(square_K(K, H, W))[None]
@@ -138,7 +145,13 @@ def render_one(index):
     cameras = PerspectiveCameras(fxfy, pxpy, device=device)
 
     image = mesh_utils.render_mesh(wHand, cameras)
-    image_utils.save_images(image['image'], osp.join(save_dir, 'vis', f'{index:06d}_hand_mesh'))
+    image_utils.save_images(image['image'], osp.join(save_dir, 'vis', f'{index:06d}_hand_mesh_{side}'),
+                            bg=bg, mask=image['mask'])
+    # rotate hand
+    image_list = mesh_utils.render_geom_rot(hHand, scale_geom=True)
+    image_utils.save_gif(image_list, osp.join(save_dir, 'vis', f'{index:06d}_hand_{side}'))
+
+
 
 def get_K_pix():
     cameras = read_cameras_binary(osp.join(data_dir, 'colmap/cameras.bin'))

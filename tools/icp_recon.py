@@ -59,11 +59,17 @@ def register(source, target, type='icp_common', scale=True):
     return source, target
 
 
-def compare(source_file, target_file, iters=1, flip_x=False, flip_y=False, flip_z=False):
+def compare(source_file, target_file, iters=1, flip_x=False, flip_y=False, flip_z=False, robust_norm_source=False):
     chamferDist = ChamferDistance()
-
-    source = trimesh.load(source_file)  # reconstructed mesh
-    target = trimesh.load(target_file)  # ground truth mesh
+    
+    if isinstance(source_file, str):
+        source = trimesh.load(source_file)  # reconstructed mesh
+    else:
+        source = source_file
+    if isinstance(target_file, str):
+        target = trimesh.load(target_file)  # ground truth mesh
+    else:
+        target = target_file
 
     # flip
     if flip_x:
@@ -74,8 +80,22 @@ def compare(source_file, target_file, iters=1, flip_x=False, flip_y=False, flip_
         source.apply_translation([0, 0, -source.centroid[2]])
 
     # normalize
-    source.vertices -= source.center_mass
-    source.vertices /= source.vertices.max()
+    if robust_norm_source:
+        # use 80% of the vertices
+        vertices = source.vertices
+        print(vertices.shape)
+        vertices = vertices[np.argsort(np.linalg.norm(vertices, axis=-1))[:int(vertices.shape[0] * 0.8)]]  # 
+        center_mass = np.mean(vertices, axis=0)
+        source.vertices -= center_mass
+
+        vertices = source.vertices
+        vertices = vertices[np.argsort(np.linalg.norm(vertices, axis=-1))[:int(vertices.shape[0] * 0.8)]]  # 
+        max_norm = np.max(np.linalg.norm(vertices, axis=-1))
+        source.vertices /= max_norm
+
+    else:
+        source.vertices -= source.center_mass
+        source.vertices /= source.vertices.max()
     target.vertices -= target.center_mass
     target.vertices /= target.vertices.max()
 
@@ -96,7 +116,7 @@ def compare(source_file, target_file, iters=1, flip_x=False, flip_y=False, flip_
         dist_bidirectional = chamferDist(vertices_source, vertices_target, bidirectional=True) * 0.001
         print(dist_bidirectional.detach().cpu().item())
     
-    return dist_bidirectional
+    return dist_bidirectional, (vertices_source, source.faces), (vertices_target, target.faces)
 
 def test():
     data_dir = '/home/yufeiy2/scratch/result/vis'
