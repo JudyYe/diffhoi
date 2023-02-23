@@ -80,6 +80,25 @@ def read_masks(index, t):
     bbox = image_utils.joint_bbox(bbox, min_box)
     return mask[..., 0:3], bbox
 
+def make_all_text():
+    clip_list = glob(osp.join(save_dir + 'Z*'))
+    for clip in clip_list:
+        index = clip.split('/')[-1]
+        cat = mapping[int(index.split('_')[2][1:])]
+        text = f'{cat}'
+        with open(osp.join(clip, 'text.txt'), 'w') as f:
+            f.write(text)
+                      
+
+def make_text(index, t_start, t_end):
+    f_start = int(t_start*15)
+    f_end = int(t_end*15)
+    cat = mapping[int(index.split('/')[2][1:])]
+    save_index = index.replace('/', '_') + f'_{f_start:05d}_{f_end:05d}'
+    text = f'{cat}'
+    with open(osp.join(save_dir, save_index, 'text.txt'), 'w') as f:
+        f.write(text)
+    return 
 
 def get_one_clip(index, t_start, t_end):
     f_start = int(t_start*15)
@@ -235,7 +254,8 @@ def batch_clip(num=1):
         print(clips, index)
 
         for cc in clips:        
-            get_one_clip(index, cc[0], cc[1])
+            # get_one_clip(index, cc[0], cc[1])
+            make_text(index, cc[0], cc[1])
     return
 
 def read_rtd(file, num=0):
@@ -469,13 +489,14 @@ if __name__ == '__main__':
     #     get_one_clip(index, cc[0], cc[1])
     # save_dir = '/home/yufeiy2/scratch/data/HOI4D/amodal'
 
-    save_dir = '/home/yufeiy2/scratch/data/HOI4D/handup'
 
     if args.clip:
         batch_clip(args.num)
     if args.render:
+        save_dir = '/home/yufeiy2/scratch/data/HOI4D/handup'
         render_batch()
     if args.debug:
         debug()
     if args.render_one:
         render_one()
+    make_all_text()

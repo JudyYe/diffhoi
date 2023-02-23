@@ -1,9 +1,69 @@
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
-    expname=uniform_rate_seq/len\${data.len}_w\${training.w_diffuse}_\${training.warmup}_\${data.index}  \
-    training=diffuse novel_view=geom novel_view.diff_name="hand_ddpm_geom/train_seg_CondGeomGlide" \
+    expname=artifact/hoi4d_len\${data.len}_lrpose\${training.lr.pose}_w\${training.w_diffuse}_\${training.warmup}  \
+    training=diffuse novel_view=geom novel_view.diff_name="single_mode/cond_all_linear_0_0.5" \
+    data=hoi4d data.len=1000 training.lr.pose=1e-4,5e-4 \
+    data.index=ZY20210800001_H1_C2_N31_S92_s05_T2_00029_00159 \
+    training.warmup=100 novel_view.loss.w_schdl=bell \
+    environment.slurm=False environment.resume=False logging.mode=none 
+
+-
+ddpm_novel_sunday/hoi4d_CondGeomGlide_1
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=uniform_rate_seq/obj_prior_len\${data.len}_w\${training.w_diffuse}_\${training.warmup}_\${data.index}  \
+    training=diffuse novel_view=geom novel_view.diff_name="ddpm_novel_sunday/hoi4d_CondGeomGlide_1" \
     data=hoi4d data.len=1000 \
     data.index=ZY20210800001_H1_C2_N31_S92_s05_T2_00029_00159,ZY20210800002_H2_C5_N45_S261_s02_T2_00188_00259 \
     training.warmup=100,1000 novel_view.loss.w_schdl=bell \
+    environment.slurm=False environment.resume=False logging.mode=none 
+
+
+
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=uniform_rate_seq/obj_prior_len\${data.len}_w\${training.w_diffuse}_\${training.warmup}_\${data.index}  \
+    training=diffuse novel_view=geom novel_view.diff_name="single_mode/cond_all_linear_catTrue_cfgFalse" \
+    data=hoi4d data.len=1000 \
+    data.index=ZY20210800001_H1_C2_N31_S92_s05_T2_00029_00159,ZY20210800002_H2_C5_N45_S261_s02_T2_00188_00259 \
+    training.warmup=100,1000 novel_view.loss.w_schdl=bell \
+    environment.slurm=False environment.resume=False logging.mode=none 
+
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=uniform_rate/obj_prior_len\${data.len}_w\${training.w_diffuse}_\${training.warmup}_\${data.index}  \
+    training=diffuse novel_view=geom novel_view.diff_name="single_mode/cond_all_linear_catTrue_cfgFalse" \
+    data=hoi4d data.len=2 \
+    data.index=ZY20210800001_H1_C2_N31_S92_s05_T2_00029_00159,ZY20210800002_H2_C5_N45_S261_s02_T2_00188_00259 \
+    training.warmup=100 novel_view.loss.w_schdl=bell \
+    environment.slurm=False environment.resume=False logging.mode=none 
+
+
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=hhor/len\${data.len}_w\${training.w_diffuse}_\${data.index}  \
+    training=diffuse training.w_diffuse=0. \
+    training.render_full_frame=False \
+    data=hhor data.len=378,37,18 \
+    environment.slurm=False environment.resume=False logging.mode=none 
+
+
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=uniform_rate_seq/hoi4d_len\${data.len}_w\${training.w_diffuse}_\${training.warmup}_\${data.index}  \
+    training=diffuse novel_view=geom novel_view.diff_name="single_mode/cond_all_linear_0_0.5" \
+    data=hoi4d data.len=1000 \
+    data.index=ZY20210800001_H1_C2_N31_S92_s05_T2_00029_00159,ZY20210800002_H2_C5_N45_S261_s02_T2_00188_00259 \
+    training.warmup=100,1000 novel_view.loss.w_schdl=bell \
+    environment.slurm=False environment.resume=False logging.mode=none 
+
+
+
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=uniform_rate_seq/hoi4d_len\${data.len}_w\${training.w_diffuse}_\${training.warmup}_\${data.index}  \
+    training=diffuse novel_view=geom novel_view.diff_name="single_mode/cond_all_linear_0_0.5" \
+    data=hoi4d data.len=1000 training.w_diffuse=0 \
+    data.index=ZY20210800001_H1_C2_N31_S92_s05_T2_00029_00159,ZY20210800002_H2_C5_N45_S261_s02_T2_00188_00259 \
     environment.slurm=False environment.resume=False logging.mode=none 
 
 

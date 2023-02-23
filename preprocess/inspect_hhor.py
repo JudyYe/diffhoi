@@ -1,3 +1,4 @@
+import trimesh
 import collections
 import struct
 import cv2
@@ -18,11 +19,12 @@ import argparse
 import torch
 import torchvision.transforms.functional as TF
 from pytorch3d.renderer.cameras import PerspectiveCameras
-from jutils import image_utils, geom_utils, mesh_utils, hand_utils
+from jutils import image_utils, geom_utils, mesh_utils, hand_utils, plot_utils
 
 
 
 device = 'cuda:0'
+shape_dir = '/home/yufeiy2/scratch/data/HHOR/CAD/Sculptures/3_Giuliano.ply'
 data_dir = '/home/yufeiy2/scratch/data/HHOR/3_Giuliano/'
 save_dir = '/home/yufeiy2/scratch/result/HHOR_volsdf/3_Giuliano/'
 H = 1080 
@@ -37,18 +39,28 @@ W = 1920
 # image.gif  
 # cameras_hoi.npz  
 # hands.npz  
-def convert():
+def convert_from_hhor_to_our():
     index = sorted(glob(osp.join(data_dir, 'colmap/images', '*.jpg')))
     index_list = [osp.basename(i).split('.')[0] for i in index]
-    for index in tqdm(index_list):
-        image_orig = imageio.imread(osp.join(data_dir, 'colmap/images', f'{index}.jpg'))
-        image_orig = pad_to_square(image_orig, )
+    hand_wrapper = hand_utils.ManopthWrapper(side='right').to(device)
+    K_intr_list = get_K_pix(data_dir)
+    print('K, index', len(K_intr_list), len(index_list))
+    
+    cameras_dict = collections.defaultdict(list)
+    hand_dict = collections.defaultdict(list)
 
-        # save to image/xxx.png
-        os.makedirs(osp.join(save_dir, 'image'), exist_ok=True)
-        imageio.imwrite(osp.join(save_dir, 'image', f'{index}.png'), image_orig)
+    for i, index in enumerate(tqdm(index_list)):
+
+        # image_orig = imageio.imread(osp.join(data_dir, 'colmap/images', f'{index}.jpg'))
+        # image_orig = image_orig[:, ::-1]  # flip x
+        # image_orig = pad_to_square(image_orig, )
+
+        # # save to image/xxx.png
+        # os.makedirs(osp.join(save_dir, 'image'), exist_ok=True)
+        # imageio.imwrite(osp.join(save_dir, 'image', f'{index}.png'), image_orig)
 
         image = imageio.imread(osp.join(data_dir, 'colmap/semantics', f'{index}.png'))
+        image = image[:, ::-1]  # flip x
         # hand: (255, 0, 255) obj: (255, 255, 0)
         image = pad_to_square(image, )
         hand_mask = ((image[..., 2] > 122.5) * (image[..., 0] > 122.5) * 255).astype(np.uint8)  # blue and purple
@@ -60,19 +72,118 @@ def convert():
         imageio.imwrite(osp.join(save_dir, 'hand_mask', f'{index}.png'), hand_mask)
         imageio.imwrite(osp.join(save_dir, 'obj_mask', f'{index}.png'), obj_mask)
 
-        # visualize masks
-        vis_hand = 1.0 * image_orig * hand_mask[..., None] / 255
-        vis_obj = 1.0 * image_orig * obj_mask[..., None] / 255
-        vis_hand = vis_hand.clip(0, 255).astype(np.uint8)
-        vis_obj = vis_obj.clip(0, 255).astype(np.uint8)
-        os.makedirs(osp.join(save_dir, 'vis'), exist_ok=True)
-        imageio.imwrite(osp.join(save_dir, 'vis', f'{index}_hand.png'), vis_hand)
-        imageio.imwrite(osp.join(save_dir, 'vis', f'{index}_obj.png'), vis_obj)
+        # cTw, hA, beta = get_hand_param(int(index), hand_wrapper, side='right')
 
+        # cameras_dict['cTw'].append(cTw.detach().cpu().numpy()[0])
+        # hand_dict['hA'].append(hA.detach().cpu().numpy()[0])
+        # hand_dict['beta'].append(beta.detach().cpu().numpy()[0])
+
+        # # visualize rendered hand
+        # hHand, _ = hand_wrapper(None, hA, th_betas=beta)
+        # cHand = mesh_utils.apply_transform(hHand, cTw)
+        # K = torch.FloatTensor(K_intr_list[i])[None]
+        # K = mesh_utils.intr_from_screen_to_ndc(K, max(H, W), max(H, W))
+        # fxfy, pxpy = mesh_utils.get_fxfy_pxpy(K)
+        # cameras = PerspectiveCameras(fxfy, pxpy, device=device)
+
+        # bg = TF.to_tensor(image_orig)[None]
+        # iHand = mesh_utils.render_mesh(cHand, cameras, out_size=max(H, W), )
+        # image_utils.save_images(iHand['image'], osp.join(save_dir, 'vis', f'{index}_hand_mesh'),
+        #                         bg=bg, mask=iHand['mask'])
+        # # rotate hand
+        # image_list = mesh_utils.render_geom_rot(hHand, scale_geom=True)
+        # image_utils.save_gif(image_list, osp.join(save_dir, 'vis', f'{index}_hand'))
+
+    # cameras_dict['cTw'] = np.array(cameras_dict['cTw'])
+    # cameras_dict['K_pix'] = np.array(K_intr_list)
+
+    # np.savez_compressed(osp.join(save_dir, 'cameras_hoi.npz'), **cameras_dict)
+    # np.savez_compressed(osp.join(save_dir, 'hands.npz'), **hand_dict)
+
+
+def move_gt_mesh():
+    target = trimesh.load(shape_dir)
+    target.vertices -= target.center_mass
+    target.vertices /= target.vertices.max()
+    target.vertices[..., 0] *= -1
+    target.faces = target.faces[:, [0, 2, 1]]
+    trimesh.exchange.export.export_mesh(target, osp.join(save_dir, 'oObj.obj'))
+
+
+def make_subset_gif():
+    image_list = sorted(glob(osp.join(save_dir, 'image', '*.png')))
+    image_list = [imageio.imread(i) for i in image_list]
+
+    for ratio in [0.02, 0.05, 0.1, 0.2]:
+        num = int(len(image_list) * ratio)
+        imageio.mimsave(osp.join(save_dir, f'image_{ratio:g}.gif'), image_list[0:num])
+    
+
+def vis_camera():
+    cTw = np.load(osp.join(save_dir, 'cameras_hoi.npz'))['cTw']
+    cTw = torch.FloatTensor(cTw).to(device)
+    for ratio in [0.02, 0.05, 0.1, 0.2]:
+        num = int(len(cTw) * ratio)
+        cTw_subset = cTw[0:num]
+        coord = plot_utils.create_coord(device, size=0.1)
+        mesh_list = plot_utils.vis_cam(cTw=cTw_subset, size=0.08 if ratio == 0.02 else None)
+        scene = mesh_utils.join_scene(mesh_list + [coord])
+        image_list = mesh_utils.render_geom_rot(scene, scale_geom=True, out_size=512)
+        image_utils.save_gif(image_list, osp.join(save_dir, f'vis_camera_{ratio:g}'))
+
+
+def create_gif():
+    hand_wrapper = hand_utils.ManopthWrapper(side='right').to(device)
+
+    image_list = sorted(glob(osp.join(save_dir, 'image', '*.png')))
+    hand_mask_list = sorted(glob(osp.join(save_dir, 'hand_mask', '*.png')))
+    obj_mask_list = sorted(glob(osp.join(save_dir, 'obj_mask', '*.png')))
+
+    camera_dict = np.load(osp.join(save_dir, 'cameras_hoi.npz'))
+    hand_dict = np.load(osp.join(save_dir, 'hands.npz'))
+
+    blend_list = []
+    for i, (image, hand_mask, obj_mask) in enumerate(zip(image_list, hand_mask_list, obj_mask_list)):
+        image = imageio.imread(image)
+        hand_mask = imageio.imread(hand_mask)
+        obj_mask = imageio.imread(obj_mask)
+        
+        image = cv2.resize(image, (512, 512))
+        hand_mask = cv2.resize(hand_mask, (512, 512))
+        obj_mask = cv2.resize(obj_mask, (512, 512))
+
+        cTw = torch.FloatTensor(camera_dict['cTw'][i])[None].to(device)
+        K = torch.FloatTensor(camera_dict['K_pix'][i])[None].to(device)
+        hA = torch.FloatTensor(hand_dict['hA'][i])[None].to(device)
+        beta = torch.FloatTensor(hand_dict['beta'][i])[None].to(device)
+
+        hHand, _ = hand_wrapper(None, hA, th_betas=beta)
+        cHand = mesh_utils.apply_transform(hHand, cTw)
+
+        K = mesh_utils.intr_from_screen_to_ndc(K, max(H, W), max(H, W))
+        fxfy, pxpy = mesh_utils.get_fxfy_pxpy(K)
+        cameras = PerspectiveCameras(fxfy, pxpy, device=device)
+
+        bg = TF.to_tensor(image)[None]
+        iHand = mesh_utils.render_mesh(cHand, cameras, out_size=512, )
+        
+        mask = np.stack([obj_mask > 0, hand_mask > 0, np.zeros_like(hand_mask)], axis=-1)
+        blend = mask * image + (1-mask) * 0.5*image
+        blend_list.append(blend.clip(0, 255).astype(np.uint8))
+        
+        image_utils.save_images(iHand['image'], osp.join(save_dir, 'overlay', f'{i:06d}_hand_mesh'),
+                                bg=bg, mask=iHand['mask'])
+    imageio.mimsave(osp.join(save_dir, 'image.gif'), blend_list)
+    make_gif(osp.join(save_dir, 'overlay/*.png'), osp.join(save_dir, 'overlay.gif'))
+    return 
+
+def make_gif(img_dir, save_file):
+    image_list = sorted(glob(img_dir))
+    image_list = [imageio.imread(image) for image in image_list]
+    imageio.mimsave(save_file, image_list)
 
 
 def calibrate_rt(Rh, Th):
-    joint = geom_utils.rt_to_homo(Rh, Th)
     cali_a = torch.FloatTensor([
         [0, 0, 1, 0],
         [0, 1, 0, 0],
@@ -80,43 +191,50 @@ def calibrate_rt(Rh, Th):
         [0, 0, 0, 1]
     ]).to(Rh)
 
-    # Rh = cali_a @ Rh
-    
-    cali_b = torch.FloatTensor([
-        [-1, 0, 0, 0],
-        [0, 1, 0, 0],
-        [0, 0, 1, 0],
-        [0, 0, 0, 1]
-    ]).to(Rh)
-
-    # joint = cali_b @ joint
-    # Rh, Th, _ = geom_utils.homo_to_rt(cali_b @ cali_a @ geom_utils.rt_to_homo(Rh, Th))
-    Rh, Th, _ = geom_utils.homo_to_rt(joint)
     Th[..., 0] *= -1
-    Rh = cali_a[..., 0:3, 0:3] @ Rh
     return Rh, Th
 
-    hand_wrapper = hand_utils.ManopthWrapper(side=side).to(device)
 
-def get_hand_param(index, hand_wrapper):
-    # cameras = read_cameras_binary(osp.join(data_dir, 'colmap/cameras.bin'))
-
+def render_one(index):
     side = 'right'
+    hand_wrapper = hand_utils.ManopthWrapper(side=side).to(device)
+    cTw, hA, beta =  get_hand_param(index, hand_wrapper, side=side)
+
+    hHand, _ = hand_wrapper(None, hA, th_betas=beta)
+    cHand = mesh_utils.apply_transform(hHand, cTw)
+
+    cameras = read_cameras_binary(osp.join(data_dir, 'colmap/cameras.bin'))
+    k = index // 5 + 1
+    K = fxfy_pxpy_to_K(cameras[k].params)
+    K = square_K(K, H, W)
+    K = torch.FloatTensor(K)[None]
+    K = mesh_utils.intr_from_screen_to_ndc(K, max(H, W), max(H, W))
+
+    fxfy, pxpy = mesh_utils.get_fxfy_pxpy(K)
+    cams = PerspectiveCameras(fxfy, pxpy, device=device)
+
     bg = imageio.imread(osp.join(data_dir, 'colmap/images', f'{index:06d}.jpg'))
+    if side == 'right':
+        bg = bg[:, ::-1]
     bg = pad_to_square(bg).copy().astype(np.uint8)
     bg = cv2.resize(bg, (224, 224))
-    bg = TF.to_tensor(bg).to(device)
-    bg = bg[None]
-    if side == 'right':
-        bg = bg.flip([-1])
+    bg = TF.to_tensor(bg).to(device)[None]
 
+    iHand = mesh_utils.render_mesh(cHand, cams, out_size=224, )
+    image_utils.save_images(iHand['image'], osp.join(save_dir, 'vis', f'{index}_hand_mesh_{side}'),
+                            bg=bg, mask=iHand['mask'])
+
+
+def get_hand_param(index, hand_wrapper, side='right'):
     smpl_data = json.load(open(osp.join(data_dir, 'output/smpl', f'{index:06d}.json')))[0]
-    # hand_wrapper = hand_utils.ManopthWrapper(side='left').to(device)
 
     rot = np.array(smpl_data['Rh'])
+    beta = torch.FloatTensor(smpl_data['shapes']).to(device)  # (1, 10)
+    # print('before', rot)
     if side == 'right':
-        rot[1::3] *= -1
-        rot[2::3] *= -1
+        rot[..., 1::3] *= -1
+        rot[..., 2::3] *= -1
+    # print('after', rot)
     Rh = torch.FloatTensor(cv2.Rodrigues(rot)[0])[None].to(device)  # (1, 3, 3?)
     Th = torch.FloatTensor(smpl_data['Th']).to(device)  # (1, 3)?
     if side == 'right':
@@ -128,69 +246,19 @@ def get_hand_param(index, hand_wrapper):
 
     cTw = wTh
     hA = poses[:, 3:]
-    return cTw, hA
-
-
-    hHand, _ = hand_wrapper(None, poses[:, 3:])
-    wHand = mesh_utils.apply_transform(hHand, wTh)
-
-    K = fxfy_pxpy_to_K(cameras[index].params)
-    print(K)
-    K = torch.FloatTensor(square_K(K, H, W))[None]
-    print(K)
-    print(K.shape)
-    K = mesh_utils.intr_from_screen_to_ndc(K, max(H, W), max(H, W))
-    fxfy, pxpy = mesh_utils.get_fxfy_pxpy(K)
-    print(fxfy, pxpy)
-    cameras = PerspectiveCameras(fxfy, pxpy, device=device)
-
-    image = mesh_utils.render_mesh(wHand, cameras)
-    image_utils.save_images(image['image'], osp.join(save_dir, 'vis', f'{index:06d}_hand_mesh_{side}'),
-                            bg=bg, mask=image['mask'])
-    # rotate hand
-    image_list = mesh_utils.render_geom_rot(hHand, scale_geom=True)
-    image_utils.save_gif(image_list, osp.join(save_dir, 'vis', f'{index:06d}_hand_{side}'))
+    return cTw, hA, beta
 
 
 
-def get_K_pix():
+def get_K_pix(data_dir, ):
     cameras = read_cameras_binary(osp.join(data_dir, 'colmap/cameras.bin'))
     K_pix = []
     for k, v in cameras.items():
-        print(k)
         K = fxfy_pxpy_to_K(v.params)
         K = square_K(K, H, W)
         K_pix.append(K)
+    # k: 1:378
     return K_pix
-
-    # smpl_data = read_json(os.path.join(smpl_folder, smpl_name))[0]
-    # vertices=body_model(return_verts=True, return_tensor=False, **smpl_data)[0]  # (778, 3)
-
-    # # project
-    # vert_3d = vertices.copy()
-    # Rt = np.concatenate([R, T], 1)  # (3, 4)
-    # vert_2d = np.concatenate([vert_3d, np.ones((vert_3d.shape[0], 1))], 1)
-    # vert_2d = Rt @ vert_2d.transpose(1, 0)
-    # vert_2d = K @ vert_2d
-    # vert_2d = (vert_2d[:2, :] / (vert_2d[2:, :]+1e-5)).transpose(1, 0)
-    # for point_2d in vert_2d:
-    #     img_viz = cv2.circle(img, (int(point_2d[0]), int(point_2d[1])), radius=4, color=(0, 0, 255), thickness=-1)
-    #     img_viz = cv2.resize(img_viz, (0, 0), fx=0.25, fy=0.25)
-    # cv2.imshow('image', img_viz)
-    # cv2.waitKey(0)
-    # import ipdb; ipdb.set_trace()
-
-    Rh = np.array(smpl_data['Rh'])
-    Th = np.array(smpl_data['Th'])
-    rot, _ = cv2.Rodrigues(Rh)
-    Rtmano = np.concatenate((rot, Th[0][:, None]), -1)  # (3, 4)
-    Rtmano = np.concatenate((Rtmano, [[0, 0, 0, 1]]), 0)
-
-    smpl_data['Rh'] = np.zeros((1, 3))
-    smpl_data['Th'] = np.zeros((1, 3))
-    print(Rtmano.shape, smpl_data['poses'].shape, smpl_data['shapes'].shape)
-    # vertices=body_model(return_verts=True, return_tensor=False, **smpl_data)[0]  # (778, 3)
-
 
 def read_json(jsonname):
     with open(jsonname) as f:
@@ -289,6 +357,11 @@ CAMERA_MODEL_IDS = dict([(camera_model.model_id, camera_model) \
                          for camera_model in CAMERA_MODELS])
 
 if __name__ == '__main__':
-    render_one(25)
-    # convert()
-    
+    # render_one(55)
+    # convert_from_hhor_to_our()
+    # convert_from_our_to_hhor()
+    # create_gif()
+
+    # move_gt_mesh()
+    # make_subset_gif()
+    vis_camera()

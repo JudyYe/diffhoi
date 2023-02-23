@@ -1,0 +1,17 @@
+type: HOI
+data_dir: ${environment.output}/../HHOR_volsdf/${data.index}
+index: 3_Giuliano
+downscale: 1
+noise: 0
+scale_radius: 3  # what does this do 
+val_rayschunk: 10000
+volume_size: 6
+len: 1000
+offset: 0
+
+batch_size: 1       # one batch, one image
+pin_memory: True
+N_rays: 1024        # N_rays for training
+surface_downscale: 8  # 1920 / 6 = 320
+val_downscale: 30
+surface_rayschunk: 1024

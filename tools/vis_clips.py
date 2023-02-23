@@ -1,3 +1,4 @@
+from functools import partial
 import numpy as np
 import os
 import os.path as osp
@@ -103,7 +104,7 @@ def run_vis_diffusion(dataloader:DataLoader, trainer:Trainer, save_dir, name, re
                 v.image.save(save_path)
 
 
-def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_kwargs, offset=None):
+def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_kwargs, offset=None, max_t=1000):
     device = trainer.device
     if isinstance(trainer, DistributedDataParallel):
         trainer = trainer.module
@@ -118,7 +119,9 @@ def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_
     # reconstruct  hand and render
     name_list = ['gt', 'render_0', 'render_1', 'hand_0', 'hand_1', 'obj_0', 'obj_1', 'hand_front', 'obj_front']
     image_list = [[] for _ in name_list]
-    for (indices, model_input, ground_truth) in tqdm(dataloader):
+    for i, (indices, model_input, ground_truth) in enumerate(tqdm(dataloader)):
+        if i >= max_t:
+            break
         hh = ww = int(np.sqrt(ground_truth['rgb'].size(1) ))
         gt = ground_truth['rgb'].reshape(1, hh, ww, 3).permute(0, 3, 1, 2)
         image_list[0].append(gt)
@@ -222,9 +225,6 @@ def run_hA(dataloader, trainer, save_dir, name):
     return file_list
 
 def run_gt(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_size=6):
-    device = trainer.device
-
-    renderer = trainer.mesh_renderer
 
     os.makedirs(save_dir, exist_ok=True)
     # reconstruct  hand and render in normazlied frame
@@ -251,7 +251,7 @@ def run_gt(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_
     return file_list
 
 
-def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_size=6):
+def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_size=6, max_t=1000):
     device = trainer.device
     if offset is None:
         offset = geom_utils.axis_angle_t_to_matrix(
@@ -264,7 +264,7 @@ def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_siz
         trainer = trainer.module
 
     model = trainer.model
-    renderer = trainer.mesh_renderer
+    renderer = partial(trainer.mesh_renderer, soft=False)
 
     os.makedirs(save_dir, exist_ok=True)
     # reconstruct object
@@ -280,7 +280,9 @@ def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_siz
     # reconstruct  hand and render in normazlied frame
     name_list = ['gt', 'view_0', 'view_1', 'view_j', 'view_h', 'view_hy', 'obj']
     image_list = [[] for _ in name_list]
-    for (indices, model_input, ground_truth) in dataloader:
+    for i, (indices, model_input, ground_truth) in enumerate(dataloader):
+        if i >= max_t:
+            break
         hh = ww = int(np.sqrt(ground_truth['rgb'].size(1) ))
         gt = ground_truth['rgb'].reshape(1, hh, ww, 3).permute(0, 3, 1, 2)
         gt = F.adaptive_avg_pool2d(gt, (H, W))

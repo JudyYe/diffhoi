@@ -3,7 +3,7 @@ mode: geom # geom / semantics
 amodal: amodal  # mixed / amodal / occlusion
 t_std: 0.1 # tranlsation standard deviate
 
-diff_name: geom/pretrained_ho3d_cam_train_seg_1_0.0001
+diff_name: single_mode/cond_all_linear_0_0.5
 diffuse_ckpt: '/home/yufeiy2/scratch/result/vhoi/${novel_view.diff_name}/checkpoints/last.ckpt'
 
 dummy_param: 0

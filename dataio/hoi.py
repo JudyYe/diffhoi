@@ -23,13 +23,18 @@ class SceneDataset(torch.utils.data.Dataset):
                  scale_radius=-1, args=dict()):
 
         assert os.path.exists(data_dir), "Data directory is empty %s" % data_dir
-
         if osp.exists(osp.join(data_dir, 'oObj.obj')):
             self.oObj = mesh_utils.load_mesh(osp.join(data_dir, 'oObj.obj'))
         else:
             self.oObj = None
         self.instance_dir = data_dir
         self.train_cameras = train_cameras
+        if osp.exists(osp.join(data_dir, 'text.txt')):
+            cat = open(osp.join(data_dir, 'text.txt')).read().strip().lower()
+        else:
+            cat = 'object'
+        self.text = f'an image of a hand grasping a {cat}'
+        print(self.text)
 
         image_dir = '{0}/image'.format(self.instance_dir)
         image_paths = sorted(glob_imgs(image_dir))
@@ -41,6 +46,7 @@ class SceneDataset(torch.utils.data.Dataset):
         bw_paths = sorted(glob(os.path.join(bw_dir, '*.npz')))
 
         self.n_images = min(len(image_paths), args.data.setdefault('len', 10000))
+        self.offset = args.data.get('offset', 0)
         
         # determine width, height
         self.downscale = downscale
@@ -110,8 +116,9 @@ class SceneDataset(torch.utils.data.Dataset):
         self.hA = torch.from_numpy(hands['hA']).float().squeeze(1)
         noise = args.data.noise
         if args.hA.mode == 'learn':
-            logging.info('jitter hand a bit!')
-            self.hA_inp = self.hA + (torch.rand([45]) * noise * 2 - noise)
+            # logging.info('jitter hand a bit!')
+            # self.hA_inp = self.hA + (torch.rand([45]) * noise * 2 - noise)
+            self.hA_inp = self.hA
         else:
             self.hA_inp = self.hA
 
@@ -146,6 +153,7 @@ class SceneDataset(torch.utils.data.Dataset):
         return self.n_images - 1
 
     def __getitem__(self, idx): 
+        idx = idx + self.offset
         # TODO: support crop!
         idx_n = idx + 1
         sample = {
@@ -184,6 +192,7 @@ class SceneDataset(torch.utils.data.Dataset):
         sample['hA_n'] = self.hA_inp[idx_n]
 
         ground_truth['hA'] = self.hA[idx]
+        sample['text'] = self.text
         return idx, sample, ground_truth
 
 if __name__ == "__main__":

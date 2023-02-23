@@ -128,7 +128,11 @@ class MeshRenderer(nn.Module):
 
         # apply cameraTworld outside of rendering to support scaling.
         cMeshes = mesh_utils.apply_transform(meshes, cTw)  # to allow scaling                 
-        image = mesh_utils.render_soft(cMeshes, cameras, 
+        if kwargs.get('soft', True):
+            render_fn = mesh_utils.render_soft
+        else:
+            render_fn = mesh_utils.render_mesh
+        image = render_fn(cMeshes, cameras, 
             rgb_mode=True, depth_mode=True, normal_mode=True, xy_mode=True, uv_mode=kwargs.get('uv_mode', True),
             out_size=max(H, W))
         # image = mesh_utils.render_mesh(cMeshes, cameras, rgb_mode=True, depth_mode=True, out_size=max(H, W))
@@ -157,6 +161,11 @@ class Trainer(nn.Module):
         self.H : int = 224 # training reso
         self.W : int = 224 # training reso
 
+        self.train_dataloader = None
+        self.val_dataloader = None
+        self.optimizer: torch.optim.Optimizer = None
+        self.scheduler = None
+
         self.model = model
         self.renderer = SingleRenderer(model)
         self.mesh_renderer = MeshRenderer()
@@ -168,7 +177,6 @@ class Trainer(nn.Module):
         self.focalnet: nn.Module = None
         self.hand_wrapper = hand_utils.ManopthWrapper()
 
-        # if args.training.w_diffuse > 0:
         self.sd_loss = SDLoss(args.novel_view.diffuse_ckpt, args, **args.novel_view.sd_para)
         self.sd_loss.init_model(self.device)
 
@@ -187,6 +195,9 @@ class Trainer(nn.Module):
     def init_camera(self, posenet, focalnet):
         self.posenet = posenet
         self.focalnet = focalnet
+        if self.sd_loss.model.cfg.get('cat_level', False):
+            self.sd_loss.const_str = self.train_dataloader.dataset.text
+        print(self.sd_loss.const_str)
 
     def sample_jHand_camera(self, indices=None, model_input=None, ground_truth=None, H=64, W=64):
         jHand, jTc, jTh, intrinsics = self.get_jHand_camera(indices, model_input, ground_truth, H, W)
@@ -617,7 +628,7 @@ class Trainer(nn.Module):
         return rtn
 
 
-    def get_fullframe_reg_loss(self, losses, extras):
+    def get_fullframe_reg_loss(self, losses, extras, model_input):
         """can only be applied to full_frame rendering, esp for novel view"""
         # Apply Distilled Score from dream diffusion
         # https://github.com/ashawkey/stable-dreamfusion/blob/main/nerf/sd.py
@@ -631,7 +642,7 @@ class Trainer(nn.Module):
             #     pickle.dump({k: v.cpu() for k, v in img.items()}, fp)
             # assert False
             
-            self.sd_loss.apply_sd(**img, 
+            self.sd_loss.apply_sd(**img, text=model_input['text'],
                 weight=args.training.w_diffuse, **args.novel_view.loss)
             extras['diffusion_inp'] = img
         return losses
@@ -646,6 +657,47 @@ class Trainer(nn.Module):
             cJonits_diff = ((extras['cJoints'] - extras['cJoints_n'])**2).mean()
             losses['loss_dt_joint'] = 0.5 * args.training.w_t_hand * (jJonits_diff + cJonits_diff)
         return losses
+
+    def warm_hand(self, args, indices, model_input, ground_truth, render_kwargs_train, it):
+        device = self.device
+        # render hand
+        H = render_kwargs_train['H']
+        W = render_kwargs_train['W']
+        jHand, jTc, jTh, intrinsics = self.get_jHand_camera(indices, model_input, ground_truth, H, W)
+        iHand = self.mesh_renderer(
+            geom_utils.inverse_rt(mat=jTc, return_mat=True), intrinsics, jHand, **render_kwargs
+        )
+        # compute loss only with repsect to hand
+        loss, losses = 0, {}
+        # object mask as I don't care region
+        mask_loss = F.l1_loss((1-obj_mask) * iHand['mask'], (1-obj_mask)*hand_mask_gt)
+        loss += mask_loss
+        losses['mask_loss'] = mask_loss
+
+        if args.training.w_contour > 0:
+            iHand = iHand
+            gt_cont = model_input['hand_contour'].to(device)
+            x_nn = knn_points(gt_cont, iHand['xy'][..., :2], K=1)
+            cham_x = x_nn.dists.mean()
+            losses['loss_contour'] = args.training.w_contour * cham_x
+
+        # optimize cTw only
+        optimizer = self.optimizer
+        # supress other parameters from being updated by setting lr to zeros
+        origin_lr_list = []
+        for i, param_group in optimizer.param_groups:
+            origin_lr_list.append(param_group['lr'])
+            if i != 0:
+                param_group['lr'] = 0
+            
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        # reset lr
+        for i, param_group in optimizer.param_groups:
+            param_group['lr'] = origin_lr_list[i]
+        return 
 
     def forward(self, 
              args,
@@ -790,7 +842,7 @@ class Trainer(nn.Module):
         losses = OrderedDict()
         self.get_reg_loss(losses, extras)
         if full_frame_iter: 
-            self.get_fullframe_reg_loss(losses, extras)
+            self.get_fullframe_reg_loss(losses, extras, model_input)
         else:
             self.get_reproj_loss(losses, extras, ground_truth, model_input, render_kwargs_train)
             self.get_temporal_loss(losses, extras)
@@ -848,9 +900,9 @@ class Trainer(nn.Module):
                         v = v / 2 + 0.5
                     if 'depth' in k:
                         color = image_utils.save_depth(v, None, znear=-1, zfar=1)
-                        logger.log_metrics({f'depth_value/{k}_corner': v[0, 0, 1, 1]}, it)
+                        # logger.log_metrics({f'depth_value/{k}_corner': v[0, 0, 1, 1]}, it)
                         h = v.shape[-1] // 2
-                        logger.log_metrics({f'depth_value/{k}_middle': v[0, 0, h, h]}, it)
+                        # logger.log_metrics({f'depth_value/{k}_middle': v[0, 0, h, h]}, it)
                         logger.add_imgs(TF.to_tensor(color)[None], f'diffuse/{k}_{kk}_color', it)
                         
                     logger.add_imgs(v.clip(-1, 1), f'diffuse/{k}_{kk}', it)

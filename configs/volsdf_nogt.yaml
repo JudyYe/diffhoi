@@ -6,7 +6,7 @@ defaults:
   - camera: delta
   - oTh: learn
   - training: default
-  - novel_view: semantic
+  - novel_view: geom
   - model: small
 
 worker: 'train'

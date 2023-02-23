@@ -60,8 +60,11 @@ class SDLoss:
         self.max_step = int(self.max_step * self.num_step)
         self.alphas_bar = self.diffusion.alphas_cumprod
         self.in_channles = self.model.template_size[0]
+        # TODO: not all in one place init, NOT IDEAL!
         if self.model.cfg.mode.cond:  # False or None.. 
             self.cond = True
+        if self.model.cfg.get('cat_level', False):
+            self.const_str = None  # feed by 
         self.to(device)  # do this since loss is not a nn.Module?
     
     def get_weight(self, t, shape, method):
@@ -81,7 +84,7 @@ class SDLoss:
     def apply_sd(self, image, weight=1,
             w_mask=1, w_normal=1, w_depth=1, w_spatial=False, 
             t=None, noise=None, cond_image=None, w_schdl='dream', 
-            debug=False):
+            debug=False, text=None, **kwargs):
         latents = image
         device = latents.device
         batch_size = len(latents)
@@ -100,7 +103,7 @@ class SDLoss:
             latents_noisy = self.get_noisy_image(latents, t, noise)
             # pred noise
             model_fn = self.get_cfg_model_fn(self.unet, guidance_scale)
-            noise_pred = self.get_pred_noise(model_fn, latents_noisy, t, cond_image)
+            noise_pred = self.get_pred_noise(model_fn, latents_noisy, t, cond_image, text[0])
 
         # w(t), sigma_t^2
         w = self.get_weight(t, noise_pred.shape, w_schdl)
@@ -316,16 +319,23 @@ class SDLoss:
         # use out['sample']
         return out['sample']
 
-    def get_model_kwargs(self, device, batch_size, cond_image):
+    def get_model_kwargs(self, device, batch_size, cond_image, cond_text=None):
         uncond_image = self.model.cfg.get('uncond_image', False)
-        tokens = self.unet.tokenizer.encode(self.const_str)
+        # tokens = self.unet.tokenizer.encode(self.const_str)
         # TODO change to constant string~~
         tokenizer = self.unet.tokenizer
-        tokens = tokenizer.encode(self.const_str)
+        if self.model.cfg.get('cat_level', False) and self.const_str is None:
+            assert cond_text is not None
+            text = self.const_str = cond_text
+        else:
+            text = self.const_str
+        print(text)
+        
+        tokens = tokenizer.encode(text)
         tokens, mask = tokenizer.padded_tokens_and_mask(tokens, self.options["text_ctx"])
 
         # tokens, mask = self.unet.tokenizer.padded_tokens_and_mask( [self.const_str], self.options["text_ctx"])
-        uncond_tokens, uncond_mask = self.unet.tokenizer.padded_tokens_and_mask( [], self.options["text_ctx"])
+        uncond_tokens, uncond_mask = tokenizer.padded_tokens_and_mask( [], self.options["text_ctx"])
         model_kwargs = dict(
             tokens=torch.tensor([tokens] * batch_size + [uncond_tokens] * batch_size, device=device),
             mask=torch.tensor([mask] * batch_size + [uncond_mask] * batch_size,
@@ -342,7 +352,7 @@ class SDLoss:
                 model_kwargs['cond_image'] = cond_image.repeat(2, 1, 1, 1)
         return model_kwargs
 
-    def get_pred_noise(self, model_fn, latents_noisy, t, cond_image):
+    def get_pred_noise(self, model_fn, latents_noisy, t, cond_image, cond_text=None):
         """
         inside the method, it 
         :param model_fn: CFG func! Wrapped! function
@@ -360,7 +370,7 @@ class SDLoss:
         with torch.no_grad():
             latent_model_input = torch.cat([latents_noisy] * 2)
             # apply CF-guidance
-            model_kwargs = self.get_model_kwargs(device, batch_size, cond_image)
+            model_kwargs = self.get_model_kwargs(device, batch_size, cond_image, cond_text)
             # from # GaussinDiffusion:L633 get_eps()
             tt = torch.cat([t, t], 0)
             model_output = model_fn(latent_model_input, tt, **model_kwargs)

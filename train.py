@@ -98,6 +98,8 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
     # Create model
     posenet, focal_net = get_camera(args, datasize=len(dataset)+1, H=dataset.H, W=dataset.W)
     model, trainer, render_kwargs_train, render_kwargs_test, volume_render_fn, flow_render_fn = get_model(args, data_size=len(dataset)+1, cam_norm=dataset.max_cam_norm)
+    trainer.train_dataloader = dataloader
+    trainer.val_dataloader = valloader
     trainer.init_camera(posenet, focal_net)
     trainer.init_hand_texture(dataloader)
     trainer.to(device)
@@ -116,7 +118,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
     render_kwargs_test['H'] = val_dataset.H
     render_kwargs_test['W'] = val_dataset.W
     valH, valW = render_kwargs_test['H'], render_kwargs_test['W']
-
+    print(render_kwargs_train['H'])
     render_kwargs_surface = deepcopy(render_kwargs_test)
     render_kwargs_surface['H'] = render_kwargs_train['H'] // args.data.surface_downscale
     render_kwargs_surface['W'] = render_kwargs_train['W'] // args.data.surface_downscale
@@ -124,7 +126,8 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
 
     # build optimizer
     optimizer = get_optimizer(args, model, posenet, focal_net)
-
+    trainer.optimizer = optimizer
+    
     # checkpoints
     checkpoint_io = CheckpointIO(checkpoint_dir=os.path.join(exp_dir, 'ckpts'), allow_mkdir=is_master())
     if world_size > 1:
@@ -165,6 +168,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
 
     # build scheduler
     scheduler = get_scheduler(args, optimizer, last_epoch=it-1)
+    trainer.scheduler = scheduler
     t0 = time.time()
     log.info('=> Start training..., it={}, lr={}, in {}'.format(it, optimizer.param_groups[0]['lr'], exp_dir))
     end = (it >= args.training.num_iters) and (not args.test_train)
@@ -178,6 +182,10 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     train_sampler.set_epoch(epoch_idx)
                 for (indices, model_input, ground_truth) in dataloader:
                     int_it = int(it // world_size)
+                    # do a warm up for the first warm_hand iterations
+                    if int_it < args.training.warm_hand:
+                        trainer.warm_hand(args, indices, model_input, ground_truth, render_kwargs_train, int_it)
+                        continue
                     #-------------------
                     # validate
                     #-------------------
@@ -296,11 +304,12 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                         logging.info('vis tool_clip run_render')
                         one_time_loader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=mesh_utils.collate_meshes)
                         try:
+                            print('run clip!!!!!')
                             with torch.no_grad():
                                 file_list = tool_clip.run(
                                     one_time_loader, trainer, 
                                     os.path.join(logger.log_dir, 'meshes'), '%08d' % it, 224, 224,
-                                    N=64, volume_size=args.data.get('volume_size', 2.0))
+                                    N=512, volume_size=args.data.get('volume_size', 2.0), max_t=10)
                                 
                             for file in file_list:
                                 name = os.path.basename(file)[9:-4]
@@ -311,7 +320,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                         with torch.no_grad():
                             file_list = tool_clip.run_render(
                                 one_time_loader, trainer, 
-                                os.path.join(logger.log_dir, 'nvs'), '%08d' % it, render_kwargs_surface)
+                                os.path.join(logger.log_dir, 'nvs'), '%08d' % it, render_kwargs_surface, max_t=10)
                         for file in file_list:
                             name = os.path.basename(file)[9:-4]
                             logger.add_gif_files(file, 'nvs/' + name, it)

@@ -10,6 +10,7 @@ import torch.nn as nn
 from torch import optim
 from torch import autograd
 import torch.nn.functional as F
+from pytorch3d.renderer import (ImplicitRenderer, AlphaCompositor, EmissionAbsorptionRaymarcher)
 
 class Embedder(nn.Module):
     def __init__(self, input_dim, max_freq_log2, N_freqs,
@@ -533,10 +534,10 @@ def get_optimizer(args, model, posenet, focalnet):
             print(name)
             model_but_oTh.append(param)
     param_groups = [
+        {'params': posenet.parameters(), 'lr': lr_dict['pose']},
         {'params': model_but_oTh, 'lr': lr_dict['model']},
         {'params': oTh, 'lr': lr_dict['oTh']},
         {'params': texture, 'lr': lr_dict['text']},
-        {'params': posenet.parameters(), 'lr': lr_dict['pose']},
         {'params': focalnet.parameters(), 'lr': lr_dict['focal'], 
         }            
     ]
@@ -607,34 +608,59 @@ def get_scheduler(args, optimizer, last_epoch=-1):
         raise NotImplementedError
     return scheduler
 
+def test():
+    """
+    test siren-sdf pretrain
+    """
+    from utils.print_fn import logger
+    from utils.mesh_util import extract_mesh
+    from utils.io_util import cond_mkdir
+    # NOTE: 1.0e-3, 1000 batch points overfit.
+    lr = 1.0e-4
+    num_iters = 5000
+    batch_points = 5000
+    cond_mkdir('./dev_test/pretrain_siren')
+    logger = Logger('./dev_test/pretrain_siren', img_dir='./dev_test/pretrain_siren/imgs', monitoring='tensorboard', monitoring_dir='./dev_test/pretrain_siren/events')
+    
+    siren_sdf = ImplicitSurface(W_geo_feat=256, skips=[], use_siren=True)
+    siren_sdf.cuda()
+    for n, p in siren_sdf.named_parameters():
+        log.info(n, p.data.norm().item())
+    #--------- extract mesh @ 0-th iter.
+    # extract_mesh(siren_sdf, volume_size=1.0, filepath='./dev_test/pretrain_siren/0.ply')
+    
+    #--------- normal train and extract mesh finally.
+    siren_sdf.pretrain_hook({'logger': logger, 'lr': lr, 'num_iters': num_iters, 'batch_points': batch_points})
+    namebase = "lr={:.3g}_bs={}_num={}".format(lr, num_iters, batch_points)
+    for n, p in siren_sdf.named_parameters():
+        log.info(n, p.data.norm().item())
+    extract_mesh(siren_sdf, volume_size=1.0, filepath='./dev_test/pretrain_siren/{}.ply'.format(namebase))
+    torch.save(siren_sdf.state_dict(), './dev_test/pretrain_siren/{}.pt'.format(namebase))
+
+
+def vis_scheduler():
+    import matplotlib.pyplot as plt
+    from omegaconf import OmegaConf
+    method_list = ['exponential_step', 'warmupcosine']
+    opt = torch.optim.Adam([torch.nn.Parameter(torch.randn(1))], lr=1)
+    for method in method_list:
+        cfg = OmegaConf.create(
+            {'training': {'scheduler': 
+                          {'type': method, 
+                           'warmup_steps': 2500,  # 5% of total steps
+                           'min_factor': 0.1},
+                           'num_iters': 50000,}})
+        scheduler = get_scheduler(cfg, opt)
+        lr_list = []
+        for i in range(cfg.training.num_iters):
+            scheduler.step(i)
+            lr_list.append(scheduler.get_lr()[0])
+        plt.plot(lr_list, label=method)
+    plt.legend(method_list)
+    plt.savefig('/home/yufeiy2/scratch/result/vis/lr_scheduler.png')
+    return 
+
 
 if __name__ == "__main__":
-    def test():
-        """
-        test siren-sdf pretrain
-        """
-        from utils.print_fn import logger
-        from utils.mesh_util import extract_mesh
-        from utils.io_util import cond_mkdir
-        # NOTE: 1.0e-3, 1000 batch points overfit.
-        lr = 1.0e-4
-        num_iters = 5000
-        batch_points = 5000
-        cond_mkdir('./dev_test/pretrain_siren')
-        logger = Logger('./dev_test/pretrain_siren', img_dir='./dev_test/pretrain_siren/imgs', monitoring='tensorboard', monitoring_dir='./dev_test/pretrain_siren/events')
-        
-        siren_sdf = ImplicitSurface(W_geo_feat=256, skips=[], use_siren=True)
-        siren_sdf.cuda()
-        for n, p in siren_sdf.named_parameters():
-            log.info(n, p.data.norm().item())
-        #--------- extract mesh @ 0-th iter.
-        # extract_mesh(siren_sdf, volume_size=1.0, filepath='./dev_test/pretrain_siren/0.ply')
-        
-        #--------- normal train and extract mesh finally.
-        siren_sdf.pretrain_hook({'logger': logger, 'lr': lr, 'num_iters': num_iters, 'batch_points': batch_points})
-        namebase = "lr={:.3g}_bs={}_num={}".format(lr, num_iters, batch_points)
-        for n, p in siren_sdf.named_parameters():
-            log.info(n, p.data.norm().item())
-        extract_mesh(siren_sdf, volume_size=1.0, filepath='./dev_test/pretrain_siren/{}.ply'.format(namebase))
-        torch.save(siren_sdf.state_dict(), './dev_test/pretrain_siren/{}.pt'.format(namebase))
-    test()
+    # test()
+    vis_scheduler()
