@@ -433,10 +433,6 @@ class Trainer(nn.Module):
         if args.training.w_hand_mask > 0:
             obj_mask = model_input['obj_mask'].float()
             N = obj_mask.shape[0]
-            # torch.Size([1, 50176]) torch.Size([1, 1, 224, 224]) torch.Size([1, 50176])
-            print(obj_mask.shape, extras['iHand_full']['mask'].shape, model_input['hand_mask'].shape)
-            print(obj_mask.device, extras['iHand_full']['mask'].device, model_input['hand_mask'].device)
-
             losses['loss_hand_mask'] = args.training.w_hand_mask * F.l1_loss(
                 obj_mask * extras['iHand_full']['mask'].view(N, -1), obj_mask * model_input['hand_mask'])
             
@@ -768,8 +764,8 @@ class Trainer(nn.Module):
                 rays_o, rays_d, select_inds = rend_util.get_rays(
                     jTc, intrinsics, H, W, N_rays=-1)
             else:
-                # select_inds = self.pixel_sampler(model_input, H, W, N_rays=args.data.N_rays, it)
-                select_inds = None
+                select_inds = self.pixel_sampler(model_input, H, W, args.data.N_rays, it)
+                # select_inds = None
                 rays_o, rays_d, select_inds = rend_util.get_rays(
                     jTc, intrinsics, H, W, N_rays=args.data.N_rays, inds=select_inds)
         else:
@@ -964,26 +960,21 @@ class Trainer(nn.Module):
         # color = image_utils.save_depth(to_img_fn(ret['iObj']['depth'].unsqueeze(-1)), None, znear=-1, zfar=1)
         # logger.add_imgs(TF.to_tensor(color)[None], f'diffuse/obj_depth_nomask', it)
         mask = torch.cat([
-            to_img_fn(ret['hand_mask_target'].unsqueeze(-1).float()).repeat(1, 3, 1, 1),
-            to_img_fn(ret['obj_mask_target'].unsqueeze(-1)).repeat(1, 3, 1, 1),
-            to_img_fn(ret['mask_target'].unsqueeze(-1)).repeat(1, 3, 1, 1),
+            to_img_fn(ret['hand_mask_target'].unsqueeze(-1).float()).repeat(1, 3, 1, 1).cpu(),
+            to_img_fn(ret['obj_mask_target'].unsqueeze(-1)).repeat(1, 3, 1, 1).cpu(),
+            to_img_fn(ret['mask_target'].unsqueeze(-1)).repeat(1, 3, 1, 1).cpu(),
             to_img_fn(ret['label_target'].cpu()),
             ], -1)
 
         logger.add_imgs(mask, 'gt/hoi_mask_gt', it)
 
         mask = torch.cat([
-            to_img_fn(ret['iHand']['mask'].unsqueeze(-1)).repeat(1, 3, 1, 1),
-            to_img_fn(ret['iObj']['mask'].unsqueeze(-1)).repeat(1, 3, 1, 1),
-            to_img_fn(ret['iHoi']['mask'].unsqueeze(-1)).repeat(1, 3, 1, 1),
-            to_img_fn(ret['iHoi']['label']),
+            to_img_fn(ret['iHand']['mask'].unsqueeze(-1)).repeat(1, 3, 1, 1).cpu(),
+            to_img_fn(ret['iObj']['mask'].unsqueeze(-1)).repeat(1, 3, 1, 1).cpu(),
+            to_img_fn(ret['iHoi']['mask'].unsqueeze(-1)).repeat(1, 3, 1, 1).cpu(),
+            to_img_fn(ret['iHoi']['label']).cpu(),
             ], -1)
         logger.add_imgs(mask, 'hoi/hoi_mask_pred', it)
-        mask = torch.cat([
-            to_img_fn(ret['hand_ignore'].unsqueeze(-1).float()),
-            to_img_fn(ret['obj_ignore'].unsqueeze(-1).float()),
-            ], -1)
-        logger.add_imgs(mask, 'hoi/hoi_ignore_mask', it)
 
         image = torch.cat([
             to_img_fn(ret['iHand']['rgb']),
@@ -1004,27 +995,27 @@ class Trainer(nn.Module):
         ], -1)
         logger.add_imgs(depth, 'hoi/hoi_depth_pred', it)
 
-        # # vis depth in point cloud
-        depth_hand = to_img_fn(depth_v_hand)
-        depth_obj = to_img_fn(depth_v_obj)
-        _, _, H, W = depth_hand.shape
-        cameras = self.mesh_renderer.get_cameras(None, ret['intrinsics'], H, W)
+        # # # vis depth in point cloud
+        # depth_hand = to_img_fn(depth_v_hand)
+        # depth_obj = to_img_fn(depth_v_obj)
+        # _, _, H, W = depth_hand.shape
+        # cameras = self.mesh_renderer.get_cameras(None, ret['intrinsics'], H, W)
 
-        depth_hand = mesh_utils.depth_to_pc(depth_hand, cameras=cameras)
-        depth_obj = mesh_utils.depth_to_pc(depth_obj, cameras=cameras)
+        # depth_hand = mesh_utils.depth_to_pc(depth_hand, cameras=cameras)
+        # depth_obj = mesh_utils.depth_to_pc(depth_obj, cameras=cameras)
         
-        depth_hand = plot_utils.pc_to_cubic_meshes(pc=depth_hand, eps=5e-2)
-        depth_obj = plot_utils.pc_to_cubic_meshes(pc=depth_obj, eps=5e-2)
+        # depth_hand = plot_utils.pc_to_cubic_meshes(pc=depth_hand, eps=5e-2)
+        # depth_obj = plot_utils.pc_to_cubic_meshes(pc=depth_obj, eps=5e-2)
 
-        mesh_utils.dump_meshes(
-            osp.join(logger.log_dir, 'meshes/%08d_hand' % it), 
-            depth_hand)
-        mesh_utils.dump_meshes(osp.join(logger.log_dir, 'meshes/%08d_obj' % it), 
-            depth_obj)
+        # mesh_utils.dump_meshes(
+        #     osp.join(logger.log_dir, 'meshes/%08d_hand' % it), 
+        #     depth_hand)
+        # mesh_utils.dump_meshes(osp.join(logger.log_dir, 'meshes/%08d_obj' % it), 
+        #     depth_obj)
 
-        depth_hoi = mesh_utils.join_scene_w_labels([depth_hand, depth_obj], 3)
-        image_list = mesh_utils.render_geom_rot(depth_hoi, 'circle', cameras=cameras, view_centric=True)
-        logger.add_gifs(image_list, 'hoi/hoi_depth_pointcloud', it)
+        # depth_hoi = mesh_utils.join_scene_w_labels([depth_hand, depth_obj], 3)
+        # image_list = mesh_utils.render_geom_rot(depth_hoi, 'circle', cameras=cameras, view_centric=True)
+        # logger.add_gifs(image_list, 'hoi/hoi_depth_pointcloud', it)
 
 
 def get_model(args, data_size=-1, **kwargs):

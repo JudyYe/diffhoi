@@ -296,7 +296,7 @@ def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_siz
         cam_norm = mesh_utils.get_camera_dist(wTc=jTc)
         xyz = torch.cat([torch.zeros_like(cam_norm), torch.zeros_like(cam_norm), -cam_norm * 0.1])
         z_back = geom_utils.axis_angle_t_to_matrix(t=xyz)
-
+        print(jHand.device, jObj.device, jTc.device, H, W)
         image2, _ = render(renderer, jHand, jObj, jTc@z_back@offset, intrinsics, H, W)
         image3, _ = render(renderer, jHand, jObj, None, None, H, W)
         image4, _ = render(renderer, 

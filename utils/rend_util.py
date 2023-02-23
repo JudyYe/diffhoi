@@ -189,9 +189,13 @@ def get_rays(c2w, intrinsics, H, W, N_rays=-1, inds=None):
         #     np.random.choice(H*W, size=[*prefix, N_rays], replace=False)).to(device)
         # select_inds = torch.randint(0, H*W, size=[N_rays]).expand([*prefix, N_rays]).to(device)
         # ---------- option 2: H/W seperately randomize
-        select_hs = torch.randint(0, H, size=[N_rays]).to(device)
-        select_ws = torch.randint(0, W, size=[N_rays]).to(device)
-        select_inds = select_hs * W + select_ws
+        if inds is None:
+            select_hs = torch.randint(0, H, size=[N_rays]).to(device)
+            select_ws = torch.randint(0, W, size=[N_rays]).to(device)
+            select_inds = select_hs * W + select_ws
+        else:
+            print('use specified inds')
+            select_inds = inds
         select_inds = select_inds.expand([*prefix, N_rays])
 
         i = torch.gather(i, -1, select_inds)

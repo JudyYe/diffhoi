@@ -38,7 +38,7 @@ class ProportionPixelSampler(PixelSampler):
         assert model_input['obj_mask'].shape[0] == 1
         obj_indices = torch.nonzero(model_input['obj_mask'].view(-1)).squeeze(1)
         hand_indices = torch.nonzero(model_input['hand_mask'].view(-1)).squeeze(1)
-        background_indices = torch.nonzero(((1-model_input['obj_mask']) * (1-model_input['hand_mask'])).view(-1)).squeeze(1)
+        background_indices = torch.nonzero(((~model_input['obj_mask']) * (~model_input['hand_mask'])).view(-1)).squeeze(1)
 
         obj_factor = self.data_init_factor[2] + (self.data_final_factor[2]-self.data_init_factor[2]) * (it/self.gen_cfg.training.num_iters)
         hand_factor = self.data_init_factor[1] + (self.data_final_factor[1]-self.data_init_factor[1]) * (it/self.gen_cfg.training.num_iters)
