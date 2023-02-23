@@ -1,5 +1,12 @@
 
--
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=anneal/hoi4d_len\${data.len}_\${novel_view.sd_para.anneal_noise}  \
+    training=diffuse novel_view=geom novel_view.diff_name="single_mode/cond_all_linear_0_0.5" \
+    data=hoi4d data.len=1000  novel_view.sd_para.anneal_noise=sqrt,constant,linear,exp,cosine\
+    training.warmup=100 pixel_sampler.name=naive \
+    environment.slurm=False environment.slurm_timeout=480 environment.resume=False logging.mode=none 
+
+
 
 
 
@@ -8,7 +15,7 @@ CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nog
     training=diffuse novel_view=geom novel_view.diff_name="single_mode/cond_all_linear_0_0.5" \
     data=hoi4d data.len=1000 training.lr.pose=5e-4,1e-5 training.lr.oTh=5e-4,1e-5 training.w_hand_mask=1,0,10 \
     training.warmup=100 pixel_sampler.name=proportion,naive \
-    environment.slurm=True False environment.resume=False logging.mode=none 
+    environment.slurm=False environment.resume=False logging.mode=none 
 
 -
 
@@ -95,11 +102,13 @@ CUDA_VISIBLE_DEVICES=3 PYTHONPATH=. python -m engine -m --config-name volsdf_nog
 
 
 -
+
+
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
-    expname=uniform_rate/ablation_w\${training.w_diffuse}_\${novel_view.loss.w_schdl}_\${novel_view.sd_para.max_step}_\${training.warmup}  \
-    training=diffuse novel_view=geom novel_view.diff_name="hand_ddpm_geom/train_seg_CondGeomGlide" \
+    expname=uniform_rate/sun_ablation_w\${training.w_diffuse}_\${novel_view.loss.w_schdl}_\${novel_view.sd_para.max_step}_\${training.warmup}  \
+    training=diffuse novel_view=geom novel_view.diff_name="ddpm_novel_sunday/hoi4d_CondGeomGlide_1" \
     data=hoi4d data.len=2 novel_view.sd_para.max_step=0.98 training.warmup=100 novel_view.loss.w_schdl=bell,dream \
-    training.w_diffuse=1e-4 \
+    training.w_diffuse=1e-3 \
     environment.slurm=False environment.resume=False logging.mode=none 
 
 

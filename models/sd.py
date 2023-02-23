@@ -1,4 +1,5 @@
 # modified from https://github.com/ashawkey/stable-dreamfusion/blob/main/nerf/sd.py
+from hydra import main
 from tqdm import tqdm
 import pickle
 import numpy as np
@@ -19,16 +20,22 @@ class SDLoss:
         self, 
         ckpt_path, 
         cfg={}, 
+        anneal_noise='constant',
         min_step=0.02, 
         max_step=0.98, 
+        to_step=0.5,
         prediction_respacing=100, 
         guidance_scale=4, 
         prompt='a semantic segmentation of a hand grasping an object', **kwargs,
     ) -> None:
         super().__init__()
         self._warp = None
-        self.min_step = min_step
-        self.max_step = max_step
+        self.min_ratio = min_step
+        self.max_ratio = max_step
+        self.to_ratio = to_step
+        self.min_step = 0
+        self.max_step = 0
+        self.anneal_noise = anneal_noise
         self.num_step = prediction_respacing
         self.guidance_scale = guidance_scale
         self.ckpt_path = ckpt_path
@@ -81,6 +88,41 @@ class SDLoss:
             w = 1. + torch.zeros(shape)
         return w
 
+    def schedule_max_step(self, it):
+        method = self.anneal_noise
+        min_ratio = self.to_ratio
+
+        max_iter = self.cfg.training.num_iters
+        if method == 'linear':
+            # linearly anneal noise level from max_ratio to min_ratio
+            max_ratio = self.max_ratio * (1 - it / max_iter) + min_ratio * (it / max_iter)
+        elif method == 'constant':
+            max_ratio = self.max_ratio
+        elif method == 'exp':
+            # exponentially anneal noise level from max_ratio to min_ratio
+            a = self.max_ratio
+            b = self.to_ratio
+            alpha = 4
+            t = it / max_iter
+            c = (a - b) / (1 - (b/a)**alpha)
+            max_ratio = c * (b/a)** (t*alpha) + (a-c)
+            # max_ratio = self.max_ratio * (min_ratio / self.max_ratio) ** (it / max_iter)
+        elif method == 'cosine':
+            # cosine anneal noise level from max_ratio to min_ratio
+            max_ratio = self.max_ratio + 0.5 * (min_ratio - self.max_ratio) * (1 + np.cos(np.pi * (max_iter - it) / max_iter))
+        elif method == 'sqrt':
+            # anneal noise level from max_ratio to min_ratio in super linear fashion
+            a = self.max_ratio
+            b = self.to_ratio
+            t = it / max_iter
+            alpha = 0.5
+            max_ratio = (1-t)**alpha * a + (1-(1-t)**alpha) * b
+    
+        else:
+            raise NotImplementedError(f'Unknown anneal_noise method {method}')
+        self.max_step = int(max_ratio * self.num_step)
+        return self.max_step
+    
     def apply_sd(self, image, weight=1,
             w_mask=1, w_normal=1, w_depth=1, w_spatial=False, 
             t=None, noise=None, cond_image=None, w_schdl='dream', 
@@ -90,6 +132,8 @@ class SDLoss:
         batch_size = len(latents)
         guidance_scale = self.guidance_scale
         # timestep ~ U(0.02, 0.98) to avoid very high/low noise level
+        self.schedule_max_step(kwargs.get('it', 0))
+
         if t is None:
             t = torch.randint(self.min_step, self.max_step + 1, [batch_size], dtype=torch.long, device=device)
         if not torch.is_tensor(t):
@@ -523,9 +567,31 @@ def vis_wgrad():
     return
 
 
+@main(config_path='../configs', config_name='volsdf_nogt')
+def vis_schedule_max_step(cfg):
+    device = 'cuda:0'
+    sd_loss = SDLoss(cfg.novel_view.diffuse_ckpt, cfg, **cfg.novel_view.sd_para)
+    sd_loss.init_model(device)
+
+    method_list = ['sqrt', 'constant', 'linear', 'exp', 'cosine']
+    ts = range(0, cfg.training.num_iters, 10)
+    y_list = []
+    for m, method in enumerate(method_list):
+        print(method)
+        y_list.append([])
+        sd_loss.anneal_noise = method
+        for it in ts:
+            max_step = sd_loss.schedule_max_step(it)
+            y_list[m].append(max_step)
+        plt.plot(ts, y_list[m])
+    plt.legend(method_list)
+    plt.savefig(osp.join(save_dir, 'schedule_max_step.png'))
+
+
 if __name__ == '__main__':
     # test_sd()
     # vis_alpha()
     save_dir = '/home/yufeiy2/scratch/result/vis/'
 
-    vis_wgrad()
+    # vis_wgrad()
+    vis_schedule_max_step()

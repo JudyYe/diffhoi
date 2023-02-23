@@ -199,7 +199,6 @@ class Trainer(nn.Module):
         self.focalnet = focalnet
         if self.sd_loss.model.cfg.get('cat_level', False):
             self.sd_loss.const_str = self.train_dataloader.dataset.text
-        print(self.sd_loss.const_str)
 
     def sample_jHand_camera(self, indices=None, model_input=None, ground_truth=None, H=64, W=64):
         jHand, jTc, jTh, intrinsics = self.get_jHand_camera(indices, model_input, ground_truth, H, W)
@@ -636,7 +635,7 @@ class Trainer(nn.Module):
         return rtn
 
 
-    def get_fullframe_reg_loss(self, losses, extras, model_input):
+    def get_fullframe_reg_loss(self, losses, extras, model_input, it):
         """can only be applied to full_frame rendering, esp for novel view"""
         # Apply Distilled Score from dream diffusion
         # https://github.com/ashawkey/stable-dreamfusion/blob/main/nerf/sd.py
@@ -649,9 +648,8 @@ class Trainer(nn.Module):
             # with open('/home/yufeiy2/scratch/result/vis_ddpm/input/hoi4d.pkl', 'wb') as fp:
             #     pickle.dump({k: v.cpu() for k, v in img.items()}, fp)
             # assert False
-            
             self.sd_loss.apply_sd(**img, text=model_input['text'],
-                weight=args.training.w_diffuse, **args.novel_view.loss)
+                weight=args.training.w_diffuse, **args.novel_view.loss, it=it)
             extras['diffusion_inp'] = img
         return losses
 
@@ -860,7 +858,7 @@ class Trainer(nn.Module):
         losses = OrderedDict()
         self.get_reg_loss(losses, extras)
         if full_frame_iter: 
-            self.get_fullframe_reg_loss(losses, extras, model_input)
+            self.get_fullframe_reg_loss(losses, extras, model_input, it)
         else:
             self.get_reproj_loss(losses, extras, ground_truth, model_input, render_kwargs_train)
             self.get_temporal_loss(losses, extras)
@@ -935,7 +933,7 @@ class Trainer(nn.Module):
             log = self.sd_loss.model.vis_depth_as_pc(hand_depth, obj_depth, 'diffuse/pc', log, it,)
             logger.log_metrics(log, it)
             # try free generation? 
-            noise_step = self.sd_loss.max_step
+            noise_step = self.sd_loss.schedule_max_step(it)
             noisy = self.sd_loss.get_noisy_image(image['image'], noise_step-1)
             out['image'] = self.sd_loss.vis_multi_step(noisy, noise_step, 1, image.get('cond_image', None))
             out['image'] = self.sd_loss.model.decode_samples(out['image'])

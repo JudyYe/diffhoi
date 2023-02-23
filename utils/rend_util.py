@@ -194,7 +194,6 @@ def get_rays(c2w, intrinsics, H, W, N_rays=-1, inds=None):
             select_ws = torch.randint(0, W, size=[N_rays]).to(device)
             select_inds = select_hs * W + select_ws
         else:
-            print('use specified inds')
             select_inds = inds
         select_inds = select_inds.expand([*prefix, N_rays])
 
