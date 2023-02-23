@@ -1,4 +1,13 @@
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=artifact/hoi4d_len\${data.len}_whand\${training.w_hand_mask}_lrpose\${training.lr.pose}_\${training.warmup}  \
+    training=diffuse novel_view=geom novel_view.diff_name="single_mode/cond_all_linear_0_0.5" \
+    data=hoi4d data.len=1000 training.lr.pose=5e-4,1e-5 training.w_hand_mask=1,0,10 \
+    training.warmup=100 novel_view.loss.w_schdl=bell \
+    environment.slurm=False environment.resume=False logging.mode=none 
+
+-
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
     expname=artifact/hoi4d_len\${data.len}_lrpose\${training.lr.pose}_w\${training.w_diffuse}_\${training.warmup}  \
     training=diffuse novel_view=geom novel_view.diff_name="single_mode/cond_all_linear_0_0.5" \
     data=hoi4d data.len=1000 training.lr.pose=1e-4,5e-4 \

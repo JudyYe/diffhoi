@@ -183,9 +183,9 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                 for (indices, model_input, ground_truth) in dataloader:
                     int_it = int(it // world_size)
                     # do a warm up for the first warm_hand iterations
-                    if int_it < args.training.warm_hand:
-                        trainer.warm_hand(args, indices, model_input, ground_truth, render_kwargs_train, int_it)
-                        continue
+                    # if int_it < args.training.warm_hand:
+                    #     trainer.warm_hand(args, indices, model_input, ground_truth, render_kwargs_train, int_it)
+                    #     continue
                     #-------------------
                     # validate
                     #-------------------

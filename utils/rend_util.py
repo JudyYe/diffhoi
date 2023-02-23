@@ -164,7 +164,7 @@ def get_proj_mat(c2w, transpose=False):
 
     return p
 
-def get_rays(c2w, intrinsics, H, W, N_rays=-1):
+def get_rays(c2w, intrinsics, H, W, N_rays=-1, inds=None):
     device = c2w.device
     if c2w.shape[-1] == 7: #In case of quaternion vector representation
         cam_loc = c2w[..., 4:]

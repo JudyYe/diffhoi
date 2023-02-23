@@ -21,7 +21,7 @@ from models.cameras.gt import PoseNet
 from models.frameworks.volsdf import SingleRenderer, VolSDF, volume_render_flow
 from utils import rend_util
 from utils.logger import Logger
-
+from models.pix_sampler import get_pixel_sampler, PixelSampler
 from models.blending import hard_rgb_blend, softmax_rgb_blend, volumetric_rgb_blend
 from jutils import geom_utils, mesh_utils, model_utils, hand_utils, plot_utils, image_utils
 
@@ -165,6 +165,8 @@ class Trainer(nn.Module):
         self.val_dataloader = None
         self.optimizer: torch.optim.Optimizer = None
         self.scheduler = None
+        self.pixel_sampler: PixelSampler = get_pixel_sampler(
+            args.pixel_sampler.name, args.pixel_sampler, args)
 
         self.model = model
         self.renderer = SingleRenderer(model)
@@ -428,6 +430,16 @@ class Trainer(nn.Module):
             else:
                 losses['loss_img'] = losses['loss_img'].mean()
 
+        if args.training.w_hand_mask > 0:
+            obj_mask = model_input['obj_mask'].float()
+            N = obj_mask.shape[0]
+            # torch.Size([1, 50176]) torch.Size([1, 1, 224, 224]) torch.Size([1, 50176])
+            print(obj_mask.shape, extras['iHand_full']['mask'].shape, model_input['hand_mask'].shape)
+            print(obj_mask.device, extras['iHand_full']['mask'].device, model_input['hand_mask'].device)
+
+            losses['loss_hand_mask'] = args.training.w_hand_mask * F.l1_loss(
+                obj_mask * extras['iHand_full']['mask'].view(N, -1), obj_mask * model_input['hand_mask'])
+            
         if args.training.occ_mask == 'label':
             # deprecate the rest in Jan14
             # TODO Q1: GT(1, 1). --> pred??; Q2: normalize?? 
@@ -658,41 +670,45 @@ class Trainer(nn.Module):
             losses['loss_dt_joint'] = 0.5 * args.training.w_t_hand * (jJonits_diff + cJonits_diff)
         return losses
 
-    def warm_hand(self, args, indices, model_input, ground_truth, render_kwargs_train, it):
-        device = self.device
-        # render hand
-        H = render_kwargs_train['H']
-        W = render_kwargs_train['W']
-        jHand, jTc, jTh, intrinsics = self.get_jHand_camera(indices, model_input, ground_truth, H, W)
-        iHand = self.mesh_renderer(
-            geom_utils.inverse_rt(mat=jTc, return_mat=True), intrinsics, jHand, **render_kwargs
-        )
-        # compute loss only with repsect to hand
-        loss, losses = 0, {}
-        # object mask as I don't care region
-        mask_loss = F.l1_loss((1-obj_mask) * iHand['mask'], (1-obj_mask)*hand_mask_gt)
-        loss += mask_loss
-        losses['mask_loss'] = mask_loss
+    # def warm_hand(self, args, indices, model_input, ground_truth, render_kwargs_train, it):
+    #     device = self.device
+    #     # render hand
+    #     H = render_kwargs_train['H']
+    #     W = render_kwargs_train['W']
+    #     jHand, jTc, jTh, intrinsics = self.get_jHand_camera(indices, model_input, ground_truth, H, W)
+    #     iHand = self.mesh_renderer(
+    #         geom_utils.inverse_rt(mat=jTc, return_mat=True), intrinsics, jHand, **render_kwargs_train,
+    #     )
+    #     # compute loss only with repsect to hand
+    #     obj_mask = model_input['obj_mask']
+    #     hand_mask_gt = model_input['hand_mask']
 
-        if args.training.w_contour > 0:
-            iHand = iHand
-            gt_cont = model_input['hand_contour'].to(device)
-            x_nn = knn_points(gt_cont, iHand['xy'][..., :2], K=1)
-            cham_x = x_nn.dists.mean()
-            losses['loss_contour'] = args.training.w_contour * cham_x
+    #     loss, losses = 0, {}
+    #     # object mask as I don't care region
+    #     mask_loss = F.l1_loss((1-obj_mask) * iHand['mask'], (1-obj_mask)*hand_mask_gt)
+    #     loss += mask_loss
+    #     losses['mask_loss'] = mask_loss
 
-        # optimize cTw only
-        optimizer = self.optimizer
-        # supress other parameters from being updated by setting lr to zeros
-        origin_lr_list = []
-        for i, param_group in optimizer.param_groups:
-            origin_lr_list.append(param_group['lr'])
-            if i != 0:
-                param_group['lr'] = 0
+    #     if args.training.w_contour > 0:
+    #         iHand = iHand
+    #         gt_cont = model_input['hand_contour'].to(device)
+    #         x_nn = knn_points(gt_cont, iHand['xy'][..., :2], K=1)
+    #         cham_x = x_nn.dists.mean()
+    #         losses['loss_contour'] = args.training.w_contour * cham_x
+
+    #     # optimize cTw only
+    #     optimizer = self.optimizer
+    #     # supress other parameters from being updated by setting lr to zeros
+    #     origin_lr_list = []
+    #     for i, param_group in optimizer.param_groups:
+    #         origin_lr_list.append(param_group['lr'])
+    #         if i != 0:
+    #             param_group['lr'] = 0
             
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+    #     optimizer.zero_grad()
+    #     loss.backward()
+    #     optimizer.step()
+    #     print(it, loss, losses)
 
         # reset lr
         for i, param_group in optimizer.param_groups:
@@ -711,6 +727,7 @@ class Trainer(nn.Module):
         device = self.device
         N = len(indices)
         indices = indices.to(device)
+        model_input = model_utils.to_cuda(model_input, device)
         full_frame_iter = self.training and self.args.training.render_full_frame \
             and it % 2 == 0 and it >= self.args.training.warmup
         # 1. GET POSES
@@ -751,8 +768,10 @@ class Trainer(nn.Module):
                 rays_o, rays_d, select_inds = rend_util.get_rays(
                     jTc, intrinsics, H, W, N_rays=-1)
             else:
+                # select_inds = self.pixel_sampler(model_input, H, W, N_rays=args.data.N_rays, it)
+                select_inds = None
                 rays_o, rays_d, select_inds = rend_util.get_rays(
-                    jTc, intrinsics, H, W, N_rays=args.data.N_rays)
+                    jTc, intrinsics, H, W, N_rays=args.data.N_rays, inds=select_inds)
         else:
             rays_o, rays_d, select_inds = rend_util.get_rays(
                 jTc, intrinsics, H, W, N_rays=-1)
@@ -790,6 +809,9 @@ class Trainer(nn.Module):
         iHand = self.mesh_renderer(
             geom_utils.inverse_rt(mat=jTc, return_mat=True), intrinsics, jHand, **render_kwargs_train
         )
+        extras['iHand_full'] = {}
+        for k, v in iHand.items():
+            extras['iHand_full'][k] = v
         extras['iHand'] = iHand
 
         # 2.3 BLEND!!!
