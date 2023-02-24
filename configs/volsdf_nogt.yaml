@@ -27,7 +27,7 @@ device_ids: [0]        # single GPU / DP / DDP; run on all available GPUs;
 test_train: 0
 
 pixel_sampler:
-  name: naive
+  name: proportion
   data_init_factor: [0.35, 0.35, 0.3]
   data_final_factor: [0.1, 0.1, 0.80]
 
