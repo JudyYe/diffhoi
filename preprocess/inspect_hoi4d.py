@@ -1,4 +1,3 @@
-from collections import defaultdict
 from tqdm import tqdm
 import pandas
 from scipy.spatial.transform import Rotation as Rt
