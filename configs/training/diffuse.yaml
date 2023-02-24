@@ -7,7 +7,7 @@ render_full_frame: True
 
 lr: 
   model: 5.0e-4
-  pose: 1.e-5
+  pose: 5.e-4
   focal: 1.e-5
   oTh: 1.0e-5
   text: 1.0e-3

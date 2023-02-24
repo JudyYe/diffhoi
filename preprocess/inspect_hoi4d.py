@@ -1,3 +1,4 @@
+from collections import defaultdict
 from tqdm import tqdm
 import pandas
 from scipy.spatial.transform import Rotation as Rt
@@ -234,6 +235,42 @@ def decode_video(root, list_file):
         #     log.info(err.decode())
 
 
+def create_test_split(num=2):
+    np.random.seed(123)
+    with open(osp.join( data_dir, 'Sets/test_vid_ins.txt'), 'r') as fp:
+        index_list = [line.strip() for line in fp]
+    
+    # np.random.shuffle(index_list)
+    record = []
+    cat_exist = {}
+    for index in tqdm(index_list):
+        cat = int(index.split('/')[2][1:])
+
+        if cat in cat_exist:
+            if num > 0 and cat_exist[cat] >= num:
+                continue
+        else:
+            cat_exist[cat] = 0
+        if mapping[cat] not in rigid:
+            print('continue', mapping[cat])
+            continue
+        cat_exist[cat] += 1
+        
+        clips = continuous_clip(index)
+        print(clips, index)
+
+        for c, cc in enumerate(clips): 
+            line = {
+                'index': index,
+                'save_index': f'{mapping[cat]}_{cat_exist[cat]:d}_{c:d}', 
+                'start': int(cc[0] * 15),
+                'stop': int(cc[1] * 15),
+                'cat': mapping[cat],
+            }       
+            record.append(line)            
+    pandas.DataFrame(record).to_csv(osp.join(data_dir, 'Sets/test_vhoi.csv'), index=False)
+    return    
+
 def batch_clip(num=1):
     with open(osp.join(data_dir, 'Sets/test_vid_ins.txt')) as fp:
         index_list = [line.strip() for line in fp]
@@ -468,6 +505,7 @@ def parse_args():
     parser.add_argument("--skip", action='store_true')
     parser.add_argument("--clip", action='store_true')
     parser.add_argument("--render", action='store_true')
+    parser.add_argument("--split", action='store_true')
     parser.add_argument("--render_one", action='store_true')
     parser.add_argument("--debug", action='store_true')
     parser.add_argument("--num", default=-1, type=int)
@@ -479,6 +517,7 @@ def parse_args():
     return args
 
 
+             
 if __name__ == '__main__':
     args = parse_args()
     # decode_video('/home/yufeiy2/scratch/data/HOI4D/HOI4D_release/', 'test_vid_ins.txt')
@@ -489,7 +528,8 @@ if __name__ == '__main__':
     #     get_one_clip(index, cc[0], cc[1])
     # save_dir = '/home/yufeiy2/scratch/data/HOI4D/amodal'
 
-
+    if args.split:
+        create_test_split()
     if args.clip:
         batch_clip(args.num)
     if args.render:
@@ -499,4 +539,7 @@ if __name__ == '__main__':
         debug()
     if args.render_one:
         render_one()
-    make_all_text()
+    # make_all_text()
+
+
+

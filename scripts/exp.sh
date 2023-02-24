@@ -1,21 +1,23 @@
 
+
+-
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
     expname=anneal/hoi4d_len\${data.len}_\${novel_view.sd_para.anneal_noise}  \
     training=diffuse novel_view=geom novel_view.diff_name="single_mode/cond_all_linear_0_0.5" \
     data=hoi4d data.len=1000  novel_view.sd_para.anneal_noise=sqrt,constant,linear,exp,cosine\
     training.warmup=100 pixel_sampler.name=naive \
-    environment.slurm=False environment.slurm_timeout=480 environment.resume=False logging.mode=none 
+    environment.slurm=True environment.slurm_timeout=480 environment.resume=False logging.mode=none 
 
 
 
 
 
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
-    expname=artifact/hoi4d_len\${data.len}_whand\${training.w_hand_mask}_lrpose\${training.lr.pose}xobj\${training.lr.oTh}_\${training.warmup}  \
+    expname=artifact/hoi4d_len\${data.len}_whand\${training.w_hand_mask}_lrpose\${training.lr.pose}xobj\${training.lr.oTh}_\${pixel_sampler.name}  \
     training=diffuse novel_view=geom novel_view.diff_name="single_mode/cond_all_linear_0_0.5" \
     data=hoi4d data.len=1000 training.lr.pose=5e-4,1e-5 training.lr.oTh=5e-4,1e-5 training.w_hand_mask=1,0,10 \
     training.warmup=100 pixel_sampler.name=proportion,naive \
-    environment.slurm=False environment.resume=False logging.mode=none 
+    environment.slurm=False environment.slurm_timeout=120 environment.resume=False logging.mode=none 
 
 -
 
