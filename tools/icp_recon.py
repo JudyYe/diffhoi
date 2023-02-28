@@ -159,8 +159,8 @@ def test():
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--source', type=str, default='/home/dihuang/data/mesh/source.ply')
-    parser.add_argument('--target', type=str, default='/home/dihuang/data/mesh/target.ply')
+    parser.add_argument('--source', type=str, default='/home/yufeiy2/scratch/result/vhoi/pred_calib/Mug_1_0_len1000_w0.01_suf_smooth_100_lrpose0.0005xobj1e-05_exp/meshes/00007501_obj.ply')
+    parser.add_argument('--target', type=str, default='/home/yufeiy2/scratch/result/HOI4D/Mug_1/oObj.obj')
     parser.add_argument('--flip_x', action='store_true')
     parser.add_argument('--flip_y', action='store_true')
     parser.add_argument('--flip_z', action='store_true')

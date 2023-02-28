@@ -1,12 +1,6 @@
 defaults:
   - submitit_local
 
-# from senthil
-# run:
-#   dir: ${exp_dir}/outputs
-# sweep:
-#   dir: ${exp_dir}/outputs
-#   subdir: ID${hydra.job.id} 
 submitit_folder: ${exp_dir}/submitit_train_logs/
 
 gpus_per_node: 1

@@ -1,3 +1,4 @@
+import yaml
 from tqdm import tqdm
 import pandas
 from scipy.spatial.transform import Rotation as Rt
@@ -161,8 +162,6 @@ def get_one_clip(index, t_start, t_end, is_step=False, save_index=None, hand_wra
         obj_mask = (mask_crop[..., 0] > 10) * 255    # red object, green hand
         hand_mask = (mask_crop[..., 1] > 10) * 255 
 
-        
-
         image = imageio.imread(osp.join(data_dir, 'HOI4D_release', index, f'align_rgb/{t:05d}.jpg'))
         crop = image_utils.crop_resize(image, bbox_sq, H)
         
@@ -323,15 +322,59 @@ def batch_clip_from_split(split_file, num=1):
     df = pandas.read_csv(osp.join(data_dir, 'Sets', split_file))
     for index in tqdm(df.index):
         row = df.loc[index]
-        if osp.exists(osp.join(save_dir, row['save_index'], 'text.txt')):
-            print(save_dir, row['save_index'], 'exists')
+        lock_file = osp.join(save_dir, 'lock', row['save_index'])
+        done_file = osp.join(save_dir, 'done', row['save_index'])
+        if args.skip and osp.exists(done_file):
+            print(done_file, 'exists')
             continue
+        try:
+            os.makedirs(lock_file)
+        except FileExistsError:
+            if args.skip:
+                print(lock_file, 'skip')
+                continue
+
         try:
             get_one_clip(row['index'], row['start'], row['stop'], True, row['save_index'])
         except FileNotFoundError as e:
             print(e)
             continue
-        # break
+        
+        os.makedirs(done_file, exist_ok=True)
+        os.system('rm -rf ' + lock_file)
+
+
+def create_clip_from_yaml(yaml_file):
+    with open(osp.join(data_dir, 'Sets', yaml_file), 'r') as fp:
+        seq_list = yaml.load(fp, Loader=yaml.FullLoader)
+    record = []
+    for row in tqdm(seq_list):
+        save_index, index, time = row.split(',')
+        ind = int(time) // 100 - 1
+        clips = continuous_clip(index)
+        a, b = clips[ind]  
+        a = int(a*15); b = int(b*15)
+        assert int(time) <= b  and a <= int(time), f'{time} {a} {b} {index} {save_index}'
+
+
+        record.append({
+            'index': index,
+            'save_index': save_index,
+            'start': a,
+            'stop': b,
+            'cat': save_index.split('_')[0],
+        })
+    pandas.DataFrame(record).to_csv(
+        osp.join(data_dir, 'Sets', osp.basename(yaml_file).split('.')[0] + '.csv'), index=False)
+        # if osp.exists(osp.join(save_dir, row['save_index'], 'text.txt')):
+        #     print(save_dir, row['save_index'], 'exists')
+        #     continue
+        # try:
+        #     get_one_clip(row['index'], row['start'], row['stop'], True, row['save_index'])
+        # except FileNotFoundError as e:
+        #     print(e)
+        #     continue
+
 
 
 def batch_clip(num=1, split_file='test_vhoi.csv'):
@@ -499,6 +542,17 @@ def render_batch():
         os.makedirs(done, exist_ok=True)
         os.system(f'rm -r {lock}')
 
+def nontrivial_action():
+    df = pandas.read_csv(osp.join(data_dir, 'Sets/all_contact_test_hand.csv'))
+    for cat in rigid:
+        # cat_id = name2id[cat]
+        df_cat = df[df['class'] == cat]
+        act_list = df_cat['action']
+        act_list = act_list.unique()
+        print(cat, act_list)
+
+
+
 def debug():
     fnum = 64
     vid = 'ZY20210800001/H1/C13/N48/S238/s03/T4'
@@ -595,16 +649,18 @@ if __name__ == '__main__':
     # save_dir = '/home/yufeiy2/scratch/data/HOI4D/amodal'
 
     if args.split:
-        create_test_split(args.num)
+        create_clip_from_yaml('test_vhoix2.yaml')
+        # create_test_split(args.num)
     if args.clip:
-        batch_clip_from_split('test_vhoi.csv', args.num)
+        batch_clip_from_split('test_vhoix2.csv', args.num)
         # batch_clip(args.num, 'test_vhoi.csv')
     if args.render:
         # save_dir = '/home/yufeiy2/scratch/data/HOI4D/handup'
         save_dir = '/home/yufeiy2/scratch/data/HOI4D/amodal'
         render_batch()
     if args.debug:
-        debug()
+        # debug()
+        nontrivial_action()
     if args.render_one:
         render_one()
     # make_all_text()
