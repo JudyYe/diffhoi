@@ -1,13 +1,14 @@
 defaults:
   - environment: grogu_judy
   - logging: wandb
-  - hydra: default
   - data: hoi4d
   - camera: delta
   - oTh: learn
   - training: diffuse
   - novel_view: geom
   - model: small
+  - hydra: default
+  # - override hydra/launcher: slurm
 
 suf: '' # '' '_smooth? '
 worker: 'train'

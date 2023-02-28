@@ -3,10 +3,6 @@ from fileinput import filelineno
 import logging
 from pathlib import Path
 import wandb
-import hydra
-import hydra.utils as hydra_utils
-import submitit
-
 from models.frameworks import get_model
 from models.cameras import get_camera
 from models.base import get_optimizer, get_scheduler
@@ -27,7 +23,7 @@ import functools
 from tqdm import tqdm
 from glob import glob
 import numpy as np
-
+from hydra import main
 
 import torch
 import torch.nn.functional as F
@@ -38,9 +34,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 import tools.vis_clips as tool_clip
 import tools.icp_recon as icp_tool
+from utils.utis import update_pythonpath_relative_hydra
 
 def main_function(gpu=None, ngpus_per_node=None, args=None):
-
     init_env(args, gpu, ngpus_per_node)
     
     #----------------------------
@@ -466,7 +462,7 @@ def quant_log(hObj, gt_oObj, scale=False):
 
 
 
-def main():
+def origin_main():
     # Arguments
     parser = io_util.create_args_parser()
     parser.add_argument("--ddp", action='store_true', help='whether to use DDP to train.')
@@ -477,6 +473,12 @@ def main():
 
     
     slurm_utils.slurm_wrapper(args, config.training.exp_dir, main_function, {'args':config})
+
+
+@main(config_path="configs", config_name="volsdf_nogt")
+def main(args):
+    update_pythonpath_relative_hydra()
+    main_function(None, None, args)
 
 
 if __name__ == "__main__":
