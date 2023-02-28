@@ -36,7 +36,7 @@ def batch_main(args_dir, **kwargs):
     print(bad_cnt)
 
     
-def overlay_one(image_file, fname,  save_file, wrapper, save_mask=False, H=256, render=True):
+def overlay_one(image_file, fname,  save_file, wrapper, save_mask=False, H=256, render=True, f=10):
     global bad_cnt
 
     a = pickle.load(open(fname, 'rb'))
@@ -54,7 +54,7 @@ def overlay_one(image_file, fname,  save_file, wrapper, save_mask=False, H=256, 
     # left_hand = a['pred_output_list'][0]['left_hand']
     if 'pred_hand_pose' in hand_info:
         # cv2.imwrite(osp.join(save_dir, 'crop.png'), hand['img_cropped'])
-        data = process_mocap_predictions(hand_info, orig_H, orig_W, wrapper, hand_type)
+        data = process_mocap_predictions(hand_info, orig_H, orig_W, wrapper, hand_type, orig_f=f)
         if not render:
             return None, data
         cHand, _ = wrapper(data['cTh'].to(device), data['hA'].to(device))
@@ -107,7 +107,7 @@ def get_camera(pred_cam, hand_bbox_tl, bbox_scale, bbox, hand_wrapper, hA, rot, 
 
 
 # from https://github.com/JudyYe/ihoi
-def process_mocap_predictions(one_hand, H, W, hand_wrapper=None, hand_side='right_hand'):
+def process_mocap_predictions(one_hand, H, W, hand_wrapper=None, hand_side='right_hand', orig_f=10):
     if hand_side == 'left_hand':
         one_hand['pred_camera'][..., 1] *= -1
         one_hand['pred_hand_pose'][:, 1::3] *= -1
@@ -121,7 +121,7 @@ def process_mocap_predictions(one_hand, H, W, hand_wrapper=None, hand_side='righ
 
     hoi_bbox = np.array([0, 0, W, H])
     
-    cTh, cam_f, cam_p = get_camera(one_hand['pred_camera'], one_hand['bbox_top_left'], one_hand['bbox_scale_ratio'], hoi_bbox, hand_wrapper, hA, rot)
+    cTh, cam_f, cam_p = get_camera(one_hand['pred_camera'], one_hand['bbox_top_left'], one_hand['bbox_scale_ratio'], hoi_bbox, hand_wrapper, hA, rot, fx=orig_f)
 
     betas = torch.FloatTensor(one_hand['pred_hand_betas'])
     data = {

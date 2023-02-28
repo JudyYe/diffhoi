@@ -81,10 +81,10 @@ def get_predicted_poses(data_dir):
     # save hand_boxes from hand_paths
     hand_box_dir = osp.join(data_dir, 'hand_boxes')
     os.makedirs(hand_box_dir, exist_ok=True)
-    save_hand_boxes(hand_paths, img_paths, hand_box_dir)
+    # save_hand_boxes(hand_paths, img_paths, hand_box_dir)
     
     # call frankmocap to get predicted poses
-    call_frank_mocap(hand_box_dir, data_dir)
+    # call_frank_mocap(hand_box_dir, data_dir)
 
     # post-preprocess the predicted poses
     post_process(data_dir, img_paths, )
@@ -108,10 +108,13 @@ def post_process(data_dir, img_paths):
     # 2. vis the predicted poses
     out_paths = sorted(glob(osp.join(data_dir, 'mocap/*_prediction_result.pkl')))
     orig_H, orig_W = imageio.imread(img_paths[0]).shape[0:2]
+    fx = np.load(osp.join(data_dir, 'cameras_hoi.npz'))['K_pix'][0][0, 0]
+    ndc_f = fx / orig_W * 2
+    print(ndc_f)
     wrapper = hand_utils.ManopthWrapper().to(device)
     for img_file, out_file in zip(img_paths, out_paths):
         save_file = osp.join(data_dir, 'vis', osp.basename(img_file)[:-4])
-        image, data = overlay_one(img_file, out_file, save_file, wrapper, render=False)
+        image, data = overlay_one(img_file, out_file, save_file, wrapper, render=False, f=ndc_f)
 
         camera_dict['cTw'].append(data['cTh'].cpu().detach().numpy()[0])
         K_pix = mesh_utils.intr_from_ndc_to_screen(
@@ -270,7 +273,7 @@ if __name__ == '__main__':
         batch_get_predicted_poses(args.inp)
     if args.debug:
         get_predicted_poses(args.inp)
-        # smooth_hand(args.inp)
+        smooth_hand(args.inp)
     if args.overlay:
         batch_overlay(args.inp)
     # if args.ho3d:
