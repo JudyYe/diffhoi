@@ -1,3 +1,4 @@
+import PIL
 import trimesh
 import collections
 import struct
@@ -21,7 +22,7 @@ import torchvision.transforms.functional as TF
 from pytorch3d.renderer.cameras import PerspectiveCameras
 from jutils import image_utils, geom_utils, mesh_utils, hand_utils, plot_utils
 
-
+from .read_write_model import *
 
 device = 'cuda:0'
 shape_dir = '/home/yufeiy2/scratch/data/HHOR/CAD/Sculptures/3_Giuliano.ply'
@@ -265,6 +266,9 @@ def read_json(jsonname):
         data = json.load(f)
     return data
 
+def K_to_fxfypxpy(K):
+    fx, fy, px, py = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
+    return fx, fy, px, py
 
 def fxfy_pxpy_to_K(fx_fy_px_py):
     fx, fy, px, py = fx_fy_px_py
@@ -290,6 +294,25 @@ def pad_to_square(image, pad_value=0):
     else:
         image = np.pad(image, (((w - h) // 2, (w - h) // 2), (0, 0), (0, 0)), 'constant', constant_values=pad_value)
     return image
+
+
+
+def write_cameras_text(cameras, path):
+    """
+    see: src/base/reconstruction.cc
+        void Reconstruction::WriteCamerasText(const std::string& path)
+        void Reconstruction::ReadCamerasText(const std::string& path)
+    """
+    HEADER = "# Camera list with one line of data per camera:\n"
+    "#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n"
+    "# Number of cameras: {}\n".format(len(cameras))
+    with open(path, "w") as fid:
+        fid.write(HEADER)
+        for _, cam in cameras.items():
+            to_write = [cam.id, cam.model, cam.width, cam.height, *cam.params]
+            line = " ".join([str(elem) for elem in to_write])
+            fid.write(line + "\n")
+
 
 
 def read_cameras_binary(path_to_model_file):
@@ -356,12 +379,142 @@ CAMERA_MODELS = {
 CAMERA_MODEL_IDS = dict([(camera_model.model_id, camera_model) \
                          for camera_model in CAMERA_MODELS])
 
+
+def convert_from_our_to_hhor(data_dir, out_dir, suf=''):
+    """_summary_
+
+    :param data_dir: result/HOI4D/Mug_1_0
+    :param out_dir: result/HOI4D_HHOR/Mug_1_0/colmap
+    """
+
+    # camdata: dict 1-index 1...345
+    # Camera(id=1, model='PINHOLE', width=1920, height=1080, params=array([1296., 1296.,  960.,  540.]))
+
+    # img_out: dict 1-index 1...345
+    # Image(id=1, 
+        # qvec=array([ 0.82646548,  0.40011911, -0.38176071,  0.10544315]), 
+        # tvec=array([0.023, 0.045, 0.389]), 
+        # camera_id=1, name='000000.jpg', 
+        # xys=array([], shape=(0, 2), dtype=float64), 
+        # point3D_ids=array([], dtype=int64))    
+
+    # points3D_out 1...778? (MANO vertices)
+    # Point3D(id=1, 
+    # xyz=array([-0.043396  , -0.01018524,  0.02160645], dtype=float32), 
+    # rgb=array([0, 0, 0]), error=0, image_ids=array([0]), point2D_idxs=array([0]))
+
+    # camdata = read_cameras_binary(os.path.join(self.data_dir, 'colmap', 'cameras.bin'))
+    # imdata = read_images_binary(os.path.join(self.data_dir, 'colmap', 'images.bin'))
+    # pts3d = read_points3d_binary(os.path.join(self.data_dir, 'colmap', 'points3D.bin'))
+
+    # self.images_lis = [os.path.join(self.data_dir, 'colmap', 'images_png', imdata[k+1].name.replace('.jpg', '.png')) for k in range(len(imdata))]
+    # self.sem_lis = [os.path.join(self.data_dir, 'colmap', 'semantics', imdata[k+1].name.replace('.jpg', '.png')) for k in range(len(imdata))]
+
+    image_list = sorted(glob(osp.join(data_dir, 'image', '*.png')))
+    hand_list = sorted(glob(osp.join(data_dir, 'hand_mask', '*.png')))
+    obj_list = sorted(glob(osp.join(data_dir, 'obj_mask', '*.png')))
+
+    # save to colmap/images_png
+    os.makedirs(osp.join(out_dir, 'images_png'), exist_ok=True)
+    os.makedirs(osp.join(out_dir, 'semantics'), exist_ok=True)
+    if not args.skip_image:
+        for i, (image, hand, obj) in enumerate(zip(image_list, hand_list, obj_list)):
+            index = osp.basename(image).replace('.png', '')
+            out_image = osp.join(out_dir, 'images_png', '%s.png' % index)
+            out_mask = osp.join(out_dir, 'semantics', '%s.png' % index)
+
+            img = imageio.imread(image)
+            hand_mask = imageio.imread(hand) > 0
+            obj_mask = imageio.imread(obj) > 0
+            mask = (hand_mask + obj_mask) > 0
+            mask = mask.astype(np.uint8) * 255
+
+            img_png = np.concatenate([img, mask[:, :, None]], axis=2)
+            imageio.imwrite(out_image, img_png)
+
+            hand_mask = hand_mask.astype(np.uint8) * 255
+            obj_mask = obj_mask.astype(np.uint8) * 255
+            sem_mask = np.stack([mask, obj_mask, hand_mask], axis=2)
+
+            imageio.imwrite(out_mask, sem_mask)
+
+    hand_wrapper = hand_utils.ManopthWrapper().to(device)
+    # save to colmap/cameras.bin
+    camera_out = {}
+    camera_dict = np.load(osp.join(data_dir, f'cameras_hoi{suf}.npz'))
+    hand_dict = np.load(osp.join(data_dir, f'hands{suf}.npz'))
+    xys_ = np.zeros((0, 2), float)
+    point3D_ids_ = np.full(0, -1, int)
+    images_out = {}
+    verts_list = []
+    for i, (image, ) in enumerate(zip(image_list, )):
+        # camera
+        W, H = PIL.Image.open(image).size
+        cTw = torch.FloatTensor(camera_dict['cTw'][i])
+
+        K_pix = camera_dict['K_pix'][i]
+        fxfypxpy = K_to_fxfypxpy(K_pix)
+        camera_out[i+1] = Camera(id=i+1, model='PINHOLE', width=W, height=H, params=fxfypxpy)
+
+        # posed image Rt
+        imgname = osp.basename(image)
+        Rnew, Tnew, s = geom_utils.homo_to_rt(cTw)  # cTw or wTc?? in form of K[Rt] (cTw)
+        print(s, Tnew.shape)
+        Rnew = Rnew.detach().cpu().numpy()
+        Tnew = Tnew.detach().cpu().numpy()
+
+        qvec = rotmat2qvec(Rnew)
+        image_ = Image(
+            id=i+1,
+            qvec=qvec,
+            tvec=Tnew,
+            camera_id=i+1,
+            name=imgname,
+            xys=xys_,
+            point3D_ids=point3D_ids_
+        )
+        images_out[i+1] = image_
+
+    # points
+    hA = torch.FloatTensor(hand_dict['hA']).to(device)
+    beta = torch.FloatTensor(hand_dict['beta']).to(device)
+    hHand, _ = hand_wrapper(None, hA, th_betas=beta)
+    verts_all = hHand.verts_padded()
+    points3D_out = {}
+    vertices = verts_all.mean(0).cpu().detach().numpy()
+    print(vertices.shape)
+    for idx in tqdm(range(vertices.shape[0]), desc='points3D'):
+        point_ = Point3D(
+            id=idx+1,
+            xyz=vertices[idx],
+            rgb=np.array([0, 0, 0]),
+            error=0,
+            image_ids=np.array([0]),
+            point2D_idxs=np.array([0])
+        )
+        points3D_out[idx+1] = point_
+
+        
+    write_cameras_binary(camera_out, os.path.join(out_dir, f"cameras{suf}.bin"))
+    write_images_binary(images_out, os.path.join(out_dir, f"images{suf}.bin" ))
+    write_points3d_binary(points3D_out, os.path.join(out_dir, f"points3D{suf}.bin"))
+    
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--seq', type=str, default='Bottle_1_1')
+    parser.add_argument('--suf', type=str, default='_smooth_100')
+    parser.add_argument('--skip_image', action='store_true')
+    return parser.parse_args()
+
 if __name__ == '__main__':
+    args = parse_args()
     # render_one(55)
     # convert_from_hhor_to_our()
-    # convert_from_our_to_hhor()
+    hoi4d_dir = '/home/yufeiy2/scratch/result/HOI4D'
+    seq = args.seq
+    convert_from_our_to_hhor(osp.join(hoi4d_dir, seq), osp.join(hoi4d_dir + '_HHOR', seq, 'colmap'), '_smooth_100')
     # create_gif()
 
     # move_gt_mesh()
     # make_subset_gif()
-    vis_camera()
+    # vis_camera()

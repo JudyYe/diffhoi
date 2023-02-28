@@ -74,8 +74,9 @@ def get_predicted_poses(data_dir):
     try:
         os.makedirs(lock_file)
     except FileExistsError:
-        print(f'Processing {lock_file}, skip.')
-        return
+        if args.skip:
+            print(f'Processing {lock_file}, skip.')
+            return
     
     # save hand_boxes from hand_paths
     hand_box_dir = osp.join(data_dir, 'hand_boxes')
@@ -90,6 +91,14 @@ def get_predicted_poses(data_dir):
 
     # remove lock
     os.rmdir(lock_file)
+
+
+# def batch_ho3d(data_dir, ):
+#     hand_paths = 
+#     img_paths = 
+#     ho3d_save_hand_boxes(hand_paths, img_paths, hand_box_dir)
+#     call_frank_mocap(hand_box_dir, data_dir)
+#     ho3d_post_process(data_dir, img_paths,)
 
 
 def post_process(data_dir, img_paths):
@@ -224,7 +233,6 @@ def batch_overlay(data_dir):
 def batch_get_predicted_poses(data_dir):
     data_dirs = sorted(glob(osp.join(data_dir, '*/image')))
     for inp_dir in tqdm(data_dirs, desc='batch_get_predicted_poses'):
-        # get_predicted_poses(osp.dirname(inp_dir))
 
         done = osp.join(osp.dirname(inp_dir), f'hands_smooth_{args.w_smooth}.npz')
         lock_file = done + '.lock'
@@ -234,11 +242,15 @@ def batch_get_predicted_poses(data_dir):
         try:
             os.makedirs(lock_file)
         except FileExistsError:
-            continue
+            if args.skip:
+                print(f'lock {lock_file} exists, skip')
+                continue
 
+        # get_predicted_poses(osp.dirname(inp_dir))
         smooth_hand(osp.dirname(inp_dir))
 
         os.rmdir(lock_file)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Preprocess hand prediction')
@@ -246,6 +258,7 @@ def parse_args():
     parser.add_argument('--skip', action='store_true')
     parser.add_argument('--batch', action='store_true')
     parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--ho3d', action='store_true')
     parser.add_argument('--overlay', action='store_true')
     parser.add_argument('--w_smooth', type=float, default=100)
     return parser.parse_args()
@@ -256,7 +269,9 @@ if __name__ == '__main__':
     if args.batch:
         batch_get_predicted_poses(args.inp)
     if args.debug:
-        smooth_hand(args.inp)
-        # get_predicted_poses(args.inp)
+        get_predicted_poses(args.inp)
+        # smooth_hand(args.inp)
     if args.overlay:
         batch_overlay(args.inp)
+    # if args.ho3d:
+    #     batch_ho3d(args.inp)

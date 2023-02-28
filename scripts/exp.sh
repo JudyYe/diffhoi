@@ -1,17 +1,34 @@
 
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=pred_no_prior/\${data.index}_len\${data.len}_suf\${suf} \
+    data.index=Bottle_1_1,Bottle_1_0,Kettle_1_0,Knife_1_0,Knife_1_1,Mug_1_0,ToyCar_1_0,Bowl_1_0 suf='_smooth_100' \
+    training.render_full_frame=False training.w_diffuse=0 \
+    environment.slurm=True  environment.resume=False logging.mode=none 
+
+
+
+
 
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
-    expname=pred_calib/\${data.index}_len\${data.len}_w\${training.w_diffuse}_suf\${suf}_lrpose\${training.lr.pose}xobj\${training.lr.oTh}_\${novel_view.diff_index}  \
-    data.index=Mug_1_0 training.w_diffuse=1e-3,1e-2 suf="_smooth_100" \
+    expname=pred_calib/\${data.index}_len\${data.len}_w\${training.w_diffuse}_suf\${suf}_lrpose\${training.lr.pose}xobj\${training.lr.oTh}_\${novel_view.sd_para.anneal_noise}  \
+    data.index=Mug_1_0 training.w_diffuse=1e-2,1e-3 suf='_smooth_100'  \
+    novel_view.sd_para.anneal_noise=sqrt,linear,exp,cosine \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
     environment.slurm=False  environment.resume=False logging.mode=none 
 
 
-
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
     expname=pred/\${data.index}_len\${data.len}_suf\${suf}_lrpose\${training.lr.pose}xobj\${training.lr.oTh}_\${novel_view.diff_index}  \
+    data.index=Knife_1_0,Knife_1_1,Bowl_1_0 suf='_smooth_100' \
+    novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse,CondGeomGlide_cond_all_linear_catFalse_cfgFalse,ObjGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    environment.slurm=True environment.exclude_nodes="grogu-1-9+grogu-1-24+grogu-2-9"  environment.resume=False logging.mode=none 
+
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=pred_go/\${data.index}_len\${data.len}_suf\${suf}_w\${training.w_diffuse}_lrpose\${training.lr.pose}xobj\${training.lr.oTh}_\${novel_view.diff_index}  \
     data.index=Bottle_1_0,Kettle_1_0,Knife_1_0,Knife_1_1,Mug_1_0,ToyCar_1_0,Bowl_1_0 suf='_smooth_100' \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse,CondGeomGlide_cond_all_linear_catFalse_cfgFalse,ObjGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    training.w_diffuse=1e-2 \
     environment.slurm=True environment.exclude_nodes="grogu-1-9+grogu-1-24+grogu-2-9"  environment.resume=False logging.mode=none 
 
 

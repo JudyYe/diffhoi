@@ -289,8 +289,13 @@ def create_test_split(num=2):
         cat = int(index.split('/')[2][1:])
 
         if cat in cat_exist:
-            if num > 0 and cat_exist[cat] >= num:
-                continue
+            if mapping[cat] in ['Kettle', 'Bottle']:
+                print('give a few try')
+                if num > 0 and cat_exist[cat] >= num+2:
+                    continue
+            else:    
+                if num > 0 and cat_exist[cat] >= num:
+                    continue
         else:
             cat_exist[cat] = 0
         if mapping[cat] not in rigid:
