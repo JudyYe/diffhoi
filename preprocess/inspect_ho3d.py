@@ -644,6 +644,31 @@ def put_one_clip(hand_wrapper, save_dir, vid, anno, box_anno, f_list, split='eva
     np.savez_compressed(osp.join(save_dir, index, 'cameras_hoi.npz'), **camera_dict)
     np.savez_compressed(osp.join(save_dir, index, 'hands.npz'), **hand_dict)
 
+split_str = """010_potted_meat_can GPMF10 MPM14, GPMF13, MPM12, GPMF12, MPM11, GPMF11, MPM13, MPM10, GPMF14
+021_bleach_cleanser ABF10 SB11, SB12, ABF11, ABF13, SB10, ABF12, ABF14, SB13, SB14
+019_pitcher_base AP10 AP11, AP14, AP13, AP12
+003_cracker_box MC1 MC2, MC6, MC5, MC4
+006_mustard_bottle SM1 SM5, SM2, SM4, SM3
+004_sugar_box SS1 ShSu12, SiS1, SS2, ShSu14, ShSu13, SS3, ShSu10
+035_power_drill MDF10 MDF12, MDF14, MDF11, ND2, MDF13
+011_banana BB10 BB12, SiBF10, SiBF14, SiBF11, SiBF12, BB13, BB11, SiBF13, BB14
+037_scissors GSF10 GSF13, GSF12, GSF14, GSF11
+025_mug SMu1 SMu41, SMu42, SMu40""" 
+
+def make_split():
+    split = {'test': [], 'train': []}
+    for line in split_str.split('\n'):
+        print(line)
+        cat = line.split(' ')[0]
+        test_split = line.split(' ')[1]
+        train_split = ' '.join(line.split(' ')[2:]).split(',')
+        split['test'].append(test_split)
+        split['train'].extend(train_split)
+    for k in split:
+        with open(osp.join(data_dir, 'Sets/%s_new.txt' % k), 'w') as fp:
+            for v in split[k]:
+                fp.write(v.strip() + '\n')
+                
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -652,6 +677,8 @@ def parse_args():
     parser.add_argument("--skip", action='store_true')
     parser.add_argument("--merge_yana", action='store_true')
     parser.add_argument("--split_yana", action='store_true')
+    parser.add_argument("--make_split", action='store_true')
+    parser.add_argument("--amodal", action='store_true')
     parser.add_argument("--chunk_frames", type=int, default=40)
     parser.add_argument("--num_clip", type=int, default=2)
 
@@ -661,12 +688,27 @@ def parse_args():
 
     return args
 
+def make_soft_link():
+    for split in ['train', 'evaluation']:
+        vid_list = glob(osp.join(data_dir, split, '*'))
+        vid_list = [v.split('/')[-1] for v in vid_list]
+        for vid in vid_list:
+            if not osp.exists(osp.join(data_dir, 'all', vid)):
+                os.symlink(osp.join(data_dir, split, vid), osp.join(data_dir, 'all', vid), target_is_directory=True)
+
+
 if __name__ == '__main__':
     args = parse_args()
     skip = args.skip
 
-    # save_dir = '/home/yufeiy2/scratch/data/HO3D/crop_render'
-    # render_amodal_batch(args.split)
+    save_dir = '/home/yufeiy2/scratch/data/HO3D/amodal'
+    if args.make_split:
+        make_split()
+        make_soft_link()
+    if args.amodal:
+        render_amodal_batch(args.split)
+    if args.handpose:
+        handpose_batch(args.split)
 
     if args.merge_yana:
         merge_yana(args.split)

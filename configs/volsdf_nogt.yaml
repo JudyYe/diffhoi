@@ -5,10 +5,11 @@ defaults:
   - data: hoi4d
   - camera: delta
   - oTh: learn
-  - training: default
+  - training: diffuse
   - novel_view: geom
   - model: small
 
+suf: '' # '' '_smooth? '
 worker: 'train'
 output: ${environment.output}
 expname: dev/tmp
@@ -32,7 +33,7 @@ pixel_sampler:
   data_final_factor: [0.1, 0.1, 0.80]
 
 hand_text:
-  size: 6
+  size: 32
 
 blend_train:
   method: vol

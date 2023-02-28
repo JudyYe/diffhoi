@@ -66,6 +66,10 @@ def add_ho3d_det(data_dir='/home/yufeiy2/scratch/result/ho3d_det/'):
         line.append(image_file.split('/')[-2])
         line.append(image_file)
         line.append(image_file.replace('image.gif', 'overlay.gif'))
+        line.append(image_file.replace('image.gif', 'overlay_pred.gif'))
+        line.append(image_file.replace('image.gif', 'overlay_smooth_10.0.gif'))
+        line.append(image_file.replace('image.gif', 'overlay_smooth_100.gif'))
+        line.append(image_file.replace('image.gif', 'overlay_smooth_200.0.gif'))
 
         cell_list.append(line)
     web_utils.run(osp.join(data_dir, 'vis'), cell_list)
@@ -73,4 +77,5 @@ def add_ho3d_det(data_dir='/home/yufeiy2/scratch/result/ho3d_det/'):
         
 if __name__ == '__main__':
     # add_hhor()
-    add_ho3d_det()
+    add_ho3d_det('/home/yufeiy2/scratch/result/HOI4D/')
+    # add_hoi4d()

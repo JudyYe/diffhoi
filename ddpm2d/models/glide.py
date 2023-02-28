@@ -269,6 +269,41 @@ class ObjGeomGlide(Glide):
                 log[f"{pref}{k}_color"] = wandb.Image(image_utils.save_depth(v, None, znear=-1, zfar=1))
             log[f"{pref}{k}"] = wandb.Image(vutils.make_grid(v, value_range=[-1, 1]))
         return log
+    
+    @rank_zero_only
+    def vis_depth_as_pc(self, depth_hand, depth_obj,pref, log, step, mask_hand=None, mask_obj=None, f=10):
+        device= self.device
+        if step is None:
+            step = self.global_step
+        if mask_hand is not None:
+            mask_hand = mask_hand.to(device)
+            mask_obj = mask_obj.to(device)
+        # move z to around 2focal 
+        dist = 2*f
+        depth_obj = depth_obj + dist
+        cameras = PerspectiveCameras(f, device=self.device)
+        depth_obj_pc = mesh_utils.depth_to_pc(depth_obj.to(self.device), cameras=cameras)
+        
+        depth_obj_mesh = plot_utils.pc_to_cubic_meshes(pc=depth_obj_pc, eps=5e-2)
+
+        mesh_utils.dump_meshes(
+            osp.join(self.log_dir, f'meshes/{step:08d}_{pref}_obj'), 
+            depth_obj_mesh)
+        
+        depth_obj_fg = mesh_utils.depth_to_pc(depth_obj.to(self.device), cameras=cameras, mask=mask_obj)
+        depth_obj_fg = depth_obj_fg.points_list()[0]
+        color_obj_fg = torch.zeros_like(depth_obj_fg); color_obj_fg[..., 0] = 255
+        hoi_point = torch.cat([
+            torch.cat([depth_obj_fg, color_obj_fg], -1),
+        ], -2)
+        log[f"{pref}pc"] = wandb.Object3D(hoi_point.cpu().detach().numpy())
+
+        depth_hoi = mesh_utils.join_scene_w_labels([depth_obj_mesh], 3)
+        image_list = mesh_utils.render_geom_rot(depth_hoi, 'circle', cameras=cameras, view_centric=True)
+        image_utils.save_gif(image_list, osp.join(self.log_dir, f'gifs/{step:08d}_{pref}_hoi'))
+        log[f'{pref}gif_pc'] = wandb.Video(osp.join(self.log_dir, f'gifs/{step:08d}_{pref}_hoi') + '.gif')
+
+        return log
 
 
 class CondGeomGlide(GeomGlide):

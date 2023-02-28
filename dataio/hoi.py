@@ -35,6 +35,7 @@ class SceneDataset(torch.utils.data.Dataset):
             cat = 'object'
         self.text = f'an image of a hand grasping a {cat}'
         print(self.text)
+        self.suf = args.get('suf', '')
 
         image_dir = '{0}/image'.format(self.instance_dir)
         image_paths = sorted(glob_imgs(image_dir))
@@ -54,7 +55,7 @@ class SceneDataset(torch.utils.data.Dataset):
         _, self.H, self.W = tmp_rgb.shape
 
         # load camera and pose
-        self.cam_file = '{0}/cameras_hoi.npz'.format(self.instance_dir)
+        self.cam_file = '{0}/cameras_hoi{1}.npz'.format(self.instance_dir, self.suf)
         camera_dict = np.load(self.cam_file)
         self.wTc = geom_utils.inverse_rt(mat=torch.from_numpy(camera_dict['cTw']).float(), return_mat=True)
         N = len(self.wTc)
@@ -112,8 +113,9 @@ class SceneDataset(torch.utils.data.Dataset):
         self.flow_bw = []
 
         # load hand 
-        hands = np.load('{0}/hands.npz'.format(self.instance_dir))
+        hands = np.load('{0}/hands{1}.npz'.format(self.instance_dir, self.suf))
         self.hA = torch.from_numpy(hands['hA']).float().squeeze(1)
+        self.beta = torch.from_numpy(hands['beta']).float().squeeze(1).mean(0)
         noise = args.data.noise
         if args.hA.mode == 'learn':
             # logging.info('jitter hand a bit!')
@@ -190,6 +192,7 @@ class SceneDataset(torch.utils.data.Dataset):
         sample['hand_contour'] = self.hand_contours[idx]
         sample['hA'] = self.hA_inp[idx]
         sample['hA_n'] = self.hA_inp[idx_n]
+        sample['th_betas'] = self.beta
 
         ground_truth['hA'] = self.hA[idx]
         sample['text'] = self.text

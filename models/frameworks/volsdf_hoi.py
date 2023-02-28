@@ -101,6 +101,8 @@ class VolSDFHoi(VolSDF):
         t_size = text_cfg.get('size', 4)
         uv_text = torch.ones([1, t_size, t_size, 3]); uv_text[..., 2] = 0
         self.uv_text = nn.Parameter(uv_text)
+        # TODO
+        self.hand_shape = nn.Parameter(torch.zeros(1, 10))
         self.uv_text_init = False
 
         # hand articulation
@@ -193,6 +195,7 @@ class Trainer(nn.Module):
         t_size = self.args.hand_text.size
         uv_text = torch.zeros([1, t_size, t_size, 3]) + color_list.cpu()
         self.model.uv_text = nn.Parameter(uv_text.data)
+        self.model.hand_shape = nn.Parameter(model_input['th_betas'].mean(0, keepdim=True).data)
 
     def init_camera(self, posenet, focalnet):
         self.posenet = posenet
@@ -215,7 +218,7 @@ class Trainer(nn.Module):
         
         hA = self.model.hA_net(indices, model_input, None)
         # hand FK
-        hHand, _ = self.hand_wrapper(None, hA, texture=self.model.uv_text)
+        hHand, _ = self.hand_wrapper(None, hA, texture=self.model.uv_text, th_betas=self.model.hand_shape)
         jHand = mesh_utils.apply_transform(hHand, jTh)
 
         return jHand, jTc, jTh, intrinsics
@@ -630,6 +633,14 @@ class Trainer(nn.Module):
                 if self.sd_loss.model.cfg.mode.uv:
                     uv = iHand['uv']
                     rtn['cond_image'] = torch.cat([rtn['cond_image'], uv], 1)
+            elif self.sd_loss.cond == -1:
+                # ignore hand 
+                hand_mask, obj_mask = mask[:, 0:1], mask[:, 1:2]
+                hand_normal, obj_normal = normal.split([3, 3], 1)
+                hand_depth, obj_depth = depth.split([1, 1], 1)
+                rtn['image'] = torch.cat([obj_mask, obj_normal, obj_depth], 1)        
+            else:
+                raise NotImplementedError(self.sd_loss.cond)
         else: 
             raise NotImplementedError(nv.mode)
         return rtn
@@ -660,8 +671,12 @@ class Trainer(nn.Module):
         # jJoints, hJoints? 
         if args.training.w_t_hand > 0:
             jJonits_diff = ((extras['jJoints'] - extras['jJoints_n'])**2).mean()
-            cJonits_diff = ((extras['cJoints'] - extras['cJoints_n'])**2).mean()
-            losses['loss_dt_joint'] = 0.5 * args.training.w_t_hand * (jJonits_diff + cJonits_diff)
+            # does not account for translation. 
+            centered_joints = extras['cJoints'] - extras['cJoints'][:, 5:6].detach()
+            centered_joints_n = extras['cJoints_n'] - extras['cJoints_n'][:, 5:6].detach()
+            cJoints_diff = ((centered_joints - centered_joints_n)**2).mean()
+            # cJonits_diff = ((extras['cJoints'] - extras['cJoints_n'])**2).mean()
+            losses['loss_dt_joint'] = 0.5 * args.training.w_t_hand * (jJonits_diff + cJoints_diff)
         return losses
 
     # def warm_hand(self, args, indices, model_input, ground_truth, render_kwargs_train, it):
@@ -784,7 +799,7 @@ class Trainer(nn.Module):
         # hand FK
         hA = self.model.hA_net(indices, model_input, None)
         hA_n = self.model.hA_net(model_input['inds_n'].to(device), model_input, None)
-        hHand, hJoints = self.hand_wrapper(None, hA, texture=self.model.uv_text)
+        hHand, hJoints = self.hand_wrapper(None, hA, texture=self.model.uv_text, th_betas=self.model.hand_shape)
         jHand = mesh_utils.apply_transform(hHand, jTh)
         jJoints = mesh_utils.apply_transform(hJoints, jTh)
         cJoints = mesh_utils.apply_transform(jJoints, geom_utils.inverse_rt(mat=jTc, return_mat=True))
@@ -794,7 +809,7 @@ class Trainer(nn.Module):
         extras['jJoints'] = jJoints
         extras['cJoints'] = cJoints
 
-        hHand_n, hJoints_n = self.hand_wrapper(None, hA_n, texture=self.model.uv_text)
+        hHand_n, hJoints_n = self.hand_wrapper(None, hA_n, texture=self.model.uv_text, th_betas=self.model.hand_shape)
         jJoints_n = mesh_utils.apply_transform(hJoints_n, jTh_n)
         cJoints_n = mesh_utils.apply_transform(jJoints_n, geom_utils.inverse_rt(mat=jTc_n, return_mat=True))
         extras['jJoints_n'] = jJoints_n
@@ -923,13 +938,21 @@ class Trainer(nn.Module):
                         
                     logger.add_imgs(v.clip(-1, 1), f'diffuse/{k}_{kk}', it)
                 # do depth? 
-            if 'hand_depth' in out['image']:
-                hand_depth = out['image']['hand_depth']
-                obj_depth = out['image']['obj_depth']
-            else:
-                hand_depth = out['cond_image']['obj_depth']
-                obj_depth = out['image']['obj_depth']
             log = {}
+            def _get_hoi_depth(out):
+                if 'hand_depth' in out['image']:
+                    hand_depth = out['image']['hand_depth']
+                    obj_depth = out['image']['obj_depth']
+                else:
+                    if 'cond_image' in out:
+                        hand_depth = out['cond_image']['obj_depth']
+                    else:
+                        hand_depth = None
+                    obj_depth = out['image']['obj_depth']
+                return hand_depth, obj_depth
+            
+            hand_depth, obj_depth = _get_hoi_depth(out)
+
             log = self.sd_loss.model.vis_depth_as_pc(hand_depth, obj_depth, 'diffuse/pc', log, it,)
             logger.log_metrics(log, it)
             # try free generation? 
@@ -945,12 +968,7 @@ class Trainer(nn.Module):
                     logger.add_imgs(TF.to_tensor(color)[None], f'diffuse_sample/{k}_color', it)
                     
                 logger.add_imgs(v.clip(-1, 1), f'diffuse_sample/{k}', it)
-            if 'hand_depth' in out['image']:
-                hand_depth = out['image']['hand_depth']
-                obj_depth = out['image']['obj_depth']
-            else:
-                hand_depth = out['cond_image']['obj_depth']
-                obj_depth = out['image']['obj_depth']
+            hand_depth, obj_depth = _get_hoi_depth(out)
             log = {}
             log = self.sd_loss.model.vis_depth_as_pc(hand_depth, obj_depth, 'diffuse_sample/pc', log, it,)
             logger.log_metrics(log, it)

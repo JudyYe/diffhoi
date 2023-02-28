@@ -68,8 +68,9 @@ class SDLoss:
         self.alphas_bar = self.diffusion.alphas_cumprod
         self.in_channles = self.model.template_size[0]
         # TODO: not all in one place init, NOT IDEAL!
-        if self.model.cfg.mode.cond:  # False or None.. 
-            self.cond = True
+        # if self.model.cfg.mode.cond:  # False or None.. 
+        #     self.cond = True
+        self.cond = self.model.cfg.mode.cond
         if self.model.cfg.get('cat_level', False):
             self.const_str = None  # feed by 
         self.to(device)  # do this since loss is not a nn.Module?

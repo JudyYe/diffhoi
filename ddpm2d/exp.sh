@@ -1,7 +1,28 @@
+
+
 CUDA_VISIBLE_DEVICES=4  PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
-  expname=single_mode/\${mode.name}_\${beta_schdl}_cat\${cat_level}_cfg\${uncond_image} \
+  expname=single_mode2/\${model.model}_\${mode.name}_\${beta_schdl}_cat\${cat_level}_cfg\${uncond_image} \
+  mode=cond_all beta_schdl=linear  cat_level=True \
+  model.model=ObjGeomGlide mode.cond=-1 \
+  environment.slurm=True
+
+
+
+CUDA_VISIBLE_DEVICES=4  PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
+  expname=single_mode2/\${model.model}_\${mode.name}_\${beta_schdl}_cat\${cat_level}_cfg\${uncond_image} \
+  model.model=CondGeomGlide mode=cond_all beta_schdl=linear  cat_level=True,False \
+  environment.slurm=True 
+
+
+
+CUDA_VISIBLE_DEVICES=4  PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
+  expname=single_mode2/\${model.model}_\${mode.name}_\${beta_schdl}_cat\${cat_level}_cfg\${uncond_image}_\${zfar}_\${bin} \
   model.model=CondGeomGlide mode=cond_all beta_schdl=linear  cat_level=True \
-  environment.slurm=False logging=none
+  zfar=1 bin=1 \
+  environment.slurm=True 
+
+
+last version?? ====
 
 
 

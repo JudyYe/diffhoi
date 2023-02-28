@@ -21,7 +21,7 @@ from . import amodal_utils as rend_utils
 from ddpm2d.dataset.ho3d_render import *
 
 
-W = H = 224
+W = H = 512
 device = 'cuda:0'
 # hand_mask/  
 # image/  
@@ -50,6 +50,17 @@ for i, name in enumerate(mapping):
     name2id[name] = i
 # Bottle: C5
 
+
+def pad_box(bbox, pad=0.2):
+    x1, y1, x2, y2 = bbox
+    w = x2 - x1
+    h = y2 - y1
+    x1 -= w * pad
+    y1 -= h * pad
+    x2 += w * pad
+    y2 += h * pad
+    return np.array([x1, y1, x2, y2])
+
 def read_masks(index, t):
     # 'ZY20210800001/H1/C11/N11/S125/s03/T1/2Dseg/mask/'
     fname = osp.join(data_dir, 'HOI4D_annotations', index, f'2Dseg/mask/{t:05d}.png')
@@ -61,7 +72,23 @@ def read_masks(index, t):
     th = mask.max() / 2
     green_only = (mask[..., 0] < th) * (mask[..., 2] < th) * (mask[..., 1] > th)
 
-    
+    bbox_file = osp.join(data_dir, f'handpose/refinehandpose_right/{index}/{t:d}.pickle')
+    if not osp.exists(bbox_file):
+        print(bbox_file, index, )
+        raise FileNotFoundError(bbox_file)
+    with open(bbox_file, 'rb') as f:
+        bbox = pickle.load(f)
+    kpts = bbox['kps2D']
+    hand_bbox = np.array([kpts[:, 0].min(), kpts[:, 1].min(), kpts[:, 0].max(), kpts[:, 1].max()])
+    # pad hand_box in x1y1x2y2 format by 20%
+    hand_bbox = pad_box(hand_bbox, 0.4)
+    # green_only is true only if coordinate is within hand_bbox
+    # first draw a white rectange with hand_bbox with the same shape as green_only
+    canvas = np.zeros_like(green_only)
+    canvas[int(hand_bbox[1]):int(hand_bbox[3]), int(hand_bbox[0]):int(hand_bbox[2])] = 1
+    green_only = green_only * canvas
+    mask[..., 2] = green_only
+
     bbox = image_utils.mask_to_bbox((mask[..., 0] + mask[..., 2]) > th)
     if mapping[int(index.split('/')[2][1:])] == 'Stapler':
         red_only = (mask[..., 0] > th) * (mask[..., 2] < th) * (mask[..., 1] < th)
@@ -100,13 +127,20 @@ def make_text(index, t_start, t_end):
         f.write(text)
     return 
 
-def get_one_clip(index, t_start, t_end):
-    f_start = int(t_start*15)
-    f_end = int(t_end*15)
+def get_one_clip(index, t_start, t_end, is_step=False, save_index=None, hand_wrapper=None):
+    if not is_step:
+        f_start = int(t_start*15)
+        f_end = int(t_end*15)
+    else:
+        f_start = t_start
+        f_end = t_end
+
     # get_image with object centric crops 
-    save_index = index.replace('/', '_') + f'_{f_start:05d}_{f_end:05d}'
+    if save_index is None:
+        save_index = index.replace('/', '_') + f'_{f_start:05d}_{f_end:05d}'
     save_pref = osp.join(save_dir, save_index, '{:s}/{:05d}.png')
-    hand_wrapper = hand_utils.ManopthWrapper().to('cuda:0')
+    if hand_wrapper is None:
+        hand_wrapper = hand_utils.ManopthWrapper().to('cuda:0')
 
     image_list = []
     camera_dict = {'cTw': [], 
@@ -118,11 +152,16 @@ def get_one_clip(index, t_start, t_end):
     hand_dict = {'hA': [], 'beta': []}
     for t in range(f_start, f_end):
         masks, bbox = read_masks(index, t)
-        bbox_sq = image_utils.square_bbox(bbox, 0.8)
+        # bound hand_mask with hand_bbox
+        # masks = bound_hand_mask(masks, index, t )
 
+        bbox_sq = image_utils.square_bbox(bbox, 0.8)
         mask_crop = image_utils.crop_resize(masks, bbox_sq, H)
+
         obj_mask = (mask_crop[..., 0] > 10) * 255    # red object, green hand
         hand_mask = (mask_crop[..., 1] > 10) * 255 
+
+        
 
         image = imageio.imread(osp.join(data_dir, 'HOI4D_release', index, f'align_rgb/{t:05d}.jpg'))
         crop = image_utils.crop_resize(image, bbox_sq, H)
@@ -167,6 +206,10 @@ def get_one_clip(index, t_start, t_end):
     np.savez_compressed(osp.join(save_dir, save_index, 'cameras_hoi.npz'), **camera_dict)
     np.savez_compressed(osp.join(save_dir, save_index, 'hands.npz'), **hand_dict)
 
+    cat = mapping[int(index.split('/')[2][1:])]
+    with open(osp.join(save_dir, save_index, 'text.txt'), 'w') as fp:
+        fp.write(cat)
+        print(cat)
     return
 
 
@@ -270,7 +313,23 @@ def create_test_split(num=2):
     pandas.DataFrame(record).to_csv(osp.join(data_dir, 'Sets/test_vhoi.csv'), index=False)
     return    
 
-def batch_clip(num=1):
+
+def batch_clip_from_split(split_file, num=1):
+    df = pandas.read_csv(osp.join(data_dir, 'Sets', split_file))
+    for index in tqdm(df.index):
+        row = df.loc[index]
+        if osp.exists(osp.join(save_dir, row['save_index'], 'text.txt')):
+            print(save_dir, row['save_index'], 'exists')
+            continue
+        try:
+            get_one_clip(row['index'], row['start'], row['stop'], True, row['save_index'])
+        except FileNotFoundError as e:
+            print(e)
+            continue
+        # break
+
+
+def batch_clip(num=1, split_file='test_vhoi.csv'):
     with open(osp.join(data_dir, 'Sets/test_vid_ins.txt')) as fp:
         index_list = [line.strip() for line in fp]
     cat_exist = {}
@@ -365,7 +424,7 @@ def vis_hand(hand_wrapper, crop, hoi_box, vid, fnum, H=512):
             obj = pickle.load(fp)
     else:
         print(right_bbox_dir.format(vid, fnum))
-        raise FileNotFoundError
+        raise FileNotFoundError(right_bbox_dir.format(vid, fnum))
     
     pose = obj['poseCoeff']
     beta = obj['beta']
@@ -429,7 +488,8 @@ def render_batch():
                 continue
         try:
             render_amodal(row['vid_index'], row['frame_number'], save_pref, hand_wrapper, gt_camera=False, H=224)
-        except FileNotFoundError:
+        except FileNotFoundError as e:
+            print(e)
             continue
         os.makedirs(done, exist_ok=True)
         os.system(f'rm -r {lock}')
@@ -503,12 +563,13 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--skip", action='store_true')
     parser.add_argument("--clip", action='store_true')
+    parser.add_argument("--decode", action='store_true')
     parser.add_argument("--render", action='store_true')
     parser.add_argument("--split", action='store_true')
     parser.add_argument("--render_one", action='store_true')
     parser.add_argument("--debug", action='store_true')
     parser.add_argument("--num", default=-1, type=int)
-    parser.add_argument("--sample", default='so2', type=str)
+    parser.add_argument("--sample", default='so3', type=str)
     parser.add_argument("--frame", default=29, type=int)
     parser.add_argument("--vid", default='ZY20210800001/H1/C2/N31/S92/s05/T2', type=str)
     args, unknown = parser.parse_known_args()
@@ -519,7 +580,8 @@ def parse_args():
              
 if __name__ == '__main__':
     args = parse_args()
-    # decode_video('/home/yufeiy2/scratch/data/HOI4D/HOI4D_release/', 'test_vid_ins.txt')
+    if args.decode:
+        decode_video('/home/yufeiy2/scratch/data/HOI4D/HOI4D_release/', 'test_vid_ins.txt')
     # index = 'ZY20210800002/H2/C5/N45/S261/s02/T2'
     # clips = continuous_clip(index)
     # for cc in clips:
@@ -528,11 +590,13 @@ if __name__ == '__main__':
     # save_dir = '/home/yufeiy2/scratch/data/HOI4D/amodal'
 
     if args.split:
-        create_test_split()
+        create_test_split(args.num)
     if args.clip:
-        batch_clip(args.num)
+        batch_clip_from_split('test_vhoi.csv', args.num)
+        # batch_clip(args.num, 'test_vhoi.csv')
     if args.render:
-        save_dir = '/home/yufeiy2/scratch/data/HOI4D/handup'
+        # save_dir = '/home/yufeiy2/scratch/data/HOI4D/handup'
+        save_dir = '/home/yufeiy2/scratch/data/HOI4D/amodal'
         render_batch()
     if args.debug:
         debug()

@@ -1,6 +1,6 @@
 type: HOI
 data_dir: ${environment.output}/../HOI4D/${data.index}
-index: ZY20210800001_H1_C2_N31_S92_s05_T2_00029_00159
+index: Bottle_1_0
 downscale: 1
 noise: 0
 scale_radius: 3  # what does this do 
@@ -11,5 +11,5 @@ len: 1000
 batch_size: 1       # one batch, one image
 pin_memory: True
 N_rays: 1024        # N_rays for training
-surface_downscale: 1
+surface_downscale: 8  # 512/4 = 128?
 surface_rayschunk: 1024

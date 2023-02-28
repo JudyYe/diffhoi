@@ -1,5 +1,38 @@
 
 
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=pred_calib/\${data.index}_len\${data.len}_w\${training.w_diffuse}_suf\${suf}_lrpose\${training.lr.pose}xobj\${training.lr.oTh}_\${novel_view.diff_index}  \
+    data.index=Mug_1_0 training.w_diffuse=1e-3,1e-2 suf="_smooth_100" \
+    novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    environment.slurm=False  environment.resume=False logging.mode=none 
+
+
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=pred/\${data.index}_len\${data.len}_suf\${suf}_lrpose\${training.lr.pose}xobj\${training.lr.oTh}_\${novel_view.diff_index}  \
+    data.index=Bottle_1_0,Kettle_1_0,Knife_1_0,Knife_1_1,Mug_1_0,ToyCar_1_0,Bowl_1_0 suf='_smooth_100' \
+    novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse,CondGeomGlide_cond_all_linear_catFalse_cfgFalse,ObjGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    environment.slurm=True environment.exclude_nodes="grogu-1-9+grogu-1-24+grogu-2-9"  environment.resume=False logging.mode=none 
+
+
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=dev/tmp \
+    data.index=Bottle_1_0,Kettle_1_0,Knife_1_0,Knife_1_1,Mug_1_0,ToyCar_1_0,Bowl_1_0 suf='_smooth_100' \
+    novel_view.diff_index=ObjGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    environment.slurm=False environment.exclude_nodes="grogu-1-9+grogu-1-24+grogu-2-9"  environment.resume=False logging.mode=none 
+
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
+    expname=pred/\${data.index}_len\${data.len}_\${suf}_lrpose\${training.lr.pose}xobj\${training.lr.oTh}  \
+    training.lr.pose=5e-4,1e-5 training.lr.oTh=5e-4,1e-5 \
+    environment.slurm=False environment.slurm_timeout=120 environment.resume=False logging.mode=none 
+
+-
+
+-
+python -m preprocess.clip_pred_hand --batch --inp /home/yufeiy2/scratch/result/HOI4D/ --skip 
+
 -
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
     expname=anneal/hoi4d_len\${data.len}_\${novel_view.sd_para.anneal_noise}  \

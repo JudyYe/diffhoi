@@ -47,8 +47,8 @@ monitoring: ${logging.mode}
 i_save: 200 # 1000       # unit: seconds
 i_backup: 50000   # unit: itertation steps
 
-i_val: 1000
-i_val_mesh: 1000
+i_val: 2500
+i_val_mesh: 2500
 
 print_freq: 11
 
