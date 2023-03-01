@@ -11,7 +11,7 @@ defaults:
   - hydra: default
   # - override hydra/launcher: slurm
 
-suf: '' # '' '_smooth? '
+suf: '_smooth_100'
 worker: 'train'
 output: ${environment.output}
 expname: dev/tmp

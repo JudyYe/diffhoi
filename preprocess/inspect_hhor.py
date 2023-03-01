@@ -380,6 +380,32 @@ CAMERA_MODEL_IDS = dict([(camera_model.model_id, camera_model) \
                          for camera_model in CAMERA_MODELS])
 
 
+def batch_convert_from_our_to_hhor(data_dir):
+    hhor_dir = data_dir + '_HHOR'
+    seq_list = sorted(glob(os.path.join(data_dir, '*/image')))
+    seq_list = [osp.dirname(e) for e in seq_list]
+
+    for inp_dir in seq_list:
+        seq = osp.basename(inp_dir)
+        done = osp.join(hhor_dir, 'done', seq)
+        lock = osp.join(hhor_dir, 'lock', seq)
+
+        if args.skip and osp.exists(done):
+            print('skip', seq)
+            continue
+        try:
+            os.makedirs(lock)
+        except FileExistsError:
+            if args.skip:
+                print('lose lock', seq, lock)
+                continue
+        out_dir = osp.join(hhor_dir, seq, 'colmap')
+        convert_from_our_to_hhor(inp_dir, out_dir, args.suf)
+
+        os.makedirs(done, exist_ok=True)
+        os.rmdir(lock)
+
+
 def convert_from_our_to_hhor(data_dir, out_dir, suf=''):
     """_summary_
 
@@ -397,18 +423,10 @@ def convert_from_our_to_hhor(data_dir, out_dir, suf=''):
         # camera_id=1, name='000000.jpg', 
         # xys=array([], shape=(0, 2), dtype=float64), 
         # point3D_ids=array([], dtype=int64))    
-
     # points3D_out 1...778? (MANO vertices)
     # Point3D(id=1, 
     # xyz=array([-0.043396  , -0.01018524,  0.02160645], dtype=float32), 
     # rgb=array([0, 0, 0]), error=0, image_ids=array([0]), point2D_idxs=array([0]))
-
-    # camdata = read_cameras_binary(os.path.join(self.data_dir, 'colmap', 'cameras.bin'))
-    # imdata = read_images_binary(os.path.join(self.data_dir, 'colmap', 'images.bin'))
-    # pts3d = read_points3d_binary(os.path.join(self.data_dir, 'colmap', 'points3D.bin'))
-
-    # self.images_lis = [os.path.join(self.data_dir, 'colmap', 'images_png', imdata[k+1].name.replace('.jpg', '.png')) for k in range(len(imdata))]
-    # self.sem_lis = [os.path.join(self.data_dir, 'colmap', 'semantics', imdata[k+1].name.replace('.jpg', '.png')) for k in range(len(imdata))]
 
     image_list = sorted(glob(osp.join(data_dir, 'image', '*.png')))
     hand_list = sorted(glob(osp.join(data_dir, 'hand_mask', '*.png')))
@@ -498,12 +516,15 @@ def convert_from_our_to_hhor(data_dir, out_dir, suf=''):
     write_cameras_binary(camera_out, os.path.join(out_dir, f"cameras{suf}.bin"))
     write_images_binary(images_out, os.path.join(out_dir, f"images{suf}.bin" ))
     write_points3d_binary(points3D_out, os.path.join(out_dir, f"points3D{suf}.bin"))
-    
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--seq', type=str, default='Bottle_1_1')
+    parser.add_argument('--seq', type=str, default='')
     parser.add_argument('--suf', type=str, default='_smooth_100')
     parser.add_argument('--skip_image', action='store_true')
+    parser.add_argument('--batch', action='store_true')
+    parser.add_argument('--skip', action='store_true')
     return parser.parse_args()
 
 if __name__ == '__main__':
@@ -512,7 +533,9 @@ if __name__ == '__main__':
     # convert_from_hhor_to_our()
     hoi4d_dir = '/home/yufeiy2/scratch/result/HOI4D'
     seq = args.seq
-    convert_from_our_to_hhor(osp.join(hoi4d_dir, seq), osp.join(hoi4d_dir + '_HHOR', seq, 'colmap'), '_smooth_100')
+    if args.batch:
+        batch_convert_from_our_to_hhor(hoi4d_dir)
+    # convert_from_our_to_hhor(osp.join(hoi4d_dir, seq), osp.join(hoi4d_dir + '_HHOR', seq, 'colmap'), '_smooth_100')
     # create_gif()
 
     # move_gt_mesh()

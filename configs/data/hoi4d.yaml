@@ -2,7 +2,7 @@ type: HOI
 data_dir: ${environment.output}/../HOI4D/${data.index}
 cat: Bottle
 ind: 1
-index: ${data.cat}_${cat.ind}
+index: ${data.cat}_${data.ind}
 downscale: 1
 noise: 0
 scale_radius: 3  # what does this do 

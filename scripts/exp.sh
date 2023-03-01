@@ -1,15 +1,40 @@
-# CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
-CUDA_VISIBLE_DEVICES=6  PYTHONPATH=. python -m train -m \
-    logging.mode=none  \
-    expname=dev_slurm/preempt_\${data.index}_len\${data.len}_suf\${suf} \
-    data.index=Mug_1 suf='' \
-    training.render_full_frame=False training.w_diffuse=0 \
+Mug,Bottle,Kettle,Bowl,Knife,ToyCar
+
+
+-
+important baseline!
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
+    expname=which_prior_w\${training.w_diffuse}/\${data.index}_suf\${suf}_\${novel_view.diff_index}  \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=0,1 \
+    novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse,ObjGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    logging.mode=none
+    hydra/launcher=slurm
+
+
+-
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
+    expname=anneal/\${data.index}_suf\${suf}_\${novel_view.sd_para.anneal_noise}  \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar \
+    novel_view.sd_para.anneal_noise=exp \
+    novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    hydra/launcher=slurm
 
 
 
-CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
-    expname=pred_no_prior/\${data.index}_len\${data.len}_suf\${suf} \
-    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar suf='_smooth_100' \
+-
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
+    expname=anneal/\${data.index}_suf\${suf}_\${novel_view.sd_para.anneal_noise}  \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar \
+    novel_view.sd_para.anneal_noise=sqrt,linear,exp,cosine \
+    novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    hydra/launcher=slurm
+
+
+# NO PRIOR!!!
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m \
+    expname=pred_no_prior/\${data.index}_suf\${suf} \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=0,1 \
     training.render_full_frame=False training.w_diffuse=0 \
     hydra/launcher=slurm 
 

@@ -22,7 +22,7 @@ w_t_hand: 100.
 w_contour: 10. 
 w_contact: 0. 
 w_hand_mask: 1.
-w_diffuse: 1e-3   # diffusion model
+w_diffuse: 1e-2   # diffusion model
 backward: 'once'
 clip: 100
 

@@ -1,7 +1,7 @@
 defaults:
   - submitit_slurm
 
-timeout_min: 120
+timeout_min: 720
 partition: shubham,abhinav,abhinavlong,shubhamlong,all
 gpus_per_node: 1
 cpus_per_task: 16
@@ -15,4 +15,4 @@ submitit_folder: ${exp_dir}/submitit_train_logs/
 name: ${expname}
 
 
-exclude: grogu-1-9,grogu-1-24
+exclude: grogu-1-9,grogu-1-24,grogu-2-12

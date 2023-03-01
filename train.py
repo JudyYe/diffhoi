@@ -47,7 +47,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
     i_backup = int(args.schdl.i_backup // world_size) if args.schdl.i_backup > 0 else -1
     i_val = int(args.schdl.i_val // world_size) if args.schdl.i_val > 0 else -1
     i_val_mesh = int(args.schdl.i_val_mesh // world_size) if args.schdl.i_val_mesh > 0 else -1
-    special_i_val_mesh = [int(i // world_size) for i in [100, 1000, 5000]]
+    special_i_val_mesh = [int(i // world_size) for i in [100, 1000, 5000, args.training.num_iters]]
     exp_dir = args.training.exp_dir
     mesh_dir = os.path.join(exp_dir, 'meshes')
     metric_dir = os.path.join(exp_dir, 'metrics')
