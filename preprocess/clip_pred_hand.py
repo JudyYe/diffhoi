@@ -66,31 +66,31 @@ def get_predicted_poses(data_dir):
     # Get all the hand masks
     hand_paths = sorted(glob(osp.join(data_dir, 'hand_mask/*.png')))
     
-    last_file = osp.join(data_dir, f'hands_pred.npz')
-    if args.skip and osp.exists(last_file):
-        print(f'Already processed {data_dir}, skip.')
-        return
-    lock_file = osp.join(data_dir, 'lock')
-    try:
-        os.makedirs(lock_file)
-    except FileExistsError:
-        if args.skip:
-            print(f'Processing {lock_file}, skip.')
-            return
+    # last_file = osp.join(data_dir, f'hands_pred.npz')
+    # if args.skip and osp.exists(last_file):
+    #     print(f'Already processed {data_dir}, skip.')
+    #     return
+    # lock_file = osp.join(data_dir, 'lock')
+    # try:
+    #     os.makedirs(lock_file)
+    # except FileExistsError:
+    #     if args.skip:
+    #         print(f'Processing {lock_file}, skip.')
+    #         return
     
     # save hand_boxes from hand_paths
     hand_box_dir = osp.join(data_dir, 'hand_boxes')
     os.makedirs(hand_box_dir, exist_ok=True)
-    # save_hand_boxes(hand_paths, img_paths, hand_box_dir)
+    save_hand_boxes(hand_paths, img_paths, hand_box_dir)
     
     # call frankmocap to get predicted poses
-    # call_frank_mocap(hand_box_dir, data_dir)
+    call_frank_mocap(hand_box_dir, data_dir)
 
     # post-preprocess the predicted poses
     post_process(data_dir, img_paths, )
 
-    # remove lock
-    os.rmdir(lock_file)
+    # # remove lock
+    # os.rmdir(lock_file)
 
 
 # def batch_ho3d(data_dir, ):
@@ -249,7 +249,7 @@ def batch_get_predicted_poses(data_dir):
                 print(f'lock {lock_file} exists, skip')
                 continue
 
-        # get_predicted_poses(osp.dirname(inp_dir))
+        get_predicted_poses(osp.dirname(inp_dir))
         smooth_hand(osp.dirname(inp_dir))
 
         os.rmdir(lock_file)
@@ -257,7 +257,7 @@ def batch_get_predicted_poses(data_dir):
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Preprocess hand prediction')
-    parser.add_argument('--inp', type=str, default='/home/yufeiy2/scratch/result/HOI4D/Mug_1_0/')
+    parser.add_argument('--inp', type=str, default='/home/yufeiy2/scratch/result/HOI4D/')
     parser.add_argument('--skip', action='store_true')
     parser.add_argument('--batch', action='store_true')
     parser.add_argument('--debug', action='store_true')

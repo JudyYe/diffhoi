@@ -44,12 +44,14 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
     rank = get_rank()
     local_rank = get_local_rank()
     world_size = get_world_size()
-    i_backup = int(args.training.i_backup // world_size) if args.training.i_backup > 0 else -1
-    i_val = int(args.training.i_val // world_size) if args.training.i_val > 0 else -1
-    i_val_mesh = int(args.training.i_val_mesh // world_size) if args.training.i_val_mesh > 0 else -1
-    special_i_val_mesh = [int(i // world_size) for i in [100, 1000, 3000, 5000, 7000]]
+    i_backup = int(args.schdl.i_backup // world_size) if args.schdl.i_backup > 0 else -1
+    i_val = int(args.schdl.i_val // world_size) if args.schdl.i_val > 0 else -1
+    i_val_mesh = int(args.schdl.i_val_mesh // world_size) if args.schdl.i_val_mesh > 0 else -1
+    special_i_val_mesh = [int(i // world_size) for i in [100, 1000, 5000]]
     exp_dir = args.training.exp_dir
     mesh_dir = os.path.join(exp_dir, 'meshes')
+    metric_dir = os.path.join(exp_dir, 'metrics')
+    os.makedirs(metric_dir, exist_ok=True)
     
     device = torch.device('cuda', local_rank)
     print('local ran', device)
@@ -247,9 +249,14 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                                         jTh = ret['jTh']
                                         hObj = mesh_utils.apply_transform(jObj, geom_utils.inverse_rt(mat=jTh, return_mat=True).cpu())
 
-                                        metric = quant_log(hObj, gt_oObj, scale=False)                  
+                                        metric = quant_log(hObj, gt_oObj, scale=False)
+                                        with open(osp.join(metric_dir, 'no_scale.txt'), 'a') as f:
+                                            f.write('it: {}, metric: {}\n'.format(it, metric))
                                         logger.log_metrics({f'no_scale/{k}': v for k,v in metric.items()}, it)
-                                        quant_log(hObj, gt_oObj,  scale=True)                  
+                                        
+                                        metric = quant_log(hObj, gt_oObj,  scale=True)
+                                        with open(osp.join(metric_dir, 'scale.txt'), 'a') as f:
+                                            f.write('it: {}, metric: {}\n'.format(it, metric))
                                         logger.log_metrics({f'scale/{k}': v for k,v in metric.items()}, it)
                                         jHand = ret['hand']
                                         jHoi = mesh_utils.join_scene([jObj.to(device), jHand.to(device)])
@@ -356,7 +363,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     # logging
                     #-------------------
                     # done every i_save seconds
-                    if (args.training.i_save > 0) and (time.time() - t0 > args.training.i_save):
+                    if (args.schdl.i_save > 0) and (time.time() - t0 > args.schdl.i_save):
                         if is_master():
                             checkpoint_io.save(filename='latest.pt', global_step=it, epoch_idx=epoch_idx)
                         # this will be used for plotting
@@ -388,7 +395,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                     for k, v in losses.items():
                         logger.add('losses', k, v.data.cpu().numpy().item(), it)
                         # print losses
-                    if it % args.training.print_freq == 0 and is_master():
+                    if it % args.schdl.print_freq == 0 and is_master():
                         print(args.expname)
                         print('Iters [%04d] %f' % (it, losses['total']))
                         for k, v in losses.items():
@@ -449,11 +456,11 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
         # log.info("Everything done.")
 
 
-def quant_log(hObj, gt_oObj, scale=False):
-    oObj, _ = icp_tool.register_meshes(hObj, gt_oObj, scale=scale)
+def quant_log(hObj, gt_oObj, scale=False, N=10):
+    oObj, _ = icp_tool.register_meshes(hObj, gt_oObj, scale=scale, N=N)
     metrics = {}
     metrics['cd'] = mesh_utils.cdscore(oObj, gt_oObj)[0]
-    th_list = np.array([2, 5, 10, 15, 20, 50, 100]) * 1e-3
+    th_list = np.array([5, 10, 15, 20, 50, 100]) * 1e-3
     f_list = mesh_utils.fscore(oObj, gt_oObj, th=th_list)
     for t in range(len(th_list)):
         metrics[str(th_list[t])] = f_list[t][0]

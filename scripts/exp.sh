@@ -1,20 +1,18 @@
 # CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
-HYDRA_FULL_ERROR=1 PYTHONPATH=. python -m train -m \
+CUDA_VISIBLE_DEVICES=6  PYTHONPATH=. python -m train -m \
     logging.mode=none  \
-    expname=dev_slurm/\${data.index}_len\${data.len}_suf\${suf} \
-    data.index=Bottle_1_1,Bottle_1_0,Kettle_1_0,Knife_1_0,Knife_1_1,Mug_1_0,ToyCar_1_0,Bowl_1_0 suf='_smooth_100' \
+    expname=dev_slurm/preempt_\${data.index}_len\${data.len}_suf\${suf} \
+    data.index=Mug_1 suf='' \
     training.render_full_frame=False training.w_diffuse=0 \
-    hydra/launcher=local \
 
-
-    environment.slurm=True  environment.resume=False logging.mode=none 
 
 
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m engine -m --config-name volsdf_nogt \
     expname=pred_no_prior/\${data.index}_len\${data.len}_suf\${suf} \
-    data.index=Bottle_1_1,Bottle_1_0,Kettle_1_0,Knife_1_0,Knife_1_1,Mug_1_0,ToyCar_1_0,Bowl_1_0 suf='_smooth_100' \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar suf='_smooth_100' \
     training.render_full_frame=False training.w_diffuse=0 \
-    environment.slurm=True  environment.resume=False logging.mode=none 
+    hydra/launcher=slurm 
+
 
 
 

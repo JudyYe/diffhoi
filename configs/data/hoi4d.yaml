@@ -1,6 +1,8 @@
 type: HOI
 data_dir: ${environment.output}/../HOI4D/${data.index}
-index: Bottle_1_0
+cat: Bottle
+ind: 1
+index: ${data.cat}_${cat.ind}
 downscale: 1
 noise: 0
 scale_radius: 3  # what does this do 
@@ -13,3 +15,6 @@ pin_memory: True
 N_rays: 1024        # N_rays for training
 surface_downscale: 8  # 512/4 = 128?
 surface_rayschunk: 1024
+
+
+# Mug,Bottle,Kettle,Bowl,Knife,ToyCar

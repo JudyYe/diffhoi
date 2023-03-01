@@ -1,0 +1,5 @@
+i_save: 200 # 1000       # unit: seconds
+i_backup: 50000   # unit: itertation steps
+i_val: 100
+i_val_mesh: 100
+print_freq: 11
