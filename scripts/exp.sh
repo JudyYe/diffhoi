@@ -11,6 +11,15 @@ CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     hydra/launcher=slurm
 
 
+# bu
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
+    expname=which_prior_w\${training.w_diffuse}/\${data.index}_suf\${suf}_\${novel_view.diff_index}  \
+    data.index=Bottle_0,ToyCar_0,Knife_0,Mug_0,Kettle_0,Bowl_0\
+    novel_view.diff_index=ObjGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    logging.mode=none
+    hydra/launcher=slurm
+
+
 -
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     expname=anneal/\${data.index}_suf\${suf}_\${novel_view.sd_para.anneal_noise}  \
