@@ -5,16 +5,108 @@ import trimesh
 import numpy as np
 import copy
 import torch
+import torch.nn as nn
 from tqdm import tqdm
 
 from chamferdist import ChamferDistance
+from pytorch3d.transforms import Transform3d
+from pytorch3d.loss import point_mesh_distance, chamfer_distance
+from pytorch3d.ops import sample_points_from_meshes
 from pytorch3d.structures import Meshes
 from jutils import image_utils, mesh_utils, geom_utils
 from jutils.mesh_utils import Meshes
 from jutils.geom_utils import Rotate
 
 
-def register_meshes(source: Meshes, target: Meshes, type='icp_common', scale=True, N=1):
+def register_meshes(source: Meshes, target: Meshes, scale=True, N=100):
+    # first normalize bc icp only works with mesh with coarse alignment
+    target, cTo_t = mesh_utils.center_norm_geom(target, )
+    cSource = mesh_utils.apply_transform(source, cTo_t)
+    source, cTo_s = mesh_utils.center_norm_geom(cSource, max_norm=None)
+
+    new_source, new_target, targetTsource = my_register(source, target, N, scale)
+
+    new_target = mesh_utils.apply_transform(new_target, cTo_t.inverse())
+    new_source = mesh_utils.apply_transform(new_source, cTo_t.inverse())
+    
+    return new_source, new_target
+
+
+def my_register(source:Meshes, target: Meshes, N, allow_scale, T=10):
+    # SGD to optimize the transformation s,R,t
+    BS = len(source)
+    device = source.device
+    def init_param():
+        scale = torch.ones([BS*N, 1], device=device)
+        rot =  geom_utils.matrix_to_rotation_6d(
+            geom_utils.random_rotations(BS*N, device=device))
+        trans = torch.zeros([BS*N, 3], device=device)
+        return scale, rot, trans
+    scale, rot, trans = init_param()
+    if allow_scale:
+        scale = nn.Parameter(scale)
+    rot = nn.Parameter(rot)
+    trans = nn.Parameter(trans)
+    para_list = [rot, trans]
+    if allow_scale:
+        para_list.append(scale)
+    
+    optimizer = torch.optim.LBFGS(para_list, lr=0.1, max_iter=100, max_eval=100, tolerance_grad=1e-7, tolerance_change=1e-9, history_size=100, line_search_fn='strong_wolfe')
+    # duplicate mesh (BS*N? or N*BS??)
+    dup_source = Meshes(source.verts_padded().repeat(N, 1, 1), source.faces_padded().repeat(N, 1, 1)).to(device)  # B*N
+    dup_target = Meshes(target.verts_padded().repeat(N, 1, 1), target.faces_padded().repeat(N, 1, 1)).to(device)
+
+    P = 1000
+    points_source = sample_points_from_meshes(dup_source, P)
+    points_target = sample_points_from_meshes(dup_target, P)
+
+    def get_points():
+        targetTsource = geom_utils.rt_to_homo(
+            geom_utils.rotation_6d_to_matrix(rot), trans, scale)
+        # if find NaN, reset rot, trans, scale
+        nan_mask = torch.isnan(targetTsource).sum(dim=(1,2)) > 0
+        if nan_mask.any():
+            print('nan????')
+            new_scale, new_rot, new_trans = init_param()
+            scale.data[nan_mask] = new_scale[nan_mask]
+            rot.data[nan_mask] = new_rot[nan_mask]
+            trans.data[nan_mask] = new_trans[nan_mask]
+            targetTsource = geom_utils.rt_to_homo(
+                geom_utils.rotation_6d_to_matrix(rot), trans, scale)
+
+        s_points = Transform3d(matrix=targetTsource.transpose(-1, -2)).transform_points(points_source)
+        t_points = points_target
+        return s_points, t_points        
+    
+    # SGD on the transformation that minimize the distance
+    def closure():
+        optimizer.zero_grad()
+        s_points, t_points = get_points()
+        # compute 2 way chamfer distance?
+        dist, _ = chamfer_distance(s_points, t_points, )
+        dist *= 1000
+        dist.backward()
+        return dist
+
+    for i in range(T):
+        optimizer.step(closure)
+
+    # get the best transformation among N 
+    s_points, t_points = get_points()
+    dist, _  = chamfer_distance(s_points, t_points, batch_reduction=None)
+    dist = dist.reshape([BS, N])
+    ind = torch.argmin(dist, dim=1) # (BS,) in [0, N)
+    targetTsource = geom_utils.rt_to_homo(
+        geom_utils.rotation_6d_to_matrix(rot), trans, scale)
+    targetTsource = targetTsource.reshape([BS, N, 4, 4])
+    best_targetTsource = torch.gather(targetTsource, 1, ind.unsqueeze(1).unsqueeze(1).unsqueeze(1).repeat(1, 1, 4, 4))
+    best_targetTsource = best_targetTsource.squeeze(1)
+    new_source = mesh_utils.apply_transform(source, best_targetTsource)
+    return new_source, target, best_targetTsource
+
+    
+
+def register_meshes_legacy(source: Meshes, target: Meshes, type='icp_common', scale=True, N=1):
     device = source.device
     BS = len(source)
     cost_list = np.zeros([BS, N]) + 100000000
@@ -33,7 +125,7 @@ def register_meshes(source: Meshes, target: Meshes, type='icp_common', scale=Tru
         new_source_list = []
         new_target_list = []
         for i, (s, t) in enumerate(zip(source_list, target_list)):
-            s, t, cost = register(s, t, type, scale=scale)
+            s, t, cost = register(s, t, type, scale=scale, samples=5000, icp_first=100, icp_final=500)
             new_source_list.append(s)
             new_target_list.append(t)
             cost_list[i, n] = cost
@@ -72,7 +164,7 @@ def register_meshes(source: Meshes, target: Meshes, type='icp_common', scale=Tru
     return new_source, new_target
 
 
-def register(source, target, type='icp_common', scale=True):
+def register(source, target, type='icp_common', scale=True, **kwargs):
     if type == 'icp_common':
         from trimesh.registration import mesh_other
     elif type == 'icp_constrained':
@@ -81,7 +173,7 @@ def register(source, target, type='icp_common', scale=True):
         raise ValueError('Registration Type Should Be in {icp_common} and {icp_constrained}.')
 
     # register
-    source2target, cost = mesh_other(source, target, scale=scale)
+    source2target, cost = mesh_other(source, target, scale=scale, **kwargs)
     # source2target, cost = mesh_other(source, target, scale=False)
 
     # transform
@@ -150,6 +242,7 @@ def compare(source_file, target_file, iters=1, flip_x=False, flip_y=False, flip_
     return dist_bidirectional, (vertices_source, source.faces), (vertices_target, target.faces)
 
 def test():
+    torch.manual_seed(123)
     data_dir = '/home/yufeiy2/scratch/result/vis'
     device = 'cuda:0'
 
@@ -160,14 +253,16 @@ def test():
     image_utils.save_gif(image_list, osp.join(data_dir, 'before'))
 
     N = args.iter
+    # new_s, _ = register_meshes(mesh_s, mesh_f, N=N, scale=scale)
     new_s, _ = register_meshes(mesh_s, mesh_f, N=N, scale=scale)
 
     hoi = mesh_utils.join_scene_w_labels([new_s, mesh_f])
     image_list = mesh_utils.render_geom_rot(hoi, scale_geom=True)
     image_utils.save_gif(image_list, osp.join(data_dir, 'align_N%d_scale%d' % (N, scale)))
-    mesh_utils.dump_meshes([osp.join(data_dir, 'align_N%d_scale%d'%(N, scale))], mesh_s)
+    mesh_utils.dump_meshes([osp.join(data_dir, 'align_N%d_scale%d'%(N, scale))], new_s)
+    mesh_utils.dump_meshes([osp.join(data_dir, 'before')], mesh_f)
 
-    th_list = np.array([10]) * 1e-3
+    th_list = np.array([10, 20]) * 1e-3
     f_list = mesh_utils.fscore(new_s, mesh_f, th=th_list)
 
     print(f_list)
@@ -192,8 +287,8 @@ def test():
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--source', type=str, default='/home/yufeiy2/scratch/result/vhoi/pred_calib/Mug_1_0_len1000_w0.01_suf_smooth_100_lrpose0.0005xobj1e-05_exp/meshes/00007501_obj.ply')
-    parser.add_argument('--target', type=str, default='/home/yufeiy2/scratch/result/HOI4D/Mug_1/oObj.obj')
+    parser.add_argument('--source', type=str, default='/home/yufeiy2/scratch/result/vhoi/which_prior/Bowl_1_suf_smooth_100_CondGeomGlide_cond_all_linear_catTrue_cfgFalse/meshes/00045001.ply')
+    parser.add_argument('--target', type=str, default='/home/yufeiy2/scratch/result/HOI4D/Bowl_1/oObj.obj')
     parser.add_argument('--scale', type=int, default=1)
     parser.add_argument('--flip_x', action='store_true')
     parser.add_argument('--flip_y', action='store_true')

@@ -456,7 +456,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
         # log.info("Everything done.")
 
 
-def quant_log(hObj, gt_oObj, scale=False, N=10):
+def quant_log(hObj, gt_oObj, scale=False, N=1):
     oObj, _ = icp_tool.register_meshes(hObj, gt_oObj, scale=scale, N=N)
     metrics = {}
     metrics['cd'] = mesh_utils.cdscore(oObj, gt_oObj)[0]
