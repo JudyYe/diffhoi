@@ -25,9 +25,9 @@ from jutils import image_utils, geom_utils, mesh_utils, hand_utils, plot_utils
 from .read_write_model import *
 
 device = 'cuda:0'
-shape_dir = '/home/yufeiy2/scratch/data/HHOR/CAD/Sculptures/3_Giuliano.ply'
-data_dir = '/home/yufeiy2/scratch/data/HHOR/3_Giuliano/'
-save_dir = '/home/yufeiy2/scratch/result/HHOR_volsdf/3_Giuliano/'
+# shape_dir = '/home/yufeiy2/scratch/data/HHOR/CAD/Sculptures/3_Giuliano.ply'
+# data_dir = '/home/yufeiy2/scratch/data/HHOR/3_Giuliano/'
+# save_dir = '/home/yufeiy2/scratch/result/HHOR_volsdf/3_Giuliano/'
 H = 1080 
 W = 1920
 
@@ -41,6 +41,7 @@ W = 1920
 # cameras_hoi.npz  
 # hands.npz  
 def convert_from_hhor_to_our():
+    move_gt_mesh()
     index = sorted(glob(osp.join(data_dir, 'colmap/images', '*.jpg')))
     index_list = [osp.basename(i).split('.')[0] for i in index]
     hand_wrapper = hand_utils.ManopthWrapper(side='right').to(device)
@@ -51,14 +52,13 @@ def convert_from_hhor_to_our():
     hand_dict = collections.defaultdict(list)
 
     for i, index in enumerate(tqdm(index_list)):
+        image_orig = imageio.imread(osp.join(data_dir, 'colmap/images', f'{index}.jpg'))
+        image_orig = image_orig[:, ::-1]  # flip x
+        image_orig = pad_to_square(image_orig, )
 
-        # image_orig = imageio.imread(osp.join(data_dir, 'colmap/images', f'{index}.jpg'))
-        # image_orig = image_orig[:, ::-1]  # flip x
-        # image_orig = pad_to_square(image_orig, )
-
-        # # save to image/xxx.png
-        # os.makedirs(osp.join(save_dir, 'image'), exist_ok=True)
-        # imageio.imwrite(osp.join(save_dir, 'image', f'{index}.png'), image_orig)
+        # save to image/xxx.png
+        os.makedirs(osp.join(save_dir, 'image'), exist_ok=True)
+        imageio.imwrite(osp.join(save_dir, 'image', f'{index}.png'), image_orig)
 
         image = imageio.imread(osp.join(data_dir, 'colmap/semantics', f'{index}.png'))
         image = image[:, ::-1]  # flip x
@@ -73,33 +73,33 @@ def convert_from_hhor_to_our():
         imageio.imwrite(osp.join(save_dir, 'hand_mask', f'{index}.png'), hand_mask)
         imageio.imwrite(osp.join(save_dir, 'obj_mask', f'{index}.png'), obj_mask)
 
-        # cTw, hA, beta = get_hand_param(int(index), hand_wrapper, side='right')
+        cTw, hA, beta = get_hand_param(int(index), hand_wrapper, side='right')
 
-        # cameras_dict['cTw'].append(cTw.detach().cpu().numpy()[0])
-        # hand_dict['hA'].append(hA.detach().cpu().numpy()[0])
-        # hand_dict['beta'].append(beta.detach().cpu().numpy()[0])
+        cameras_dict['cTw'].append(cTw.detach().cpu().numpy()[0])
+        hand_dict['hA'].append(hA.detach().cpu().numpy()[0])
+        hand_dict['beta'].append(beta.detach().cpu().numpy()[0])
 
-        # # visualize rendered hand
-        # hHand, _ = hand_wrapper(None, hA, th_betas=beta)
-        # cHand = mesh_utils.apply_transform(hHand, cTw)
-        # K = torch.FloatTensor(K_intr_list[i])[None]
-        # K = mesh_utils.intr_from_screen_to_ndc(K, max(H, W), max(H, W))
-        # fxfy, pxpy = mesh_utils.get_fxfy_pxpy(K)
-        # cameras = PerspectiveCameras(fxfy, pxpy, device=device)
+        # visualize rendered hand
+        hHand, _ = hand_wrapper(None, hA, th_betas=beta)
+        cHand = mesh_utils.apply_transform(hHand, cTw)
+        K = torch.FloatTensor(K_intr_list[i])[None]
+        K = mesh_utils.intr_from_screen_to_ndc(K, max(H, W), max(H, W))
+        fxfy, pxpy = mesh_utils.get_fxfy_pxpy(K)
+        cameras = PerspectiveCameras(fxfy, pxpy, device=device)
 
         # bg = TF.to_tensor(image_orig)[None]
         # iHand = mesh_utils.render_mesh(cHand, cameras, out_size=max(H, W), )
         # image_utils.save_images(iHand['image'], osp.join(save_dir, 'vis', f'{index}_hand_mesh'),
         #                         bg=bg, mask=iHand['mask'])
-        # # rotate hand
+        # rotate hand
         # image_list = mesh_utils.render_geom_rot(hHand, scale_geom=True)
         # image_utils.save_gif(image_list, osp.join(save_dir, 'vis', f'{index}_hand'))
 
-    # cameras_dict['cTw'] = np.array(cameras_dict['cTw'])
-    # cameras_dict['K_pix'] = np.array(K_intr_list)
+    cameras_dict['cTw'] = np.array(cameras_dict['cTw'])
+    cameras_dict['K_pix'] = np.array(K_intr_list)
 
-    # np.savez_compressed(osp.join(save_dir, 'cameras_hoi.npz'), **cameras_dict)
-    # np.savez_compressed(osp.join(save_dir, 'hands.npz'), **hand_dict)
+    np.savez_compressed(osp.join(save_dir, 'cameras_hoi.npz'), **cameras_dict)
+    np.savez_compressed(osp.join(save_dir, 'hands.npz'), **hand_dict)
 
 
 def move_gt_mesh():
@@ -522,6 +522,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--seq', type=str, default='')
     parser.add_argument('--suf', type=str, default='_smooth_100')
+    parser.add_argument('--to_ours', action='store_true')
     parser.add_argument('--skip_image', action='store_true')
     parser.add_argument('--batch', action='store_true')
     parser.add_argument('--skip', action='store_true')
@@ -532,9 +533,17 @@ if __name__ == '__main__':
     # render_one(55)
     # convert_from_hhor_to_our()
     hoi4d_dir = '/home/yufeiy2/scratch/result/HOI4D'
+    hhor_dir = '/home/yufeiy2/scratch/data/HHOR/HOD_S1_HT/Daily_Objects/'
     seq = args.seq
     if args.batch:
         batch_convert_from_our_to_hhor(hoi4d_dir)
+    if args.to_ours:
+        data_dir = osp.join(hhor_dir, seq)
+        save_dir = '/home/yufeiy2/scratch/result/HHOR_as_HOI4D/{}'.format(seq)
+        os.makedirs(save_dir, exist_ok=True)
+        shape_dir = f'/home/yufeiy2/scratch/data/HHOR/CAD/Daily_Objects/{seq}.ply'
+        move_gt_mesh()
+        convert_from_hhor_to_our()
     # convert_from_our_to_hhor(osp.join(hoi4d_dir, seq), osp.join(hoi4d_dir + '_HHOR', seq, 'colmap'), '_smooth_100')
     # create_gif()
 

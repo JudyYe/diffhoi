@@ -77,6 +77,10 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
     
     dataset, val_dataset = get_data(args, return_val=True, val_downscale=args.data.get('val_downscale', 4.0))
     bs = args.data.get('batch_size', None)
+    # save GT obj
+    gt_oObj = val_dataset.oObj
+    mesh_utils.dump_meshes([osp.join(mesh_dir, 'oObj')], gt_oObj)
+
     if args.ddp:
         train_sampler = DistributedSampler(dataset)
         dataloader = DataLoader(dataset, sampler=train_sampler, batch_size=bs) #, collate_fn=mesh_utils.collate_meshes)

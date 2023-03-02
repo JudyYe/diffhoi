@@ -18,7 +18,9 @@ from jutils.mesh_utils import Meshes
 from jutils.geom_utils import Rotate
 
 
-def register_meshes(source: Meshes, target: Meshes, scale=True, N=100):
+def register_meshes(source: Meshes, target: Meshes, scale=True, N=100, seed=None):
+    if seed is not None:
+        torch.manual_seed(seed)
     # first normalize bc icp only works with mesh with coarse alignment
     target, cTo_t = mesh_utils.center_norm_geom(target, )
     cSource = mesh_utils.apply_transform(source, cTo_t)

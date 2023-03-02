@@ -48,12 +48,15 @@ class SceneDataset(torch.utils.data.Dataset):
 
         self.n_images = min(len(image_paths), args.data.setdefault('len', 10000))
         self.offset = args.data.get('offset', 0)
-        
+        self.ratio = args.data.get('ratio', 1)
+        if self.ratio < 1:
+            self.n_images = int(self.n_images * self.ratio)
+        print('len image', len(self))
         # determine width, height
         self.downscale = downscale
         tmp_rgb = load_rgb(image_paths[0], downscale)
         _, self.H, self.W = tmp_rgb.shape
-
+        print('H, W', self.H, self.W)
         # load camera and pose
         self.cam_file = '{0}/cameras_hoi{1}.npz'.format(self.instance_dir, self.suf)
         camera_dict = np.load(self.cam_file)
@@ -109,7 +112,7 @@ class SceneDataset(torch.utils.data.Dataset):
             self.flow_fw.append(torch.from_numpy(flow).float())
         if len(self.flow_fw) == 0:
             print('No flow!')
-            self.flow_fw = torch.zeros([self.n_images - 1, self.H * self.W, 2])
+            self.flow_fw = torch.zeros([len(self.rgb_images) - 1, self.H * self.W, 2])
         self.flow_bw = []
 
         # load hand 
@@ -196,6 +199,10 @@ class SceneDataset(torch.utils.data.Dataset):
 
         ground_truth['hA'] = self.hA[idx]
         sample['text'] = self.text
+
+        idx = idx - self.offset
+        idx_n = idx + 1
+        sample['inds_n'] = idx_n
         return idx, sample, ground_truth
 
 if __name__ == "__main__":

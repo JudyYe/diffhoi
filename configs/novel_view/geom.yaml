@@ -14,7 +14,7 @@ sd_para:
   min_step: 0.02
   max_step: 0.98
   to_step: 0.5
-  anneal_noise: constant
+  anneal_noise: exp
   guidance_scale: 4
   prediction_respacing: 100
   prompt: 'a semantic segmentation of a hand grasping an object'

@@ -1,13 +1,14 @@
 type: HOI
-data_dir: ${environment.output}/../HHOR_volsdf/${data.index}
-index: 3_Giuliano
+data_dir: ${environment.output}/../HHOR_as_HOI4D/${data.index}
+index: 6_AirPods
 downscale: 1
 noise: 0
 scale_radius: 3  # what does this do 
 val_rayschunk: 10000
 volume_size: 6
 len: 1000
-offset: 0
+offset: 40
+ratio: 1
 
 batch_size: 1       # one batch, one image
 pin_memory: True
