@@ -323,6 +323,43 @@ def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_siz
     file_list = [osp.join(save_dir, name + '_%s.gif' % n) for n in name_list]
     return file_list
 
+def load_model_data(load_pt, H=224, W=224):
+    device = 'cuda:0'
+    # load config
+    config = io_util.load_yaml(osp.join(load_pt.split('/ckpts')[0], 'config.yaml'))
+    print('###### Change it back! latter',  )
+
+    # load data    
+    dataset, _ = get_data(config, return_val=True, val_downscale=1)
+    dataloader = DataLoader(dataset,
+        batch_size=1,
+        shuffle=False,
+        collate_fn=mesh_utils.collate_meshes)
+
+    # build and load model 
+    posenet, focal_net = get_camera(config, datasize=len(dataset)+1, H=dataset.H, W=dataset.W)
+    model, trainer, render_kwargs_train, render_kwargs_test, _, _ = get_model(config, data_size=len(dataset)+1, cam_norm=dataset.max_cam_norm, device=[0])
+    render_kwargs_test['H'] = H
+    render_kwargs_test['W'] = W
+
+    state_dict = torch.load(load_pt)
+    
+    model_utils.load_my_state_dict(model, state_dict['model'])
+    model_utils.load_my_state_dict(posenet, state_dict['posenet'])
+    model_utils.load_my_state_dict(focal_net, state_dict['focalnet'])
+    # model.load_state_dict(state_dict['model'])
+    # posenet.load_state_dict(state_dict['posenet'])
+    # focal_net.load_state_dict(state_dict['focalnet'])
+    
+    trainer.train_dataloader = dataloader
+    trainer.val_dataloader = dataloader
+
+    trainer.init_camera(posenet, focal_net)
+    trainer.to(device)
+    trainer.eval()
+
+    return trainer, dataloader
+
 
 def main_function(args):
 

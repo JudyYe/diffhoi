@@ -10,6 +10,7 @@ CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse,ObjGeomGlide_cond_all_linear_catTrue_cfgFalse,CondGeomGlide_cond_all_linear_catFalse_cfgFalse \
     hydra/launcher=slurm
 
+
 --
 bu
 
@@ -17,20 +18,20 @@ CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     expname=which_prior2_w\${training.w_diffuse}_\${novel_view.sd_para.anneal_noise}/\${data.index}_suf\${suf}_\${novel_view.diff_index}  \
     data.index=Kettle_2 \
     novel_view.sd_para.anneal_noise=exp \
-    novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    novel_view.diff_index=ObjGeomGlide_cond_all_linear_catTrue_cfgFalse \
     hydra/launcher=slurm
 
 
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     expname=which_prior_w\${training.w_diffuse}_\${novel_view.sd_para.anneal_noise}/\${data.index}_suf\${suf}_\${novel_view.diff_index}  \
-    data.index=Kettle_1,Mug_2,Bottle_2 \
+    data.index=Kettle_1 \
     novel_view.sd_para.anneal_noise=exp \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
-    hydra/launcher=slurm
+    hydra/launcher=slurm hydra.launcher.timeout_min=360
 
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     expname=which_prior_w\${training.w_diffuse}_\${novel_view.sd_para.anneal_noise}/\${data.index}_suf\${suf}_\${novel_view.diff_index}  \
-    data.index=Bottle_1 \
+    data.index=Bottle_2 \
     novel_view.sd_para.anneal_noise=exp \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catFalse_cfgFalse \
     hydra/launcher=slurm
@@ -43,8 +44,7 @@ CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     novel_view.sd_para.anneal_noise=exp \
     novel_view.sd_para.guidance_scale=0 suf='' \
     training.w_diffuse=1e-3 \
-    data=hhor data.ratio=0.02,0.05,0.1,0.15,0.2,0.25,0.5,1 \
-    training.lr.pose=1e-5 \
+    data=hhor data.ratio=0.05,0.1,0.2,0.5,1 \
     data.index=6_AirPods,3_Rubber_Duck \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
     hydra/launcher=slurm hydra.launcher.timeout_min=360

@@ -128,6 +128,47 @@ def make_text(index, t_start, t_end):
         f.write(text)
     return 
 
+def save_eval_poses(index, t_start, t_end, is_step=False, save_index=None, hand_wrapper=None):
+    if not is_step:
+        f_start = int(t_start*15)
+        f_end = int(t_end*15)
+    else:
+        f_start = t_start
+        f_end = t_end
+
+    # get_image with object centric crops 
+    if save_index is None:
+        save_index = index.replace('/', '_') + f'_{f_start:05d}_{f_end:05d}'
+    save_pref = osp.join(save_dir, save_index, '{:s}/{:05d}.png')
+    if hand_wrapper is None:
+        hand_wrapper = hand_utils.ManopthWrapper().to('cuda:0')
+
+    poses_dict = {
+        'hTo': [],
+        'cTh': [],
+        'cTo': [],
+        'jTh': [],
+    }
+    for t in range(f_start, f_end):
+        cMesh, cTo = vis_obj(None, index, t)
+        hA, beta, cTh, _ = vis_hand(hand_wrapper, None, None, index, t, H=H)
+        hTo = geom_utils.inverse_rt(mat=cTh, return_mat=True) @ cTo
+        poses_dict['hTo'].append(hTo[0].cpu().detach().numpy())
+
+        poses_dict['cTh'].append(cTh[0].cpu().detach().numpy())
+        poses_dict['cTo'].append(cTo[0].cpu().detach().numpy())
+
+        # homogeneous scaling matrix with scale 10
+        jTh = np.eye(4)
+        jTh[0:3, 0:3] = 10 * jTh[0:3, 0:3]
+        poses_dict['jTh'].append(jTh)
+
+    for k, v in poses_dict.items():
+        poses_dict[k] = np.array(v)
+        print(poses_dict[k].shape)
+    np.savez_compressed(osp.join(save_dir, save_index, 'eval_poses.npz'), **poses_dict)
+    
+
 def get_one_clip(index, t_start, t_end, is_step=False, save_index=None, hand_wrapper=None):
     if not is_step:
         f_start = int(t_start*15)
@@ -318,6 +359,32 @@ def create_test_split(num=2):
     return    
 
 
+def batch_save_eval_poses(split_file, num=1):
+    df = pandas.read_csv(osp.join(data_dir, 'Sets', split_file))
+    for index in tqdm(df.index):
+        row = df.loc[index]
+        lock_file = osp.join(save_dir, 'lock', row['save_index'])
+        done_file = osp.join(save_dir, 'done', row['save_index'])
+        if args.skip and osp.exists(done_file):
+            print(done_file, 'exists')
+            continue
+        try:
+            os.makedirs(lock_file)
+        except FileExistsError:
+            if args.skip:
+                print(lock_file, 'skip')
+                continue
+
+        try:
+            save_eval_poses(row['index'], row['start'], row['stop'], True, row['save_index'])
+        except FileNotFoundError as e:
+            print(e)
+            continue
+        
+        os.makedirs(done_file)
+        os.rmdir(lock_file)
+    return
+
 def batch_clip_from_split(split_file, num=1):
     df = pandas.read_csv(osp.join(data_dir, 'Sets', split_file))
     for index in tqdm(df.index):
@@ -490,7 +557,10 @@ def vis_hand(hand_wrapper, crop, hoi_box, vid, fnum, H=512):
 
 
     # K_crop = crop_intrinsics(K, hoi_box)
-    cam_intr = image_utils.crop_cam_intr(K[0], torch.FloatTensor(hoi_box).to(device), (H, H))[None]
+    if hoi_box is not None:
+        cam_intr = image_utils.crop_cam_intr(K[0], torch.FloatTensor(hoi_box).to(device), (H, H))[None]
+    else:
+        cam_intr = None
     # K_crop_intr = mesh_utils.intr_from_screen_to_ndc(cam_intr, H, H)
     return hA, beta, cTw, cam_intr
 
@@ -625,6 +695,7 @@ def parse_args():
     parser.add_argument("--decode", action='store_true')
     parser.add_argument("--render", action='store_true')
     parser.add_argument("--split", action='store_true')
+    parser.add_argument("--pose", action='store_true')
     parser.add_argument("--render_one", action='store_true')
     parser.add_argument("--debug", action='store_true')
     parser.add_argument("--num", default=-1, type=int)
@@ -640,7 +711,8 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
     if args.decode:
-        decode_video('/home/yufeiy2/scratch/data/HOI4D/HOI4D_release/', 'test_vid_ins.txt')
+        # decode_video('/home/yufeiy2/scratch/data/HOI4D/HOI4D_release/', 'test_vid_ins.txt')
+        decode_video('/home/yufeiy2/scratch/data/HOI4D/HOI4D_release/', 'train_vid_ins.txt')
     # index = 'ZY20210800002/H2/C5/N45/S261/s02/T2'
     # clips = continuous_clip(index)
     # for cc in clips:
@@ -653,6 +725,8 @@ if __name__ == '__main__':
         # create_test_split(args.num)
     if args.clip:
         batch_clip_from_split('test_vhoix2.csv', args.num)
+    if args.pose:
+        batch_save_eval_poses('test_vhoix2.csv', args.num)
         # batch_clip(args.num, 'test_vhoi.csv')
     if args.render:
         # save_dir = '/home/yufeiy2/scratch/data/HOI4D/handup'

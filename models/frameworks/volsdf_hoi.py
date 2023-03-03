@@ -284,7 +284,8 @@ class Trainer(nn.Module):
         # TODO: should do this but it breaks forward()
         # jTc_n = None
         return jTc, jTc_n, jTh, jTh_n 
-
+    
+    # TODO: change to model alone
     def get_jTc(self, indices, model_input, ground_truth):
         device = self.device
         # palmTcam
