@@ -54,7 +54,7 @@ CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
 [ablation for annealing]
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     expname=which_prior_w\${training.w_diffuse}/\${data.index}_suf\${suf}_\${novel_view.diff_index}  \
-    data.cat=Kettle,Knife,ToyCar data.ind=1 novel_view.sd_para.anneal_noise=constant \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1,2 novel_view.sd_para.anneal_noise=constant \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
     hydra/launcher=slurm hydra.launcher.timeout_min=360
 
@@ -72,21 +72,21 @@ CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
 [ablation for weight]
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     expname=ablate_weight/\${data.index}_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth}  \
-    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1  \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1,2  \
     novel_view.loss.w_mask=0 \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
     hydra/launcher=slurm hydra.launcher.timeout_min=360 &
 
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     expname=ablate_weight/\${data.index}_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth}  \
-    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1  \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1,2  \
     novel_view.loss.w_normal=0 \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
     hydra/launcher=slurm hydra.launcher.timeout_min=360 &
 
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     expname=ablate_weight/\${data.index}_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth}  \
-    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1  \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1,2  \
     novel_view.loss.w_depth=0 \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
     hydra/launcher=slurm hydra.launcher.timeout_min=360 &
