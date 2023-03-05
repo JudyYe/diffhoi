@@ -1,0 +1,29 @@
+defaults:
+  - environment: grogu_judy
+  - hydra: default
+
+
+output: ${environment.output}
+expname: dev/tmp
+exp_dir: ${output}/${expname}
+
+load_folder: which_prior_w0.01_exp/Bottle_1_suf_smooth_100_CondGeomGlide_cond_all_linear_catFalse_cfgFalse
+load_dir: ${output}/${load_folder}
+load_pt: 
+out: null
+reso: 512
+N: 256
+D: 128
+T: 100
+volume_size: 6
+diff_ckpt: null
+init_r: 1 #", type=float, default=1.0, help='Optional. The init radius of the implicit surface.')
+chunk: 256 
+hand: False
+nvs: False 
+nvs_train: False
+gt: False
+surface: False
+cam: False
+diff: False
+fig: True

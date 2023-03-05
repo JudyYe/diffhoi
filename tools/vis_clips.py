@@ -1,3 +1,5 @@
+from glob import glob
+import hydra
 from functools import partial
 import numpy as np
 import os
@@ -17,7 +19,7 @@ from dataio import get_data
 import torch
 import torch.nn.functional as F
 from torch.utils.data.dataloader import DataLoader
-from jutils import image_utils, geom_utils, mesh_utils, model_utils, plot_utils
+from jutils import image_utils, geom_utils, mesh_utils, model_utils, plot_utils, slurm_utils
 
 def run_train_render(dataloader:DataLoader, trainer:Trainer, save_dir, name, render_kwargs, offset=None):
     device = trainer.device
@@ -251,6 +253,60 @@ def run_gt(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_
     return file_list
 
 
+def run_fig(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_size=6, max_t=1000):
+    device = trainer.device
+    model = trainer.model
+    print(save_dir)
+    renderer = partial(trainer.mesh_renderer, soft=False)
+
+    mesh_file = osp.join(save_dir, name + '_obj.ply')
+    # if not osp.exists(mesh_file):
+    if True:
+        mesh_util.extract_mesh(
+                model.implicit_surface, 
+                N=N,
+                filepath=osp.join(save_dir, name + '_obj.ply'),
+                volume_size=volume_size,
+            )
+
+    jObj = mesh_utils.load_mesh(osp.join(save_dir, name + '_obj.ply')).cuda()
+    # reconstruct HOI and render in origin, 45, 60, 90 degree
+    degree_list = [0, 45, 60, 90, 360-60, 360-90]
+    name_list = ['gt', 'overlay', ] + \
+        ['%d_hoi' % d for d in degree_list] + \
+            ['%d_obj' % d for d in degree_list]
+    image_list = [[] for _ in name_list]
+    T = len(dataloader)
+    print('len', T)
+    for t, (indices, model_input, ground_truth) in enumerate(dataloader):
+        if t not in [0, T//2, T-1]:
+            continue
+        hh = ww = int(np.sqrt(ground_truth['rgb'].size(1) ))
+        gt = ground_truth['rgb'].reshape(1, hh, ww, 3).permute(0, 3, 1, 2)
+        gt = F.adaptive_avg_pool2d(gt, (H, W))
+
+        jHand, jTc, jTh, intrinsics = trainer.get_jHand_camera(
+            indices.to(device), model_input, ground_truth, H, W)
+        hTj = geom_utils.inverse_rt(mat=jTh, return_mat=True)
+        image1, mask1 = render(renderer, jHand, jObj, jTc, intrinsics, H, W)
+        image_list[0].append(gt)
+        image_list[1].append(image_utils.blend_images(image1, gt, mask1))  # view 0
+
+        for i, az in enumerate(degree_list):
+            image1, mask1 = render_az(jHand, jObj, jTc, az, H=H, W=W)
+            image_list[2 + i].append(torch.cat([image1, mask1], 1))
+
+        off = 2 + len(degree_list)
+        for i, az in enumerate(degree_list):
+            image1, mask1 = render_az(None, jObj, jTc, az, H=H, W=W, f=intrinsics[0, 0,0]/H*2)
+            image_list[off + i].append(torch.cat([image1, mask1], 1))
+        
+        # save 
+        for n, im_list in zip(name_list, image_list):
+            im = im_list[-1]
+            image_utils.save_images(im, osp.join(save_dir, f'{t:03d}_{name}_{n}'))
+
+
 def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_size=6, max_t=1000):
     device = trainer.device
     if offset is None:
@@ -335,7 +391,6 @@ def load_model_data(load_pt, H=224, W=224):
         batch_size=1,
         shuffle=False,
         collate_fn=mesh_utils.collate_meshes)
-
     # build and load model 
     posenet, focal_net = get_camera(config, datasize=len(dataset)+1, H=dataset.H, W=dataset.W)
     model, trainer, render_kwargs_train, render_kwargs_test, _, _ = get_model(config, data_size=len(dataset)+1, cam_norm=dataset.max_cam_norm, device=[0])
@@ -361,16 +416,32 @@ def load_model_data(load_pt, H=224, W=224):
     return trainer, dataloader
 
 
+@hydra.main(config_path='../configs', config_name='eval')
+def main_batch(args):
+    slurm_utils.update_pythonpath_relative_hydra()
+    print(osp.join(args.load_dir + '*', 'ckpts/latest.pt'))
+    model_list = glob(osp.join(args.load_dir + '*', 'ckpts/latest.pt'))
+    for e in model_list:
+        args.load_pt = e
+        print(args.load_pt)
+        try:
+            main_function(args)
+        except ValueError as er:
+            print(e, er)
+            continue
+
 def main_function(args):
+    # slurm_utils.update_pythonpath_relative_hydra()
 
     H = W = args.reso
     device = 'cuda:0'
+    # args.load_pt = 
     # load config
     config = io_util.load_yaml(osp.join(args.load_pt.split('/ckpts')[0], 'config.yaml'))
-    print('###### Change it back! latter',  )
-    config.novel_view.mode = 'geom'
-    config.novel_view.amodal = 'amodal'
-    config.novel_view.diffuse_ckpt = '/home/yufeiy2/scratch/result/vhoi/geom/ho3d_cam_train_seg/checkpoints/last.ckpt'
+    # print('###### Change it back! latter',  )
+    # config.novel_view.mode = 'geom'
+    # config.novel_view.amodal = 'amodal'
+    # config.novel_view.diffuse_ckpt = '/home/yufeiy2/scratch/result/vhoi/geom/ho3d_cam_train_seg/checkpoints/last.ckpt'
 
     # load data    
     dataset, _ = get_data(config, return_val=True, val_downscale=1)
@@ -378,10 +449,12 @@ def main_function(args):
         batch_size=1,
         shuffle=False,
         collate_fn=mesh_utils.collate_meshes)
+    print(len(dataset), len(dataloader))
 
     # build and load model 
     posenet, focal_net = get_camera(config, datasize=len(dataset)+1, H=dataset.H, W=dataset.W)
     model, trainer, render_kwargs_train, render_kwargs_test, _, _ = get_model(config, data_size=len(dataset)+1, cam_norm=dataset.max_cam_norm, device=[0])
+    trainer.train_dataloader = dataloader
     render_kwargs_test['H'] = H
     render_kwargs_test['W'] = W
 
@@ -417,6 +490,9 @@ def main_function(args):
     if args.surface:
         with torch.no_grad():
             run(dataloader, trainer, save_dir, name, H=H, W=W, volume_size=args.volume_size, N=args.N)
+    if args.fig:
+        with torch.no_grad():
+            run_fig(dataloader, trainer, save_dir, name, H=H, W=W, volume_size=args.volume_size, N=args.N)
     if args.nvs:
         render_kwargs_test['rayschunk'] = args.chunk
         render_kwargs_test['H'] = H #  * 2 // 3
@@ -452,6 +528,20 @@ def main_function(args):
             run_vis_diffusion(dataloader, trainer, save_dir, name, render_kwargs_train)
 
 
+def render_az(jHand, jObj, jTc, az, H, W, f=2):
+    jObj.textures = mesh_utils.pad_texture(jObj, 'white')
+    if jHand is not None:
+        jHand.textures = mesh_utils.pad_texture(jHand, 'blue')
+        jMeshes = mesh_utils.join_scene([jHand, jObj])
+    else:
+        jMeshes = jObj
+    cMeshes = mesh_utils.apply_transform(
+        jMeshes, geom_utils.inverse_rt(mat=jTc, return_mat=True))
+
+    image = mesh_utils.render_geom_azel(cMeshes, [az,0], out_size=H, f=f)
+    return image['image'], image['mask']
+    
+
 def render(renderer, jHand, jObj, jTc, intrinsics, H, W, zfar=-1):
     jHand.textures = mesh_utils.pad_texture(jHand, 'blue')
     jObj.textures = mesh_utils.pad_texture(jObj, 'white')
@@ -473,27 +563,27 @@ def render(renderer, jHand, jObj, jTc, intrinsics, H, W, zfar=-1):
 
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--out", type=str, default=None, help='output ply file name')
-    parser.add_argument('--reso', type=int, default=224, help='resolution of images')
-    parser.add_argument('--N', type=int, default=64, help='resolution of the marching cube algo')
-    parser.add_argument('--D', type=int, default=128, help='resolution of the marching cube algo')
-    parser.add_argument('--T', type=int, default=100, help='resolution of the marching cube algo')
-    parser.add_argument('--volume_size', type=float, default=6., help='voxel size to run marching cube')
+    # import argparse
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("--out", type=str, default=None, help='output ply file name')
+    # parser.add_argument('--reso', type=int, default=224, help='resolution of images')
+    # parser.add_argument('--N', type=int, default=64, help='resolution of the marching cube algo')
+    # parser.add_argument('--D', type=int, default=128, help='resolution of the marching cube algo')
+    # parser.add_argument('--T', type=int, default=100, help='resolution of the marching cube algo')
+    # parser.add_argument('--volume_size', type=float, default=6., help='voxel size to run marching cube')
 
-    parser.add_argument("--diff_ckpt", type=str, default='', help='the trained model checkpoint .pt file')
-    parser.add_argument("--load_pt", type=str, default=None, help='the trained model checkpoint .pt file')
-    parser.add_argument("--init_r", type=float, default=1.0, help='Optional. The init radius of the implicit surface.')
-    parser.add_argument("--chunk", type=int, default=256, help='net chunk when querying the network. change for smaller GPU memory.')
+    # parser.add_argument("--diff_ckpt", type=str, default='', help='the trained model checkpoint .pt file')
+    # parser.add_argument("--load_pt", type=str, default=None, help='the trained model checkpoint .pt file')
+    # parser.add_argument("--init_r", type=float, default=1.0, help='Optional. The init radius of the implicit surface.')
+    # parser.add_argument("--chunk", type=int, default=256, help='net chunk when querying the network. change for smaller GPU memory.')
 
-    parser.add_argument("--hand", action='store_true')
-    parser.add_argument("--nvs", action='store_true')
-    parser.add_argument("--nvs_train", action='store_true')
-    parser.add_argument("--gt", action='store_true')
-    parser.add_argument("--surface", action='store_true')
-    parser.add_argument("--cam", action='store_true')
-    parser.add_argument("--diff", action='store_true')
-    args = parser.parse_args()
+    # parser.add_argument("--hand", action='store_true')
+    # parser.add_argument("--nvs", action='store_true')
+    # parser.add_argument("--nvs_train", action='store_true')
+    # parser.add_argument("--gt", action='store_true')
+    # parser.add_argument("--surface", action='store_true')
+    # parser.add_argument("--cam", action='store_true')
+    # parser.add_argument("--diff", action='store_true')
+    # args = parser.parse_args()
     
-    main_function(args)
+    main_batch()

@@ -7,7 +7,7 @@ from tqdm import tqdm
 from glob import glob
 
 from utils.io_util import load_flow, load_mask, load_rgb, glob_imgs
-from jutils import geom_utils, image_utils, mesh_utils
+from jutils import geom_utils, image_utils, mesh_utils, plot_utils
 
 
 class SceneDataset(torch.utils.data.Dataset):
@@ -26,7 +26,7 @@ class SceneDataset(torch.utils.data.Dataset):
         if osp.exists(osp.join(data_dir, 'oObj.obj')):
             self.oObj = mesh_utils.load_mesh(osp.join(data_dir, 'oObj.obj'))
         else:
-            self.oObj = None
+            self.oObj = plot_utils.create_coord('cpu', 1)
         self.instance_dir = data_dir
         self.train_cameras = train_cameras
         if osp.exists(osp.join(data_dir, 'text.txt')):

@@ -1,0 +1,21 @@
+type: HOI
+name: VISOR
+data_dir: ${environment.output}/../${data.name}/${data.index}
+cat: Bottle
+ind: 102
+index: ${data.cat}_${data.ind}
+downscale: 1
+noise: 0
+scale_radius: 3  # what does this do 
+val_rayschunk: 10000
+volume_size: 6
+len: 1000
+
+batch_size: 1       # one batch, one image
+pin_memory: True
+N_rays: 1024        # N_rays for training
+surface_downscale: 8  # 512/4 = 128?
+surface_rayschunk: 1024
+
+
+# Mug,Bottle,Kettle,Bowl,Knife,ToyCar

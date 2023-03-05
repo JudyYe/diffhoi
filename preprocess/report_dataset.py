@@ -57,18 +57,19 @@ def add_hhor(data_dir='/home/yufeiy2/scratch/result/HOI4D/'):
 def add_ho3d_det(data_dir='/home/yufeiy2/scratch/result/ho3d_det/'):
     # Bottle: C5
     #     
-    file_list = sorted(glob(osp.join(data_dir, '*', 'image.gif')))
-    print(file_list, osp.join(data_dir, '*', 'image.gif'))
+    query = 'overlay_pred'
+    file_list = sorted(glob(osp.join(data_dir, '*', f'{query}.gif')))
+    print(file_list, osp.join(data_dir, '*', f'{query}.gif'))
     # np.random.shuffle(file_list)
     cell_list = []
     for image_file in file_list:
         line = []
         line.append(image_file.split('/')[-2])
-        line.append(image_file)
-        line.append(image_file.replace('image.gif', 'overlay.gif'))
-        line.append(image_file.replace('image.gif', 'overlay_pred.gif'))
+        line.append(image_file.replace(f'{query}.gif', 'image.gif'))
+        line.append(image_file.replace(f'{query}.gif', 'overlay.gif'))
+        line.append(image_file.replace(f'{query}.gif', 'overlay_pred.gif'))
         # line.append(image_file.replace('image.gif', 'overlay_smooth_10.0.gif'))
-        line.append(image_file.replace('image.gif', 'overlay_smooth_100.gif'))
+        line.append(image_file.replace(f'{query}.gif', 'overlay_smooth_100.gif'))
         # line.append(image_file.replace('image.gif', 'overlay_smooth_200.0.gif'))
 
         cell_list.append(line)
@@ -77,5 +78,5 @@ def add_ho3d_det(data_dir='/home/yufeiy2/scratch/result/ho3d_det/'):
         
 if __name__ == '__main__':
     # add_hhor()
-    add_ho3d_det('/home/yufeiy2/scratch/result/HOI4D/')
+    add_ho3d_det('/home/yufeiy2/scratch/result/VISOR/')
     # add_hoi4d()

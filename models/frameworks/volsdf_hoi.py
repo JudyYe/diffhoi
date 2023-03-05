@@ -956,19 +956,19 @@ class Trainer(nn.Module):
 
             log = self.sd_loss.model.vis_depth_as_pc(hand_depth, obj_depth, 'diffuse/pc', log, it,)
             logger.log_metrics(log, it)
-            # try free generation? 
-            noise_step = self.sd_loss.schedule_max_step(it)
-            noisy = self.sd_loss.get_noisy_image(image['image'], noise_step-1)
-            out['image'] = self.sd_loss.vis_multi_step(noisy, noise_step, 1, image.get('cond_image', None))
-            out['image'] = self.sd_loss.model.decode_samples(out['image'])
-            for k,v in out['image'].items():
-                if 'normal' in k:
-                    v = v / 2 + 0.5
-                if 'depth' in k:
-                    color = image_utils.save_depth(v, None, znear=-1, zfar=1)
-                    logger.add_imgs(TF.to_tensor(color)[None], f'diffuse_sample/{k}_color', it)
+            # # try free generation? 
+            # noise_step = self.sd_loss.schedule_max_step(it)
+            # noisy = self.sd_loss.get_noisy_image(image['image'], noise_step-1)
+            # out['image'] = self.sd_loss.vis_multi_step(noisy, noise_step, 1, image.get('cond_image', None))
+            # out['image'] = self.sd_loss.model.decode_samples(out['image'])
+            # for k,v in out['image'].items():
+            #     if 'normal' in k:
+            #         v = v / 2 + 0.5
+            #     if 'depth' in k:
+            #         color = image_utils.save_depth(v, None, znear=-1, zfar=1)
+            #         logger.add_imgs(TF.to_tensor(color)[None], f'diffuse_sample/{k}_color', it)
                     
-                logger.add_imgs(v.clip(-1, 1), f'diffuse_sample/{k}', it)
+            #     logger.add_imgs(v.clip(-1, 1), f'diffuse_sample/{k}', it)
             hand_depth, obj_depth = _get_hoi_depth(out)
             log = {}
             log = self.sd_loss.model.vis_depth_as_pc(hand_depth, obj_depth, 'diffuse_sample/pc', log, it,)

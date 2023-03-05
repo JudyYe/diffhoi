@@ -17,7 +17,7 @@ from .overlay_mocap import overlay_one
 device = 'cuda:0'
 
 
-def call_frank_mocap(box_dir, out_dir):
+def call_frank_mocap(box_dir, out_dir, **kwargs):
     """python -m demo.demo_handmocap --input_path /your/bbox_dir --out_dir ./mocap_output"""
     # [minX,minY,width,height]
     # {"image_path": "./sample_data/images/cj_dance_01_03_1_00075.png", "body_bbox_list": [[149, 380, 242, 565]], "hand_bbox_list": [{"left_hand": [288.9151611328125, 376.70184326171875, 39.796295166015625, 51.72357177734375], "right_hand": [234.97779846191406, 363.4115295410156, 50.28489685058594, 57.89691162109375]}]}
@@ -60,23 +60,19 @@ def save_hand_boxes(hand_paths, img_paths, hand_box_dir):
         save_hand_box(hand_box, img_file, osp.join(hand_box_dir, f'{index}.json'))
 
 
+def det_predicted_poses(data_dir , **kwargs):
+    # Get all the images
+    img_paths = sorted(glob(osp.join(data_dir, 'image/*.png')))
+
+    # call frankmocap to get predicted poses
+    call_frank_mocap(osp.join(data_dir, 'image'), data_dir, **kwargs)
+
+
 def get_predicted_poses(data_dir):
     # Get all the images
     img_paths = sorted(glob(osp.join(data_dir, 'image/*.png')))
     # Get all the hand masks
     hand_paths = sorted(glob(osp.join(data_dir, 'hand_mask/*.png')))
-    
-    # last_file = osp.join(data_dir, f'hands_pred.npz')
-    # if args.skip and osp.exists(last_file):
-    #     print(f'Already processed {data_dir}, skip.')
-    #     return
-    # lock_file = osp.join(data_dir, 'lock')
-    # try:
-    #     os.makedirs(lock_file)
-    # except FileExistsError:
-    #     if args.skip:
-    #         print(f'Processing {lock_file}, skip.')
-    #         return
     
     # save hand_boxes from hand_paths
     hand_box_dir = osp.join(data_dir, 'hand_boxes')
@@ -108,13 +104,21 @@ def post_process(data_dir, img_paths):
     # 2. vis the predicted poses
     out_paths = sorted(glob(osp.join(data_dir, 'mocap/*_prediction_result.pkl')))
     orig_H, orig_W = imageio.imread(img_paths[0]).shape[0:2]
-    fx = np.load(osp.join(data_dir, 'cameras_hoi.npz'))['K_pix'][0][0, 0]
-    ndc_f = fx / orig_W * 2
+    if osp.exists(osp.join(data_dir, 'cameras_hoi.npz')):
+        fx = np.load(osp.join(data_dir, 'cameras_hoi.npz'))['K_pix'][0][0, 0]
+        ndc_f = fx / orig_W * 2
+    else:
+        ndc_f = 1
     print(ndc_f)
     wrapper = hand_utils.ManopthWrapper().to(device)
+    prev_data = None
     for img_file, out_file in zip(img_paths, out_paths):
         save_file = osp.join(data_dir, 'vis', osp.basename(img_file)[:-4])
         image, data = overlay_one(img_file, out_file, save_file, wrapper, render=False, f=ndc_f)
+        if data is None:
+            data = prev_data
+            print('use previous', img_file)
+
 
         camera_dict['cTw'].append(data['cTh'].cpu().detach().numpy()[0])
         K_pix = mesh_utils.intr_from_ndc_to_screen(
@@ -122,7 +126,8 @@ def post_process(data_dir, img_paths):
         camera_dict['K_pix'].append(K_pix.cpu().detach().numpy()[0])
         hand_dict['hA'].append(data['hA'].cpu().detach().numpy()[0])
         hand_dict['beta'].append(data['betas'].cpu().detach().numpy()[0])
-    
+        prev_data = data
+
     np.savez_compressed(osp.join(data_dir, 'cameras_hoi_pred.npz'), **camera_dict)
     np.savez_compressed(osp.join(data_dir, 'hands_pred.npz'), **hand_dict)
 
@@ -156,7 +161,7 @@ def vis_K_pred(camera_dict, hand_dict, img_paths, data_dir, hand_wrapper, suf='p
                     [imageio.imread(e) for e in sorted(glob(osp.join(data_dir, f'vis/*_{suf}.png')))])
     return 
 
-def smooth_hand(data_dir):
+def smooth_hand(data_dir, args):
     cameras = np.load(osp.join(data_dir, 'cameras_hoi_pred.npz'))
     hands = np.load(osp.join(data_dir, 'hands_pred.npz'))
     cTw = torch.FloatTensor(cameras['cTw']).to(device)
@@ -250,7 +255,7 @@ def batch_get_predicted_poses(data_dir):
                 continue
 
         get_predicted_poses(osp.dirname(inp_dir))
-        smooth_hand(osp.dirname(inp_dir))
+        smooth_hand(osp.dirname(inp_dir), args)
 
         os.rmdir(lock_file)
 
@@ -273,7 +278,7 @@ if __name__ == '__main__':
         batch_get_predicted_poses(args.inp)
     if args.debug:
         get_predicted_poses(args.inp)
-        smooth_hand(args.inp)
+        smooth_hand(args.inp, args)
     if args.overlay:
         batch_overlay(args.inp)
     # if args.ho3d:

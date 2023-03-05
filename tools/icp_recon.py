@@ -18,33 +18,41 @@ from jutils.mesh_utils import Meshes
 from jutils.geom_utils import Rotate
 
 
-def register_meshes(source: Meshes, target: Meshes, scale=True, N=100, seed=None):
+def register_meshes(source: Meshes, target: Meshes, scale=True, N=100, seed=None, return_T=False, **kwargs):
     if seed is not None:
         torch.manual_seed(seed)
     # first normalize bc icp only works with mesh with coarse alignment
     target, cTo_t = mesh_utils.center_norm_geom(target, )
     cSource = mesh_utils.apply_transform(source, cTo_t)
     source, cTo_s = mesh_utils.center_norm_geom(cSource, max_norm=None)
-
-    new_source, new_target, targetTsource = my_register(source, target, N, scale)
+    
+    with torch.enable_grad():
+        new_source, new_target, targetTsource = my_register(source, target, N, scale, **kwargs)
 
     new_target = mesh_utils.apply_transform(new_target, cTo_t.inverse())
     new_source = mesh_utils.apply_transform(new_source, cTo_t.inverse())
-    
-    return new_source, new_target
+    if not return_T:
+        return new_source, new_target
+    return new_source, new_target, targetTsource
 
 
-def my_register(source:Meshes, target: Meshes, N, allow_scale, T=10):
+def my_register(source:Meshes, target: Meshes, N, allow_scale, T=10, w=0):
     # SGD to optimize the transformation s,R,t
     BS = len(source)
     device = source.device
     def init_param():
         scale = torch.ones([BS*N, 1], device=device)
-        rot =  geom_utils.matrix_to_rotation_6d(
-            geom_utils.random_rotations(BS*N, device=device))
+        # set the 1st one to identity
+        rot = geom_utils.random_rotations(BS*N, device=device)
+        rot = rot.reshape([BS, N, 3, 3])
+        rot[:, 0] = torch.eye(3, device=device)[None].repeat(BS, 1, 1)
+        rot = rot.reshape([BS*N, 3, 3])
+        rot = geom_utils.matrix_to_rotation_6d(rot)
+
         trans = torch.zeros([BS*N, 3], device=device)
         return scale, rot, trans
     scale, rot, trans = init_param()
+    init_scale, init_rot, init_trans = scale.clone(), rot.clone(), trans.clone()
     if allow_scale:
         scale = nn.Parameter(scale)
     rot = nn.Parameter(rot)
@@ -84,9 +92,15 @@ def my_register(source:Meshes, target: Meshes, N, allow_scale, T=10):
     def closure():
         optimizer.zero_grad()
         s_points, t_points = get_points()
+
         # compute 2 way chamfer distance?
         dist, _ = chamfer_distance(s_points, t_points, )
         dist *= 1000
+        if w > 0:
+            w_reg = (s_points - points_source).pow(2).sum(dim=-1).mean()
+            w_reg *= 10
+            dist += w * w_reg
+            print(w_reg, dist)
         dist.backward()
         return dist
 

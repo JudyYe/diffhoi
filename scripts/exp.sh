@@ -1,5 +1,30 @@
+PYTHONPATH=. python -m tools.vis_clips  -m \
+    load_folder=hhor_less/ \
+
+PYTHONPATH=. python -m tools.vis_clips  -m \
+    load_folder=hhor_less,hhor_less_w0.0001_1e-05,hhor_less_w0.001_1e-05,hhor_less_w0.01_1e-05,hhor_less_w1e-05_1e-05 \
+    hydra/launcher=slurm \
+
+PYTHONPATH=. python -m tools.vis_clips  -m \
+    load_folder=hhor_less/6_,hhor_less_w0.0001_1e-05/6_,hhor_less_w0.001_1e-05/6_,hhor_less_w0.01_1e-05/6_ \
+    hydra/launcher=slurm \
+
 Mug,Bottle,Kettle,Bowl,Knife,ToyCar
 
+[in the wild]
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
+    expname=wild/\${data.name}\${data.index}  \
+    data=custom data.index=Bottle_102,Kettle_101,Kettle_102 \
+    novel_view.sd_para.anneal_noise=exp \
+    novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    hydra/launcher=slurm
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
+    expname=wild/\${data.name}\${data.index}  \
+    data=custom data.index=Kettle_101 \
+    novel_view.sd_para.anneal_noise=exp \
+    novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    hydra/launcher=slurm
 
 
 [IMPORTANT ! MAIN EPX]
@@ -44,8 +69,19 @@ CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     novel_view.sd_para.anneal_noise=exp \
     novel_view.sd_para.guidance_scale=0 suf='' \
     training.w_diffuse=1e-3 \
-    data=hhor data.ratio=0.05,0.1,0.2,0.5,1 \
-    data.index=6_AirPods,3_Rubber_Duck \
+    data=hhor data.ratio=0.05,0.1,0.15,0.2,0.25,0.5,1 training.lr.pose=1e-5 \
+    data.index=6_AirPods \
+    novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    hydra/launcher=slurm hydra.launcher.timeout_min=360
+
+
+-
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
+    expname=hhor_less/\${data.index}_\${data.offset}_\${data.ratio}_suf\${suf}  \
+    novel_view.sd_para.anneal_noise=exp \
+    novel_view.sd_para.guidance_scale=0 suf='' \
+    data=hhor data.ratio=0.05,0.1,0.15,0.2,0.25,0.5,1  \
+    data.index=6_AirPods \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
     hydra/launcher=slurm hydra.launcher.timeout_min=360
 
@@ -54,7 +90,7 @@ CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
 [ablation for annealing]
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     expname=which_prior_w\${training.w_diffuse}/\${data.index}_suf\${suf}_\${novel_view.diff_index}  \
-    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1,2 novel_view.sd_para.anneal_noise=constant \
+    data.cat=Bowl,Knife,ToyCar data.ind=2 novel_view.sd_para.anneal_noise=constant \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
     hydra/launcher=slurm hydra.launcher.timeout_min=360
 
@@ -72,21 +108,21 @@ CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
 [ablation for weight]
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     expname=ablate_weight/\${data.index}_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth}  \
-    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1,2  \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1  \
     novel_view.loss.w_mask=0 \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
     hydra/launcher=slurm hydra.launcher.timeout_min=360 &
 
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     expname=ablate_weight/\${data.index}_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth}  \
-    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1,2  \
+    data.cat=ToyCar data.ind=1  \
     novel_view.loss.w_normal=0 \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
     hydra/launcher=slurm hydra.launcher.timeout_min=360 &
 
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     expname=ablate_weight/\${data.index}_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth}  \
-    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1,2  \
+    data.cat=Knife,ToyCar data.ind=1  \
     novel_view.loss.w_depth=0 \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
     hydra/launcher=slurm hydra.launcher.timeout_min=360 &

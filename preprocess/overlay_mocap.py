@@ -48,9 +48,16 @@ def overlay_one(image_file, fname,  save_file, wrapper, save_mask=False, H=256, 
         print(image_file)
         return
     hand = a['pred_output_list'][0]
-    for hand_type, hand_info in hand.items():
-        if len(hand_info) > 0:
-            break
+    # left_hand only if right_hand is empty
+    hand_type = 'left_hand'
+    # if 'left_hand' in hand and len(hand['left_hand']) > 0:
+    #     hand_type = 'left_hand'
+    if 'right_hand' in hand and len(hand['right_hand']) > 0:
+        hand_type = 'right_hand'    
+    hand_info = hand[hand_type]
+    # for hand_type, hand_info in hand.items():
+    #     if len(hand_info) > 0:
+    #         break
     # left_hand = a['pred_output_list'][0]['left_hand']
     if 'pred_hand_pose' in hand_info:
         # cv2.imwrite(osp.join(save_dir, 'crop.png'), hand['img_cropped'])
@@ -77,8 +84,9 @@ def overlay_one(image_file, fname,  save_file, wrapper, save_mask=False, H=256, 
             image_utils.save_images(iHand['image']* 2 - 1, save_file + '_handx512', scale=True)
     else:
         bad_cnt += 1
-        print('no hand!!!')
+        print('no hand!!!', image_file)
         out = inp
+        data = None
     image = image_utils.save_images(out, save_file, scale=True)
     return image, data
 
