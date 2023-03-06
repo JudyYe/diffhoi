@@ -1,7 +1,7 @@
 defaults:
   - submitit_slurm
 
-signal_delay_s: 240
+signal_delay_s: 120
 timeout_min: 720
 partition: shubham,abhinav,abhinavlong,shubhamlong,all
 gpus_per_node: 1

@@ -1,0 +1,10 @@
+defaults:
+  - environment: grogu_judy
+
+output: ${environment.output}
+expname: dev/tmp
+exp_dir: ${output}/${expname}
+
+seq: knife6
+to_ours: True
+smooth: False

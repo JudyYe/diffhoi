@@ -316,7 +316,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
                                 file_list = tool_clip.run(
                                     one_time_loader, trainer, 
                                     os.path.join(logger.log_dir, 'meshes'), '%08d' % it, 224, 224,
-                                    N=512, volume_size=args.data.get('volume_size', 2.0))
+                                    N=256, volume_size=args.data.get('volume_size', 2.0))
                                 
                             for file in file_list:
                                 name = os.path.basename(file)[9:-4]

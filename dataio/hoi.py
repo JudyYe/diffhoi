@@ -51,6 +51,9 @@ class SceneDataset(torch.utils.data.Dataset):
         self.ratio = args.data.get('ratio', 1)
         if self.ratio < 1:
             self.n_images = int(self.n_images * self.ratio)
+        if self.offset > 0 and self.offset + self.n_images > len(image_paths):
+            self.n_images = self.n_images - self.offset
+                
         print('len image', len(self))
         # determine width, height
         self.downscale = downscale

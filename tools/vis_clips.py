@@ -253,6 +253,7 @@ def run_gt(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_
     return file_list
 
 
+@torch.no_grad()
 def run_fig(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_size=6, max_t=1000):
     device = trainer.device
     model = trainer.model
@@ -260,21 +261,27 @@ def run_fig(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume
     renderer = partial(trainer.mesh_renderer, soft=False)
 
     mesh_file = osp.join(save_dir, name + '_obj.ply')
-    # if not osp.exists(mesh_file):
-    if True:
-        mesh_util.extract_mesh(
-                model.implicit_surface, 
-                N=N,
-                filepath=osp.join(save_dir, name + '_obj.ply'),
-                volume_size=volume_size,
-            )
+    if not osp.exists(mesh_file):
+        # if True:
+        try:
+            mesh_util.extract_mesh(
+                    model.implicit_surface, 
+                    N=N,
+                    filepath=mesh_file,
+                    volume_size=volume_size,
+                )
+        except ValueError:
+            jObj = plot_utils.create_coord('cpu', 1)
+            mesh_utils.dump_meshes([mesh_file[:-4]], jObj)
+            mesh_file = mesh_file.replace('.ply', '.obj')
 
-    jObj = mesh_utils.load_mesh(osp.join(save_dir, name + '_obj.ply')).cuda()
+    jObj = mesh_utils.load_mesh(mesh_file).cuda()
     # reconstruct HOI and render in origin, 45, 60, 90 degree
-    degree_list = [0, 45, 60, 90, 360-60, 360-90]
-    name_list = ['gt', 'overlay', ] + \
-        ['%d_hoi' % d for d in degree_list] + \
-            ['%d_obj' % d for d in degree_list]
+    degree_list = [0, 45, 60, 90, 180, 360-60, 360-90]
+    name_list = ['gt', 'overlay', ]
+    for d in degree_list:
+        name_list += ['%d_hoi' % d, '%d_obj' % d]  
+
     image_list = [[] for _ in name_list]
     T = len(dataloader)
     print('len', T)
@@ -293,19 +300,16 @@ def run_fig(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume
         image_list[1].append(image_utils.blend_images(image1, gt, mask1))  # view 0
 
         for i, az in enumerate(degree_list):
-            image1, mask1 = render_az(jHand, jObj, jTc, az, H=H, W=W)
-            image_list[2 + i].append(torch.cat([image1, mask1], 1))
-
-        off = 2 + len(degree_list)
-        for i, az in enumerate(degree_list):
-            image1, mask1 = render_az(None, jObj, jTc, az, H=H, W=W, f=intrinsics[0, 0,0]/H*2)
-            image_list[off + i].append(torch.cat([image1, mask1], 1))
+            img1, img2 = mesh_utils.render_hoi_obj(jHand, jObj, az, jTc=jTc, H=H, W=W)
+            image_list[2 + 2*i].append(img1)  
+            image_list[2 + 2*i+1].append(img2) 
         
         # save 
         for n, im_list in zip(name_list, image_list):
             im = im_list[-1]
             image_utils.save_images(im, osp.join(save_dir, f'{t:03d}_{name}_{n}'))
 
+    
 
 def run(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_size=6, max_t=1000):
     device = trainer.device

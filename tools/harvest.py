@@ -25,6 +25,8 @@ def get_iter(exp_dir, index):
         it_list = [it for it in it_list if int(it) < th]
 
         # filter out when it_list > th
+        if len(mesh_list) == 0:
+            return 'iter: -1'
         it = osp.basename(mesh_list[-1]).split('.')[0].split('_')[0]
     elif args.method == 'hhor':
         mesh_list = sorted(glob(osp.join(exp_dir, 'handscanner/checkpoints', '*.pth')))
@@ -139,16 +141,17 @@ def eval_mesh_in_hand(exp_dir, index):
         # hSource = mesh_utils.apply_transform(jSources, hTj_source)
         hTarget = mesh_utils.apply_transform(oTarget, hTo_target)
 
-        _, _, tTs = icp_tool.register_meshes(hSource, hTarget, scale=True, N=1, seed=123, return_T=True, w=1)
-        source_points = mesh_utils.ops_3d.sample_points_from_meshes(hSource, 10000)
-        tSourcpoints = mesh_utils.apply_transform(source_points, tTs)
+        # _, _, tTs = icp_tool.register_meshes(hSource, hTarget, scale=True, N=1, seed=123, return_T=True, w=1)
+        # source_points = mesh_utils.ops_3d.sample_points_from_meshes(hSource, 10000)
+        # tSourcpoints = mesh_utils.apply_transform(source_points, tTs)
 
-        # mean distance
-        dist = ((tSourcpoints - source_points) ** 2).sum(-1).sqrt()
+        # # mean distance
+        # dist = ((tSourcpoints - source_points) ** 2).sum(-1).sqrt()
 
-        dist = dist.mean() * 1000
-        dist = dist.item()
-        print('dist', dist)
+        # dist = dist.mean() * 1000
+        # dist = dist.item()
+        dist = 0
+        # print('dist', dist)
         # if args.debug:
         #     hHand_source, _ = hand_wrapper(None, hA_pred)
         #     hHand_target, _ = hand_wrapper(None, hA_gt)

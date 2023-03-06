@@ -103,6 +103,9 @@ def convert_from_hhor_to_our():
 
 
 def move_gt_mesh():
+    global shape_dir
+    if not osp.exists(shape_dir):
+        shape_dir  = osp.join(osp.dirname(shape_dir), '1_Orange.ply')
     target = trimesh.load(shape_dir)
     target.vertices -= target.center_mass
     target.vertices /= target.vertices.max()
@@ -537,16 +540,20 @@ if __name__ == '__main__':
     seq = args.seq
     if args.batch:
         batch_convert_from_our_to_hhor(hoi4d_dir)
-    if args.to_ours:
-        data_dir = osp.join(hhor_dir, seq)
-        save_dir = '/home/yufeiy2/scratch/result/HHOR_as_HOI4D/{}'.format(seq)
-        os.makedirs(save_dir, exist_ok=True)
-        shape_dir = f'/home/yufeiy2/scratch/data/HHOR/CAD/Daily_Objects/{seq}.ply'
-        move_gt_mesh()
-        convert_from_hhor_to_our()
+    seq_list = args.seq.split(',')
+    
+    for seq in seq_list:
+        args.seq = seq    
+        if args.to_ours:
+            data_dir = osp.join(hhor_dir, seq)
+            save_dir = '/home/yufeiy2/scratch/result/HHOR_as_HOI4D/{}'.format(seq)
+            os.makedirs(save_dir, exist_ok=True)
+            shape_dir = f'/home/yufeiy2/scratch/data/HHOR/CAD/Daily_Objects/{seq}.ply'
+            move_gt_mesh()
+            convert_from_hhor_to_our()
     # convert_from_our_to_hhor(osp.join(hoi4d_dir, seq), osp.join(hoi4d_dir + '_HHOR', seq, 'colmap'), '_smooth_100')
     # create_gif()
 
     # move_gt_mesh()
     # make_subset_gif()
-    # vis_camera()
+    # vis_camera()  

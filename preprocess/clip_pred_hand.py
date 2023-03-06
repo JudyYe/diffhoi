@@ -1,3 +1,4 @@
+import cv2
 import json
 import os
 import os.path as osp
@@ -145,6 +146,7 @@ def vis_K_pred(camera_dict, hand_dict, img_paths, data_dir, hand_wrapper, suf='p
 
         img = imageio.imread(img_file)
         H, W = img.shape[0:2]
+        img = cv2.resize(img, (H, H), interpolation=cv2.INTER_AREA)
 
         f, p = mesh_utils.get_fxfy_pxpy(mesh_utils.intr_from_screen_to_ndc(K_pix, H, H))
 
@@ -161,13 +163,14 @@ def vis_K_pred(camera_dict, hand_dict, img_paths, data_dir, hand_wrapper, suf='p
                     [imageio.imread(e) for e in sorted(glob(osp.join(data_dir, f'vis/*_{suf}.png')))])
     return 
 
-def smooth_hand(data_dir, args):
+def smooth_hand(data_dir, args, w_smooth=None):
     cameras = np.load(osp.join(data_dir, 'cameras_hoi_pred.npz'))
     hands = np.load(osp.join(data_dir, 'hands_pred.npz'))
     cTw = torch.FloatTensor(cameras['cTw']).to(device)
     hA = torch.FloatTensor(hands['hA']).to(device)
 
-    w_smooth = args.w_smooth
+    if w_smooth is None:
+        w_smooth = args.w_smooth
     # smooth the outliers of cTw by optimization 
     rot, trans, scale = geom_utils.homo_to_rt(cTw)
     rot = geom_utils.matrix_to_rotation_6d(rot)
@@ -225,10 +228,10 @@ def smooth_hand(data_dir, args):
     new_hands = {'hA': hA_end.cpu().detach().numpy(), 'beta': hands['beta']}
 
     vis_K_pred(new_cameras, new_hands, 
-               sorted(glob(osp.join(data_dir, 'image/*.png'))), data_dir, hand_wrapper, suf=f'smooth_{args.w_smooth}')
+               sorted(glob(osp.join(data_dir, 'image/*.png'))), data_dir, hand_wrapper, suf=f'smooth_{w_smooth}')
 
-    np.savez_compressed(osp.join(data_dir, f'cameras_hoi_smooth_{args.w_smooth}.npz'), **new_cameras)
-    np.savez_compressed(osp.join(data_dir, f'hands_smooth_{args.w_smooth}.npz'), **new_hands)
+    np.savez_compressed(osp.join(data_dir, f'cameras_hoi_smooth_{w_smooth}.npz'), **new_cameras)
+    np.savez_compressed(osp.join(data_dir, f'hands_smooth_{w_smooth}.npz'), **new_hands)
 
 def batch_overlay(data_dir):
     data_dirs = sorted(glob(osp.join(data_dir, '*/image')))
