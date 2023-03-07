@@ -174,7 +174,7 @@ def run_vis_cam(dataloader:DataLoader, trainer:Trainer, save_dir, name, render_k
     jTc = torch.cat(jTc_list)
     jTc_nv = torch.cat(jTc_nv_list)
     N = len(jTc)
-    coord = plot_utils.create_coord(device, N)
+    coord = plot_utils.create_coord(device, N, 0.0001)
 
     print(
         geom_utils.mat_to_scale_rot(jTc[..., :3, :3])[1], 
@@ -278,7 +278,7 @@ def run_fig(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume
     jObj = mesh_utils.load_mesh(mesh_file).cuda()
     # reconstruct HOI and render in origin, 45, 60, 90 degree
     degree_list = [0, 45, 60, 90, 180, 360-60, 360-90]
-    name_list = ['gt', 'overlay', ]
+    name_list = ['gt', 'overlay_hoi', 'overlay_obj']
     for d in degree_list:
         name_list += ['%d_hoi' % d, '%d_obj' % d]  
 
@@ -294,15 +294,17 @@ def run_fig(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume
 
         jHand, jTc, jTh, intrinsics = trainer.get_jHand_camera(
             indices.to(device), model_input, ground_truth, H, W)
-        hTj = geom_utils.inverse_rt(mat=jTh, return_mat=True)
-        image1, mask1 = render(renderer, jHand, jObj, jTc, intrinsics, H, W)
+        K_ndc = mesh_utils.intr_from_screen_to_ndc(intrinsics, H, W)
+        hoi, obj = mesh_utils.render_hoi_obj_overlay(jHand, jObj, jTc, H=H, K_ndc=K_ndc)
+        # image1, mask1 = render(renderer, jHand, jObj, jTc, intrinsics, H, W)
         image_list[0].append(gt)
-        image_list[1].append(image_utils.blend_images(image1, gt, mask1))  # view 0
+        image_list[1].append(hoi)  # view 0
+        image_list[2].append(obj)
 
         for i, az in enumerate(degree_list):
             img1, img2 = mesh_utils.render_hoi_obj(jHand, jObj, az, jTc=jTc, H=H, W=W)
-            image_list[2 + 2*i].append(img1)  
-            image_list[2 + 2*i+1].append(img2) 
+            image_list[3 + 2*i].append(img1)  
+            image_list[3 + 2*i+1].append(img2) 
         
         # save 
         for n, im_list in zip(name_list, image_list):

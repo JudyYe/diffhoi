@@ -223,7 +223,7 @@ def get_one_clip(index, t_start, t_end, is_step=False, save_index=None, hand_wra
         cHoi = mesh_utils.join_scene([cHand, cMesh])
         iHand = mesh_utils.render_mesh(cHoi, cameras, out_size=H)
         # _, _, iHand = hand_wrapper.weak_proj(cam, pose, out_size=int(hoi_box[2] - hoi_box[0]), render=True)
-        image_utils.save_images(iHand['image'], save_pref.format('overlay', t-f_start, )[:-4],
+        image_utils.save_images(iHand['image'], save_pref.format('debug', t-f_start, )[:-4],
                                 bg=TF.to_tensor(crop), mask=iHand['mask'],)
 
         camera_dict['cTw'].append(cTw.cpu().detach().numpy()[0])

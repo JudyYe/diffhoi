@@ -52,7 +52,7 @@ def get_pred_meshes(exp_dir):
         mesh_list= [m for m, it in zip(mesh_list, it_list) if int(it) < th]
         it_list = [it for it in it_list if int(it) < th]
         if len(mesh_list) == 0:
-            return 'iter: -1'
+            return None, 'iter: -1'
         it = osp.basename(mesh_list[-1]).split('.')[0].split('_')[0]
         mesh_file = mesh_list[-1]
     elif args.method == 'hhor':
@@ -180,6 +180,8 @@ def eval_mesh_in_hand(exp_dir, index):
 @torch.no_grad()
 def eval_mesh(exp_dir, index):
     mesh_file, it = get_pred_meshes(exp_dir)
+    if mesh_file is None:
+        return 'null'
     
     if isinstance(mesh_file, list):
         mesh_file_list = mesh_file
@@ -192,6 +194,7 @@ def eval_mesh(exp_dir, index):
     for mesh_file in mesh_file_list:
         sources = mesh_utils.load_mesh(mesh_file, device=device,scale_verts=0.1)
         new_s, _ = icp_tool.register_meshes(sources, targets, scale=args.scale, seed=123, N=10)
+        
         th_list = np.array([5, 10, 20]) * 1e-3
         f_list = mesh_utils.fscore(new_s, targets, th=th_list)
         f_list = np.array(f_list).reshape(-1)
@@ -199,6 +202,13 @@ def eval_mesh(exp_dir, index):
         f_list[-1] *= 1e4
         f_mean_list.append(f_list)
     f_list = np.mean(f_mean_list, axis=0)
+    # hoi = mesh_utils.join_scene_w_labels([new_s, targets])
+    # image_list = mesh_utils.render_geom_rot(hoi)
+    # image_utils.save_gif(image_list, osp.join(exp_dir, 'align_mesh', f'aligned'))
+
+    # hoi = mesh_utils.join_scene_w_labels([sources, targets])
+    # image_list = mesh_utils.render_geom_rot(hoi)
+    # image_utils.save_gif(image_list, osp.join(exp_dir, 'align_mesh', f'raw'))
 
     # convert list of list to str for pretty print in one line 
     f_str = ' '.join([f'{f:.3f}' for f in f_list])
@@ -219,7 +229,7 @@ def get_exp_list():
 
 def get_index_list(exp_list):
     if args.data == 'hoi4d':
-        rtn_list = index_list
+        rtn_list = index_list  # ['Bowl_2', 'Kettle_2'] # 
     elif args.data == 'hhor':
         rtn_list = [osp.basename(e) for e in exp_list]
     return rtn_list
@@ -397,8 +407,12 @@ def parser():
 if __name__ == "__main__":
     args = parser().parse_args()
     
-    if args.hoi4d_tab:
-        main_tab()
+    type_list = args.type.split(',')
+    for t in type_list:
+        args.type = t
+        if args.hoi4d_tab:
+            main_tab()
+            
     if args.all_fig:
         all_fig()
     if args.hoi4d_fig:

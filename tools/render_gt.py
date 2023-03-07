@@ -93,6 +93,8 @@ def merge_hoi(jHand, jObj):
     jMeshes = mesh_utils.join_scene([jHand, jObj])
     return jMeshes
 
+# def save_render(save_dir, t, data, out, H=512, W=512):
+
 
 def save_render(save_dir, t, data, out, H=512, W=512):
     device = data['image'].device
@@ -100,7 +102,7 @@ def save_render(save_dir, t, data, out, H=512, W=512):
     gt = data['image']
 
     degree_list = [0, 45, 60, 90, 180, 360-60, 360-90]
-    name_list = ['gt', 'overlay', ]
+    name_list = ['gt', 'overlay_hoi', 'overlay_obj']
     for d in degree_list:
         name_list += ['%d_hoi' % d, '%d_obj' % d]  
     image_list = [[] for _ in name_list]
@@ -112,18 +114,30 @@ def save_render(save_dir, t, data, out, H=512, W=512):
     cam_p = data['cam_p']
 
     gt = F.adaptive_avg_pool2d(gt, (H, W))
+    
     cameras = PerspectiveCameras(cam_f, cam_p, device=device)
     cHoi = merge_hoi(out['cHand'], out['cObj'])
+    # print(cHoi.verts_padded()[0, 0]    )
     iHoi = mesh_utils.render_mesh(cHoi, cameras, out_size=H,)
-    image1, mask1 = iHoi['image'], iHoi['mask']
-    
-    image_list[0].append(gt)
-    image_list[1].append(image_utils.blend_images(image1, gt, mask1))  # view 0
+    # image1, mask1 = iHoi['image'], iHoi['mask']
+    overlay = image_utils.blend_images(iHoi['image'], gt, iHoi['mask'],)
+    image_list[0].append(gt*0.5+0.5)
+
+    K_ndc = mesh_utils.get_k_from_fp(cam_f, cam_p)
+    # print('out', cam_f, cam_p, cTh)
+    hoi, obj = mesh_utils.render_hoi_obj_overlay(hHand, hObj, cTj=cTh, H=H, K_ndc=K_ndc)    
+    # hoi_rgb, hoi_m = hoi.split([3, 1], 1)
+    # hoi = hoi_rgb * hoi_m + gt * (1 - hoi_m)
+    # image_list[0].append(gt)
+
+    image_list[1].append(hoi)
+    image_list[2].append(obj)
+    # image_list[1].append(image_utils.blend_images(image1, gt, mask1))  # view 0
 
     for i, az in enumerate(degree_list):
         img1, img2 = mesh_utils.render_hoi_obj(hHand, hObj, az, cTj=cTh, H=H, W=W)
-        image_list[2 + 2*i].append(img1)  
-        image_list[2 + 2*i+1].append(img2) 
+        image_list[3 + 2*i].append(img1)  
+        image_list[3 + 2*i+1].append(img2) 
 
     # save 
     for n, im_list in zip(name_list, image_list):
@@ -132,6 +146,7 @@ def save_render(save_dir, t, data, out, H=512, W=512):
 
 
 def main():
+    # index_list = ['Bowl_1']
     for vid in tqdm(index_list):
         render_dir = osp.join(save_dir, vid, 'vis_clip')
         data_list = get_data(vid, data_dir)
@@ -141,7 +156,15 @@ def main():
             data = model_utils.to_cuda(data, device)
             if t in render_step:
                 save_render(render_dir, t, data, data)
+                # gt_render(render_dir, t, data, data)
+
 
 
 if __name__ == '__main__':
     main()
+
+
+
+
+    # vid = 
+    # gt_render()
