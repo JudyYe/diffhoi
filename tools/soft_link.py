@@ -6,24 +6,21 @@ import os.path as osp
 
 
 exp2hoi4d_fig = {
-    'ours': 'which_prior_w0.01_exp/{}_suf_smooth_100_CondGeomGlide_cond_all_linear_catTrue_cfgFalse',
+    'ours': 'ablate_color/{}_rgb0',
     # 'ours_wild': 'wild/{}{}',
     # 'ihoi_wild': '../ihoi/light_mow/hoi4d/{}',
 
-    'obj_prior': 'which_prior_w0.01_exp/{}_suf_smooth_100_ObjGeomGlide_cond_all_linear_catTrue_cfgFalse',
-    'hand_prior': 'which_prior_w0.01_exp/{}_suf_smooth_100_CondGeomGlide_cond_all_linear_catFalse_cfgFalse',
-    'no_prior': 'pred_no_prior/{}_suf_smooth_100',
+    'obj_prior': 'gray_which_prior_w0.01_exp/{}_suf_smooth_100_ObjGeomGlide_cond_all_linear_catTrue_cfgFalse',
+    'hand_prior': 'gray_which_prior_w0.01_exp/{}_suf_smooth_100_CondGeomGlide_cond_all_linear_catFalse_cfgFalse',
+    'no_prior': 'pred_no_prior_gray/{}_suf_smooth_100',
 
-    'w_normal': 'ablate_weight/{}_m1.0_n0_d1.0',
-    'w_mask': 'ablate_weight/{}_m0_n1.0_d1.0',
-    'w_depth': 'ablate_weight/{}_m1.0_n1.0_d0',
-    'w_color': 'ablate_color/{}_rgb0',
-    'anneal': 'which_prior_w0.01/{}_suf_smooth_100_CondGeomGlide_cond_all_linear_catTrue_cfgFalse',
+    'w_normal': 'ablate_weight_gray/{}_m1.0_n0_d1.0',
+    'w_mask': 'ablate_weight_gray/{}_m0_n1.0_d1.0',
+    'w_depth': 'ablate_weight_gray/{}_m1.0_n1.0_d0',
 
     'ihoi': '../ihoi/light_mow/hoi4d/{}',
     'hhor': '../hhor/hoi4d_go/{}',
     'gt': 'gt/{}',
-
 }
 
 
@@ -56,12 +53,10 @@ def soft_link():
                 print(cmd)
                 os.system(cmd)
 
-# soft_link()
-
+soft_link()
 
 exp2wild_fig = {
-    'wild_ours': 'wild/{}',
-    'wild_gray': 'wild_gray/{}',
+    'wild_ours': 'wild_gray/{}',
     'wild_ihoi': '../ihoi/light_mow/hoi4d/{}',
 }
 
@@ -106,51 +101,3 @@ def link_wild():
 
 link_wild()
 
-
-exp2hhor_fig = {
-    'hhor_ours':  
-    {'AirPods':
-        ['hhor_less_w0.001_1e-05/6_AirPods_40_0.05_suf',
-         'hhor_less_w0.001_1e-05/6_AirPods_40_0.2_suf',
-         'hhor_less_w0.001_1e-05/6_AirPods_40_0.5_suf'],
-    'Doraemon':
-         ['hhor_less_more_w0.001/28_Doraemon_40_0.05_suf',
-          'hhor_less_more_w0.001/28_Doraemon_40_0.2_suf',
-          'hhor_less_more_w0.001/28_Doraemon_40_0.9_suf'],
-    },
-    'hhor_hhor': {
-    'AirPods':
-        ['../hhor/less_data/6_AirPods_off40_0.05',
-        '../hhor/less_data/6_AirPods_off40_0.2',
-        '../hhor/less_data/6_AirPods_off40_0.5',],
-    'Doraemon':
-        ['../hhor/less_data_tiger/28_Doraemon_off40_0.05',
-        '../hhor/less_data_tiger/28_Doraemon_off40_0.2',
-        '../hhor/less_data_tiger/28_Doraemon_off40_0.9',],
-    }
-
-}
-
-def link_hhor():
-    for method, expgroup in exp2hhor_fig.items():
-        for index, expname_list in expgroup.items():
-            assert method not in exp2hoi4d_fig
-            for i, expname in enumerate(expname_list):
-                seqname = f'{index}_{i}'
-                seq_dir = osp.join(data_dir, expname)
-
-                dst_exp = osp.join(save_dir, method, seqname)
-
-                # soft link from seq_dir to dst_exp
-                os.makedirs(osp.dirname(dst_exp), exist_ok=True)
-                if osp.exists(dst_exp) and osp.islink(dst_exp):
-                    cmd = 'rm %s' % dst_exp
-                    print(cmd)
-                    os.system(cmd)
-
-                if not osp.exists(dst_exp):
-                    cmd = 'ln -s {} {}'.format(seq_dir, dst_exp)
-                    print(cmd)
-                    os.system(cmd)
-
-# link_hhor()

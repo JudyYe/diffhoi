@@ -7,6 +7,8 @@ output: ${environment.output}
 expname: dev/tmp
 exp_dir: ${output}/${expname}
 
+T_num: null
+
 load_folder: which_prior_w0.01_exp/Bottle_1_suf_smooth_100_CondGeomGlide_cond_all_linear_catFalse_cfgFalse
 load_dir: ${output}/${load_folder}
 load_pt: 

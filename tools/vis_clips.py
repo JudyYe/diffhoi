@@ -174,7 +174,7 @@ def run_vis_cam(dataloader:DataLoader, trainer:Trainer, save_dir, name, render_k
     jTc = torch.cat(jTc_list)
     jTc_nv = torch.cat(jTc_nv_list)
     N = len(jTc)
-    coord = plot_utils.create_coord(device, N, 0.0001)
+    coord = plot_utils.create_coord(device, N, 0.1)
 
     print(
         geom_utils.mat_to_scale_rot(jTc[..., :3, :3])[1], 
@@ -254,7 +254,7 @@ def run_gt(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_
 
 
 @torch.no_grad()
-def run_fig(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_size=6, max_t=1000):
+def run_fig(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_size=6, max_t=1000, T_num=None):
     device = trainer.device
     model = trainer.model
     print(save_dir)
@@ -271,7 +271,7 @@ def run_fig(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume
                     volume_size=volume_size,
                 )
         except ValueError:
-            jObj = plot_utils.create_coord('cpu', 1)
+            jObj = plot_utils.create_coord('cpu', size=0.00001)
             mesh_utils.dump_meshes([mesh_file[:-4]], jObj)
             mesh_file = mesh_file.replace('.ply', '.obj')
 
@@ -282,11 +282,17 @@ def run_fig(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume
     for d in degree_list:
         name_list += ['%d_hoi' % d, '%d_obj' % d]  
 
+
     image_list = [[] for _ in name_list]
     T = len(dataloader)
-    print('len', T)
+
+    if T_num is None:
+        T_list = [0, T//2, T-1]
+    else:
+        T_list = np.linspace(0, T-1, T_num).astype(np.int).tolist() 
+    print('len', T, T_list)
     for t, (indices, model_input, ground_truth) in enumerate(dataloader):
-        if t not in [0, T//2, T-1]:
+        if t not in T_list:
             continue
         hh = ww = int(np.sqrt(ground_truth['rgb'].size(1) ))
         gt = ground_truth['rgb'].reshape(1, hh, ww, 3).permute(0, 3, 1, 2)
@@ -498,7 +504,7 @@ def main_function(args):
             run(dataloader, trainer, save_dir, name, H=H, W=W, volume_size=args.volume_size, N=args.N)
     if args.fig:
         with torch.no_grad():
-            run_fig(dataloader, trainer, save_dir, name, H=H, W=W, volume_size=args.volume_size, N=args.N)
+            run_fig(dataloader, trainer, save_dir, name, H=H, W=W, volume_size=args.volume_size, N=args.N, T_num=args.T_num)
     if args.nvs:
         render_kwargs_test['rayschunk'] = args.chunk
         render_kwargs_test['H'] = H #  * 2 // 3

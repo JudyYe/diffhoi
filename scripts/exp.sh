@@ -42,9 +42,9 @@ CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
 
 
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
-    expname=wild/\${data.name}\${data.index}  \
-    data=custom data.index=Kettle_101 \
-    novel_view.sd_para.anneal_noise=exp \
+    expname=wild_gray/\${data.name}\${data.index}  \
+    data=custom data.index=Kettle_101,Kettle_102 \
+    novel_view.sd_para.anneal_noise=exp training.w_rgb=0 \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
     hydra/launcher=slurm
 
