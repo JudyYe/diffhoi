@@ -125,7 +125,7 @@ def save_render(save_dir, t, data, out, H=512, W=512):
 
     K_ndc = mesh_utils.get_k_from_fp(cam_f, cam_p)
     # print('out', cam_f, cam_p, cTh)
-    hoi, obj = mesh_utils.render_hoi_obj_overlay(hHand, hObj, cTj=cTh, H=H, K_ndc=K_ndc)    
+    hoi, obj = mesh_utils.render_hoi_obj_overlay(hHand, hObj, cTj=cTh, H=H, K_ndc=K_ndc, bin_size=10)    
     # hoi_rgb, hoi_m = hoi.split([3, 1], 1)
     # hoi = hoi_rgb * hoi_m + gt * (1 - hoi_m)
     # image_list[0].append(gt)
@@ -135,7 +135,7 @@ def save_render(save_dir, t, data, out, H=512, W=512):
     # image_list[1].append(image_utils.blend_images(image1, gt, mask1))  # view 0
 
     for i, az in enumerate(degree_list):
-        img1, img2 = mesh_utils.render_hoi_obj(hHand, hObj, az, cTj=cTh, H=H, W=W)
+        img1, img2 = mesh_utils.render_hoi_obj(hHand, hObj, az, cTj=cTh, H=H, W=W, bin_size=10)
         image_list[3 + 2*i].append(img1)  
         image_list[3 + 2*i+1].append(img2) 
 
@@ -144,18 +144,88 @@ def save_render(save_dir, t, data, out, H=512, W=512):
         im = im_list[-1]
         image_utils.save_images(im, osp.join(save_dir, f'{t:03d}_{n}'))
 
+def render_video(data_list, video_dir):
+    H = 512
+    name_list = ['input', 'render_0', 'render_1', 'jHoi', 'jObj', 'vHoi', 'vObj', 'vObj_t', 'vHoi_fix']
+    image_list = [[] for _ in name_list]
+
+    for t, data in enumerate(tqdm(data_list, desc='frame')):
+        data = model_utils.to_cuda(data, device)
+        out = data
+        jHand = out['hHand']
+        jObj = out['hObj']
+        cam_f = data['cam_f']
+        cam_p = data['cam_p']
+        cTh = data['cTh']
+        cTh_mat = geom_utils.se3_to_matrix(cTh)
+
+        K_ndc = mesh_utils.get_k_from_fp(cam_f, cam_p)
+    
+        image_list[0].append(data['image'] * 0.5 + 0.5)
+        hoi, _ = mesh_utils.render_hoi_obj_overlay(jHand, jObj, cTj=cTh_mat, H=H, K_ndc=K_ndc, bin_size=None)
+        image_list[1].append(hoi)
+
+        # rotate by 90 degree in world frame 
+        # 1. 
+        jTcp = mesh_utils.get_wTcp_in_camera_view(np.pi/2, cTw=cTh_mat)
+        hoi, _ = mesh_utils.render_hoi_obj_overlay(jHand, jObj, jTcp, H=H, K_ndc=K_ndc, bin_size=None)
+        image_list[2].append(hoi)
+
+        if t == (len(data_list)-1) // 2:
+            # coord = plot_utils.create_coord(device, size=1)
+            jHoi = mesh_utils.join_scene([jHand, jObj])
+            image_list[3] = mesh_utils.render_geom_rot(jHoi, scale_geom=True, out_size=H, bin_size=0) 
+            image_list[4] = mesh_utils.render_geom_rot(jObj, scale_geom=True, out_size=H, bin_size=0) 
+            
+            # rotation around z axis
+            vTj = torch.FloatTensor(
+                [[np.cos(np.pi/2), -np.sin(np.pi/2), 0, 0],
+                [np.sin(np.pi/2), np.cos(np.pi/2), 0, 0],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1]]).to(device)[None].repeat(1, 1, 1)
+            vHoi = mesh_utils.apply_transform(jHoi, vTj)
+            vObj = mesh_utils.apply_transform(jObj, vTj)
+            image_list[5] = mesh_utils.render_geom_rot(vHoi, scale_geom=True, out_size=H) 
+            image_list[6] = mesh_utils.render_geom_rot(vObj, scale_geom=True, out_size=H) 
+
+        jHoi = mesh_utils.join_scene([jHand, jObj])                
+        vTj = torch.FloatTensor(
+            [[np.cos(np.pi/2), -np.sin(np.pi/2), 0, 0],
+            [np.sin(np.pi/2), np.cos(np.pi/2), 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]]).to(device)[None].repeat(1, 1, 1)
+        vObj = mesh_utils.apply_transform(jObj, vTj)
+        iObj_list = mesh_utils.render_geom_rot(vObj, scale_geom=True, out_size=H, bin_size=32) 
+        image_list[7].append(iObj_list[t%len(iObj_list)])
+        
+        # HOI from fixed view point 
+        scale = mesh_utils.Scale(5.0).to(device)
+        trans = mesh_utils.Translate(0, 0.4, 0).to(device)
+        fTj = scale.compose(trans)
+        fHand = mesh_utils.apply_transform(jHand, fTj)
+        fObj = mesh_utils.apply_transform(jObj, fTj)
+        iHoi, iObj = mesh_utils.render_hoi_obj(fHand, fObj, 0, scale_geom=False, scale=1, bin_size=32)
+        image_list[8].append(iHoi)    # save 
+    for n, im_list in zip(name_list, image_list):
+        for t, im in enumerate(im_list):
+            image_utils.save_images(im, osp.join(video_dir, n, f'{t:03d}'))
+    return 
+
 
 def main():
     # index_list = ['Bowl_1']
     for vid in tqdm(index_list):
         render_dir = osp.join(save_dir, vid, 'vis_clip')
+        video_dir = osp.join(save_dir, vid, 'vis_video')
         data_list = get_data(vid, data_dir)
         T = len(data_list) - 1
         render_step = [0, T//2, T-1]
-        for t, data in enumerate(data_list):
-            data = model_utils.to_cuda(data, device)
-            if t in render_step:
-                save_render(render_dir, t, data, data)
+        render_video(data_list, video_dir, )
+        # for t, data in enumerate(data_list):
+        #     data = model_utils.to_cuda(data, device)
+
+            # if t in render_step:
+                # save_render(render_dir, t, data, data)
                 # gt_render(render_dir, t, data, data)
 
 

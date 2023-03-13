@@ -1,3 +1,5 @@
+ 
+-
 run all fig
 PYTHONPATH=. python -m tools.vis_clips  -m     load_folder=which_prior_w0.01_exp/,pred_no_prior/,ablate_weight/,which_prior_w0.01/
 
@@ -46,6 +48,23 @@ CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     data=custom data.index=Kettle_101,Kettle_102 \
     novel_view.sd_para.anneal_noise=exp training.w_rgb=0 \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    hydra/launcher=slurm hydra.launcher.timeout_min=360
+
+
+[not learn oTh]
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
+    expname=gray_oTh/\${data.index}_suf\${suf}_\${oTh.learn_R}_\${oTh.learn_t} \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1 \
+    oTh.learn_R=False oTh.learn_t=False \
+    training.w_rgb=0 \
+    hydra/launcher=slurm
+
+
+[ordinal depth]
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
+    expname=oridnal_depth/\${data.index}_suf\${suf}_depth\${training.w_depth} \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1 \
+    training.w_rgb=0 training.w_depth=1 \
     hydra/launcher=slurm
 
 
@@ -216,6 +235,13 @@ CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     expname=ablate_weight_gray/\${data.index}_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth}  \
     data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1  \
+    novel_view.loss.w_depth=0 training.w_rgb=0  \
+    novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    hydra/launcher=slurm hydra.launcher.timeout_min=360 &
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
+    expname=ablate_weight_gray2/\${data.index}_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth}  \
+    data.cat=Knife data.ind=1  training.num_iters=10000 \
     novel_view.loss.w_depth=0 training.w_rgb=0  \
     novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
     hydra/launcher=slurm hydra.launcher.timeout_min=360 &

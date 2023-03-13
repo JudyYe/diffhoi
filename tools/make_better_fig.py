@@ -6,13 +6,33 @@ import numpy as np
 from glob import glob
 import os
 import os.path as osp
-from jutils import web_utils
+from jutils import web_utils, image_utils
 
 
 # degree_list = [0, 60, 90, 180, 270, 300]
 data_dir = '/home/yufeiy2/scratch/result/org/'
 # save_dir = '/home/yufeiy2/scratch/result/figs/'
 save_dir = '/home/yufeiy2/scratch/result/figs_row/'
+
+method2name = {
+    'gt': 'GT',
+    'ours': 'Ours',
+    'ihoi': 'iHOI',
+    'hhor': 'HHOR',
+    'obj_prior': 'Category Prior',
+    'hand_prior': 'Hand Prior',
+    'no_prior': 'No Prior',
+    'w_mask': 'wo Mask',
+    'w_normal': 'wo Normal',
+    'w_depth': 'wo Depth',
+
+    'blend': 'Hard Blend',
+    'oTh': 'wo Learned Pose',
+
+    'wild_ours': 'Ours',
+    'wild_ihoi': 'iHOI',
+
+}
 
 def overlay(image, inp):
     alpha = image[:, :, 3:4] / 255.0
@@ -34,9 +54,181 @@ def get_suf_list(suf):
         suf_list = ['overlay_hoi', '60_hoi', '60_obj' ] # '90_hoi', '90_obj',]
     elif 'teaser' in suf:
         suf_list = ['gt' , 'overlay_hoi', '90_hoi']
+    elif 'vid_t' in suf:
+        suf_list = ['render_0', 'render_1'] + ['vHoi', 'vObj_t']
+    elif 'vid_obj' in suf:
+        suf_list = ['vHoi', 'vObj']
     else:
         suf_list = suf.split(',')
     return suf_list
+
+def get_video_grid(args):
+    """"[[m1_suf1 | m1_suf2]  ]"""
+    index_list = get_data_list(args.data)
+    row_dir = osp.join(save_dir, args.fig)
+    suf_list = get_suf_list(args.suf)
+
+    method_list = args.method.split(',')
+
+    cell_list = []
+    # input
+    # cell_list.append(['input', ] + )
+    # add header
+    header_image = add_header(method_list)
+    fname = osp.join(row_dir, 'header.png')
+    imageio.imwrite(fname, header_image)
+    cell_list.append([' ', fname])
+    titled = False
+    for i, index in enumerate(index_list):
+        line = []        
+        # add input
+        suf = 'input'
+        method = method_list[0]
+        fig_dir = osp.join(data_dir, method_list[0], index, 'vis_video', '{}', '{}.png')        
+        t_num_list = sorted(glob(osp.join(fig_dir.format(suf, '*'))))
+        t_num_list = [osp.basename(t).replace('.png', '') for t in t_num_list]
+        fname = osp.join(row_dir, f'{index}_input.mp4')        
+        if args.dry:
+            if osp.exists(fname):
+                line.append(fname)
+            else:
+                print('not exist', fname)
+        else:
+            frame_list = []
+            for t in t_num_list:
+                # time slice
+                image_list = []
+                image = imageio.imread(fig_dir.format(suf, t))[..., :3]
+                image_list.append(image)
+                one_frame = put_one_row(image_list)
+                frame_list.append(one_frame)
+            image_utils.write_mp4(frame_list, fname.replace('.mp4', ''))
+            line.append(fname)
+
+        t_num_list = sorted(glob(osp.join(fig_dir.format(suf_list[0], '*'))))
+        t_num_list = [int(osp.basename(t).replace('.png', '')) for t in t_num_list]
+        frame_list = []
+        method_str = ','.join(method_list)
+        fname = osp.join(row_dir, f'{index}_{method_str}.mp4')
+        # add output
+        if args.dry:
+            if osp.exists(fname):
+                line.append(fname)
+                cell_list.append(line)
+            continue
+        frame_list = []
+        for t in t_num_list:            
+            row_list = []
+            for m, method in enumerate(method_list):
+                fig_dir = osp.join(data_dir, method, index, 'vis_video', '{}', '{}.png')
+
+                # time slice
+                image_list = []
+                for suf in suf_list:
+                    max_t = len(glob(osp.join(fig_dir.format(suf, '*'))))
+                    if max_t == 0:
+                        continue
+                    image = imageio.imread(fig_dir.format(suf, '%03d' % (t%max_t)))[..., :3]
+                    image = cv2.resize(image, (200, 200))
+                    image_list.append(image)
+                if len(image_list) < 4:
+                    continue
+                image_list[0] = add_text(image_list[0], 't=%3d' % t, 'bl', 'small')
+                image_list[1] = add_text(image_list[1], 't=%3d' % t, 'bl', 'small')
+                image_list[2] = add_text(image_list[2], 't=%d' % (len(t_num_list)//2), 'bl', 'small')
+                text = 'object (t=%3d)' % t if 'ihoi' in method else 'object'
+                image_list[3] = add_text(image_list[3], text, 'bl', 'small')
+
+                if len(method_list) > 1:
+                    one_frame_method = get_one_frame(image_list)
+                else:
+                    one_frame_method = put_one_row(image_list)
+                # if not titled:
+                    # one_frame_method = add_text(one_frame_method, f'{method2name[method]}')
+                    # if t == t_num_list[-1] titled = True
+                row_list.append(one_frame_method)
+            if len(row_list) == 0:
+                continue
+            # if not titled and len(method_list) > 1: 
+            #     row_list = add_title(row_list, [method2name[e] for e in method_list])
+            #     if t == t_num_list[-1]:
+            #         titled = True
+            frame = put_one_row(row_list, )
+            frame_list.append(frame)
+
+        image_utils.write_mp4(frame_list, fname.replace('.mp4', ''))
+        if not osp.exists(fname):
+            continue
+        line.append(fname)
+        cell_list.append(line)
+    print(cell_list, len(cell_list[0]), len(cell_list[1]))
+    if len(method_list) > 1:
+        width_list = [1, len(method_list)*2]
+    else:
+        width_list = [1, 4]
+    web_run(osp.join(row_dir, 'vis.html'), cell_list, width=100, width_list=width_list,   inplace=True, homo=len(method_list) == 1)
+    return cell_list
+
+
+
+
+def add_title(row_list, title_list):
+    for i, row in enumerate(row_list):
+        row_list[i] = add_text(row, title_list[i])
+        # one_frame_method = add_text(one_frame_method, f'{method2name[method]}')
+    return row_list
+
+def add_header(method_list):
+    # create image
+    if len(method_list) > 1:
+        width = 200 * 2
+    else:
+        width = 200 * 4
+    banner_list = []
+    for method in method_list:
+        banner = np.ones((30, width, 3), dtype=np.uint8) * 255
+        banner = add_text(banner, method2name[method])
+        banner_list.append(banner)
+    banner = put_one_row(banner_list)
+    return banner
+
+
+def add_text(frame, text, place='tm', scale='title'):
+    # add text in the top middle
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    if scale == 'title':
+        fontScale = 0.75 
+        thickness = 1
+    elif scale == 'small':
+        fontScale = 0.5
+        thickness = 1
+    textsize = cv2.getTextSize(text, font, fontScale, thickness)[0]
+    frame = frame.copy()
+    if place == 'tm':
+        textX = (frame.shape[1] - textsize[0]) // 2
+        textY = 20
+    elif place == 'bl':
+        textX = 10
+        textY = frame.shape[0] - 10
+    elif place == 'bm':
+        textX = (frame.shape[1] - textsize[0]) // 2
+        textY = frame.shape[0] - 10
+
+    cv2.putText(frame, text, (textX, textY), font, fontScale, (0, 0, 0), thickness, cv2.LINE_AA)
+    return frame
+    
+def get_one_frame(image_list):
+    frame = put_one_col([
+        put_one_row(image_list[0:2]),
+        put_one_row(image_list[2:4]),
+    ])
+    # pad black line with m at boundary
+    frame = np.concatenate([frame, np.zeros([frame.shape[0], 1, 3], np.uint8)], 1)
+    # resize height to 300 keep aspect ratio
+    frame = cv2.resize(frame, (int(frame.shape[1] * 300 / frame.shape[0]), 300))
+    
+    return frame
+
 
 
 def merge_fig(args):
@@ -255,6 +447,45 @@ def teaser_web(args):
     web_utils.run(web_dir, cell_list, width=200)
     return cell_list
     
+
+def web_run(html_root, cell_list, width=200, hide_text=False, height=None, width_list=None, inplace=False, homo=False):
+    """
+    cell_list: 2D array, each element could be: filepath of vid/image, str
+    """
+    if not html_root.endswith('.html'):
+        html_file = os.path.join(html_root, 'index.html')
+    else:
+        html_file = html_root
+        html_root = os.path.dirname(html_root)
+    os.makedirs(html_root, exist_ok=True)
+
+    ncol = len(cell_list[0])
+    # title
+    TableCls = web_utils.create_table('TableCls')
+    for c in range(ncol):
+        label = 'Input' if c == 0 else 'Output'
+        TableCls = TableCls.add_column('%d' % c, web_utils.Col(label))
+
+    items = []
+    for r, row in enumerate(cell_list):
+        line = {}
+        for c in range(ncol):
+            pref = 'r%02dc%02d' % (r, c)
+            # h = height//2 if c == 0 and not homo else height
+            w = width_list[c] * width
+            out = web_utils.html_add_col_text(row[c], html_root, w, pref, hide_text, height=height, inplace=inplace)
+            out = out.split('<br/>')[0]
+            line['%d' % c] = out
+        items.append(line)
+    table = TableCls(items)
+    html_str = table.__html__()
+    with open(os.path.join(html_file), 'w') as fp:
+        # add header
+        fp.write('<script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>\n')
+        fp.write(html_str)
+        print('write to %s' % html_file)
+
+
 def web_merge(args):
     index_list = get_data_list(args.data)
     row_dir = osp.join(save_dir, args.fig)
@@ -291,6 +522,7 @@ def parse_args():
     parser.add_argument('--ts', type=str, default='10')
     parser.add_argument('--method', type=str, default=None)
     parser.add_argument('--fig', type=str, default='default')
+    parser.add_argument('--dry', action='store_true', default=False)
     args = parser.parse_args()
     return args
 
@@ -302,6 +534,11 @@ def get_data_list(data):
         data = 'hoi4d'
         cat_list = "Mug,Bottle,Kettle,Bowl,Knife,ToyCar".split(',')
         ind_list = [1,2]
+        index_list = [f"{cat}_{ind}" for ind in ind_list for cat in cat_list ]
+    if data == 'hoi4d_half':
+        data = 'hoi4d'
+        cat_list = "Mug,Bottle,Kettle,Bowl,Knife,ToyCar".split(',')
+        ind_list = [1]
         index_list = [f"{cat}_{ind}" for ind in ind_list for cat in cat_list ]
     elif data == 'wild': 
         index_list = get_data_list('3rd') + get_data_list('1st') + get_data_list('visor')
@@ -338,8 +575,12 @@ if __name__ == '__main__':
 
     # cp_fig()
 
-    merge_fig(args)
-    web_merge(args)
+    # merge_fig(args)
+    # web_merge(args)
 
     # merge_teaser(args)
     # teaser_web(args)
+
+
+    get_video_grid(args)
+    # make_video_web(args)

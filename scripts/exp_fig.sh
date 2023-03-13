@@ -1,3 +1,7 @@
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m tools.vis_clips  -m  \
+    load_folder=../org/ours/  video=True   \
+    hydra/launcher=slurm
+
 
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m tools.vis_clips  -m  \
     load_folder=../org/wild_ours/  T_num=10   \
@@ -12,15 +16,44 @@ all fig for ours HOI4D
 
 CUDA_VISIBLE_DEVICES=7 PYTHONPATH=. python -m tools.vis_clips  -m    \
     load_folder=../org/w_normal/,../org/w_depth/,../org/w_mask/,../org/ours/,../org/hand_prior/,../org/no_prior/,../org/obj_prior/     \
+    video=True \
     hydra/launcher=slurm
 
+
+CUDA_VISIBLE_DEVICES=7 PYTHONPATH=. python -m tools.vis_clips  -m    \
+    load_folder=../org/oTh/,../org/blend/ \
+    video=True \
+    hydra/launcher=slurm
 
 -
 all fig for ours wild
 
 PYTHONPATH=. python -m tools.vis_clips  -m    \
- load_folder=../org/wild_ours   \
+ load_folder=../org/wild_ours/   \
+ video=True \
     hydra/launcher=slurm
+
+
+
+python -m tools.make_better_fig --fig vid_prior --method gt,ours,obj_prior,hand_prior,no_prior \
+    --suf vid_t --data hoi4d_half &
+
+python -m tools.make_better_fig --fig vid_main --method gt,ours,ihoi,hhor \
+    --suf vid_t 
+
+python -m tools.make_better_fig --fig vid_weight --method gt,ours,w_depth,w_mask,w_normal \
+    --suf vid_t --data hoi4d_half
+
+python -m tools.make_better_fig --fig vid_ablation --method gt,ours,blend,oTh \
+    --suf vid_t --data hoi4d_half
+
+
+
+python -m tools.make_better_fig --fig vid_wild --method wild_ours,wild_ihoi  --data wild \
+    --suf vid_t 
+
+python -m tools.make_better_fig --fig vid_more --method wild_ours  --data wild \
+    --suf vid_t 
 
 
 

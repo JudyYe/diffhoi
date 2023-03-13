@@ -106,6 +106,93 @@ def run_vis_diffusion(dataloader:DataLoader, trainer:Trainer, save_dir, name, re
                 v.image.save(save_path)
 
 
+@torch.no_grad()
+def run_video(dataloader, trainer, save_dir, name, H, W,  N=64, volume_size=6, max_t=1000, T_num=None):
+    device = trainer.device
+    if isinstance(trainer, DistributedDataParallel):
+        trainer = trainer.module
+    model = trainer.model
+    save_dir = osp.join(save_dir, name, )
+    os.makedirs(save_dir, exist_ok=True)
+    mesh_file = osp.join(save_dir, 'jObj.ply')
+    if not osp.exists(mesh_file):
+        try:
+            mesh_util.extract_mesh(
+                    model.implicit_surface, 
+                    N=N,
+                    filepath=mesh_file,
+                    volume_size=volume_size,
+                )
+        except ValueError:
+            jObj = plot_utils.create_coord('cpu', size=0.00001)
+            mesh_utils.dump_meshes([mesh_file[:-4]], jObj)
+            mesh_file = mesh_file.replace('.ply', '.obj')
+    jObj = mesh_utils.load_mesh(mesh_file).cuda()
+    jObj.textures = mesh_utils.pad_texture(jObj, 'blue')
+
+    name_list = ['input', 'render_0', 'render_1', 'jHoi', 'jObj', 'vHoi', 'vObj', 'vObj_t', 'vHoi_fix']
+    image_list = [[] for _ in name_list]
+    T = len(dataloader)
+    for i, (indices, model_input, ground_truth) in enumerate(tqdm(dataloader)):
+        hh = ww = int(np.sqrt(ground_truth['rgb'].size(1) ))
+        gt = ground_truth['rgb'].reshape(1, hh, ww, 3).permute(0, 3, 1, 2)
+        image_list[0].append(gt)
+
+        jHand, jTc, jTh, intrinsics = trainer.get_jHand_camera(
+            indices.to(device), model_input, ground_truth, H, W)
+        jHand.textures = mesh_utils.pad_texture(jHand, 'blue')
+
+        K_ndc = mesh_utils.intr_from_screen_to_ndc(intrinsics, H, W)
+        hoi, _ = mesh_utils.render_hoi_obj_overlay(jHand, jObj, jTc, H=H, K_ndc=K_ndc, bin_size=32)
+        image_list[1].append(hoi)
+
+        # rotate by 90 degree in world frame 
+        # 1. 
+        jTcp = mesh_utils.get_wTcp_in_camera_view(np.pi/2, wTc=jTc)
+        hoi, _ = mesh_utils.render_hoi_obj_overlay(jHand, jObj, jTcp, H=H, K_ndc=K_ndc, bin_size=32)
+        image_list[2].append(hoi)
+
+        if i == T//2:
+            # coord = plot_utils.create_coord(device, size=1)
+            jHoi = mesh_utils.join_scene([jHand, jObj])
+            image_list[3] = mesh_utils.render_geom_rot(jHoi, scale_geom=True, out_size=H) 
+            image_list[4] = mesh_utils.render_geom_rot(jObj, scale_geom=True, out_size=H) 
+            
+            # rotation around z axis
+            vTj = torch.FloatTensor(
+                [[np.cos(np.pi/2), -np.sin(np.pi/2), 0, 0],
+                [np.sin(np.pi/2), np.cos(np.pi/2), 0, 0],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1]]).to(device)[None].repeat(1, 1, 1)
+            vHoi = mesh_utils.apply_transform(jHoi, vTj)
+            vObj = mesh_utils.apply_transform(jObj, vTj)
+            image_list[5] = mesh_utils.render_geom_rot(vHoi, scale_geom=True, out_size=H) 
+            image_list[6] = mesh_utils.render_geom_rot(vObj, scale_geom=True, out_size=H) 
+        
+        jHoi = mesh_utils.join_scene([jHand, jObj])                
+        vTj = torch.FloatTensor(
+            [[np.cos(np.pi/2), -np.sin(np.pi/2), 0, 0],
+            [np.sin(np.pi/2), np.cos(np.pi/2), 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]]).to(device)[None].repeat(1, 1, 1)
+        vObj = mesh_utils.apply_transform(jObj, vTj)
+        iObj_list = mesh_utils.render_geom_rot(vObj, scale_geom=True, out_size=H, bin_size=32) 
+        image_list[7].append(iObj_list[i%len(iObj_list)])
+        
+        # HOI from fixed view point 
+        scale = mesh_utils.Scale(0.5, ).cuda()
+        trans = mesh_utils.Translate(0, 0.4, 0, ).cuda()
+        fTj = scale.compose(trans)
+        fHand = mesh_utils.apply_transform(jHand, fTj)
+        fObj = mesh_utils.apply_transform(jObj, fTj)
+        iHoi, iObj = mesh_utils.render_hoi_obj(fHand, fObj, 0, scale_geom=False, scale=1, bin_size=32)
+        image_list[8].append(iHoi)
+    # save 
+    for n, im_list in zip(name_list, image_list):
+        for t, im in enumerate(im_list):
+            image_utils.save_images(im, osp.join(save_dir, n, f'{t:03d}'))
+    return
+
 def run_render(dataloader:DataLoader, trainer:VolSDFHoi, save_dir, name, render_kwargs, offset=None, max_t=1000):
     device = trainer.device
     if isinstance(trainer, DistributedDataParallel):
@@ -252,6 +339,33 @@ def run_gt(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_
     file_list = [osp.join(save_dir, name + '_%s.gif' % n) for n in name_list]
     return file_list
 
+@torch.no_grad()
+def run_method_fig(dataloader, trainer: VolSDFHoi, save_dir, name, H, W, render_kwargs_test={}):
+    device = trainer.device
+    if isinstance(trainer, DistributedDataParallel):
+        trainer = trainer.module
+    os.makedirs(save_dir, exist_ok=True)
+
+    
+    # reconstruct  hand and render
+    for i, (indices, model_input, ground_truth) in enumerate(tqdm(dataloader)):
+        model_input = model_utils.to_cuda(model_input)
+        ground_truth = model_utils.to_cuda(ground_truth)
+        # hh = ww = int(np.sqrt(ground_truth['rgb'].size(1) ))
+        # gt = ground_truth['rgb'].reshape(1, hh, ww, 3).permute(0, 3, 1, 2)
+        # novel_img = trainer.render_novel_view(val_ind, val_in, val_gt, render_kwargs_test)
+        # loss_extras = trainer(trainer.args, indices, model_input, ground_truth, render_kwargs_test, 0)
+        # ret = loss_extras['extras']
+        
+        H = 512
+        gt = torch.cat([
+            model_input['hand_mask'].reshape(1, 1, H, H), 
+            model_input['obj_mask'].reshape(1, 1, H, H), 
+            torch.zeros_like(model_input['obj_mask']).reshape(1, 1, H, H)], 1)
+        print(gt.shape, ground_truth['rgb'].shape)
+        print(osp.join(save_dir,  f'methodfig/{i}_gt.png'))
+        image_utils.save_images(gt, osp.join(save_dir,  f'methodfig/{i}_gt.png'))
+        image_utils.save_images(ground_truth['rgb'].reshape(1, H, H, 3).permute(0, 3, 1, 2), osp.join(save_dir,  f'methodfig/{i}_inp.png'))
 
 @torch.no_grad()
 def run_fig(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_size=6, max_t=1000, T_num=None):
@@ -502,9 +616,20 @@ def main_function(args):
     if args.surface:
         with torch.no_grad():
             run(dataloader, trainer, save_dir, name, H=H, W=W, volume_size=args.volume_size, N=args.N)
+    if args.method_fig:
+        render_kwargs_test['rayschunk'] = args.chunk
+        render_kwargs_test['H'] = H #  * 2 // 3
+        render_kwargs_test['W'] = W #  * 2 // 3
+
+        with torch.no_grad():
+            run_method_fig(dataloader, trainer, save_dir, name, H=H, W=W, render_kwargs_test=render_kwargs_test)
     if args.fig:
         with torch.no_grad():
             run_fig(dataloader, trainer, save_dir, name, H=H, W=W, volume_size=args.volume_size, N=args.N, T_num=args.T_num)
+    if args.video:
+        with torch.no_grad():
+            save_dir = args.load_pt.split('/ckpts')[0]
+            run_video(dataloader, trainer, save_dir, 'vis_video', H=H, W=W, volume_size=args.volume_size, N=args.N)
     if args.nvs:
         render_kwargs_test['rayschunk'] = args.chunk
         render_kwargs_test['H'] = H #  * 2 // 3

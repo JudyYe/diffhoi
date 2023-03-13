@@ -53,6 +53,7 @@ class RelPoseNet(nn.Module):
         self.base_s = nn.Parameter(base_s[..., 0:1], learn_base_s)
         self.base_t = nn.Parameter(base_t, learn_base_t)
 
+        # ?? 
         self.r = nn.Parameter(torch.zeros(size=(num_frames, 3), dtype=torch.float32), requires_grad=learn_R)  # (N, 3)
         self.t = nn.Parameter(torch.zeros(size=(num_frames, 3), dtype=torch.float32), requires_grad=learn_t)  # (N, 3)
 
@@ -412,11 +413,14 @@ class Trainer(nn.Module):
         args = self.args
         device = self.device
         iHoi = extras['iHoi']
+        iObj = extras['iObj']
         select_inds = extras['select_inds']
         label_target = extras['label_target']
         target_rgb = extras['target_rgb']
         target_mask = extras['target_mask']
         select_inds = extras['select_inds']
+        target_obj = extras['target_obj']
+        target_hand = extras['target_hand']
 
         if "mask_ignore" in model_input:
             mask_ignore = torch.gather(model_input["mask_ignore"].to(device), 1, select_inds)
@@ -456,6 +460,14 @@ class Trainer(nn.Module):
                 losses['loss_fl_fw'] = (losses['loss_fl_fw'] * mask_ignore[..., None].float()).sum() / (mask_ignore.sum() + 1e-10) 
             else:
                 losses['loss_fl_fw'] = losses['loss_fl_fw'].mean()
+
+        if args.training.w_depth > 0:
+            iHand = extras['iHand']
+            losses['loss_depth'] = args.training.w_depth * compute_ordinal_depth_loss(
+                [target_hand > 0.5, target_obj > 0.5],
+                [iHand['mask'] > 0.5, iObj['mask'] > 0.5],
+                [iHand['depth'], iObj['depth']]
+            )
 
         if args.training.w_contour > 0:
             iHand = extras['iHand']
@@ -839,6 +851,8 @@ class Trainer(nn.Module):
         target_hand = torch.gather(model_input["hand_mask"].to(device), 1, select_inds).float()
         extras['target_rgb'] = target_rgb
         extras['target_mask'] = target_mask
+        extras['target_obj'] = target_obj
+        extras['target_hand'] = target_hand
 
         # masks for mask loss: # (N, P, 2)
         # GT is marked as hand not object, AND predicted object depth is behind
@@ -1033,6 +1047,35 @@ class Trainer(nn.Module):
         # depth_hoi = mesh_utils.join_scene_w_labels([depth_hand, depth_obj], 3)
         # image_list = mesh_utils.render_geom_rot(depth_hoi, 'circle', cameras=cameras, view_centric=True)
         # logger.add_gifs(image_list, 'hoi/hoi_depth_pointcloud', it)
+
+
+def compute_ordinal_depth_loss(masks, silhouettes, depths):
+    """
+    Args:
+        masks (_type_): GT 
+        silhouettes (_type_): bools predicted silouettes
+        depths (_type_): predicted depth
+    Returns:
+        _type_: _description_
+    """
+    loss = torch.tensor(0.0).float().cuda()
+    num_pairs = 0
+    for i in range(len(silhouettes)):
+        for j in range(len(silhouettes)):
+            has_pred = silhouettes[i] & silhouettes[j]
+            if has_pred.sum() == 0:
+                continue
+            else:
+                num_pairs += 1
+            front_i_gt = masks[i] & (~masks[j])
+            front_j_pred = depths[j] < depths[i]
+            m = front_i_gt & front_j_pred & has_pred
+            if m.sum() == 0:
+                continue
+            dists = torch.clamp(depths[i] - depths[j], min=0.0, max=2.0)
+            loss += torch.sum(torch.log(1 + torch.exp(dists))[m])
+    loss /= num_pairs
+    return loss
 
 
 def get_model(args, data_size=-1, **kwargs):

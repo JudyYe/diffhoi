@@ -28,4 +28,6 @@ gt: False
 surface: False
 cam: False
 diff: False
-fig: True
+fig: False
+method_fig: False
+video: False

@@ -18,6 +18,9 @@ exp2hoi4d_fig = {
     'w_mask': 'ablate_weight_gray/{}_m0_n1.0_d1.0',
     'w_depth': 'ablate_weight_gray/{}_m1.0_n1.0_d0',
 
+    'oTh': 'gray_oTh/{}_suf_smooth_100_False_False',
+    'blend': 'oridnal_depth/{}_suf_smooth_100_depth1',
+
     'ihoi': '../ihoi/light_mow/hoi4d/{}',
     'hhor': '../hhor/hoi4d_go/{}',
     'gt': 'gt/{}',
@@ -99,5 +102,6 @@ def link_wild():
                 print(cmd)
                 os.system(cmd)
 
-link_wild()
+
+# link_wild()
 

@@ -221,6 +221,7 @@ def main_function(args):
 
         if 'sample' in args.mode:
             run_sample(sd, image_file)
+        
         if 'sgd' in args.mode:
             run_sgd(sd, image_file)
         if 'uncond' in args.mode:
