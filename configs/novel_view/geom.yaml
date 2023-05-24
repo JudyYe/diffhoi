@@ -6,7 +6,7 @@ t_std: 0.1 # tranlsation standard deviate
 diff_dir: single_mode2
 diff_index: CondGeomGlide_cond_all_linear_catTrue_cfgFalse
 diff_name: ${novel_view.diff_dir}/${novel_view.diff_index}
-diffuse_ckpt: '/home/yufeiy2/scratch/result/vhoi/${novel_view.diff_name}/checkpoints/last.ckpt'
+diffuse_ckpt: '${environment.output}/${novel_view.diff_name}/checkpoints/last.ckpt'
 
 dummy_param: 0
 

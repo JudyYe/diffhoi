@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 from glob import glob
+from copy import deepcopy
 from jutils import image_utils, hand_utils, mesh_utils, geom_utils
 from pytorch3d.renderer import PerspectiveCameras
 import torchvision.transforms.functional as TF
@@ -22,7 +23,7 @@ def call_frank_mocap(box_dir, out_dir, **kwargs):
     """python -m demo.demo_handmocap --input_path /your/bbox_dir --out_dir ./mocap_output"""
     # [minX,minY,width,height]
     # {"image_path": "./sample_data/images/cj_dance_01_03_1_00075.png", "body_bbox_list": [[149, 380, 242, 565]], "hand_bbox_list": [{"left_hand": [288.9151611328125, 376.70184326171875, 39.796295166015625, 51.72357177734375], "right_hand": [234.97779846191406, 363.4115295410156, 50.28489685058594, 57.89691162109375]}]}
-    frank_dir = '/home/yufeiy2/frankmocap/'
+    frank_dir = '/private/home/yufeiy2/frankmocap/'
     cmd = f'cd {frank_dir}; \
           python -m demo.demo_handmocap --input_path {box_dir} --out_dir {out_dir} \
                     --view_type ego_centric --renderer_type pytorch3d --no_display \
@@ -67,6 +68,32 @@ def det_predicted_poses(data_dir , **kwargs):
 
     # call frankmocap to get predicted poses
     call_frank_mocap(osp.join(data_dir, 'image'), data_dir, **kwargs)
+
+
+def extrapolate_pose(data_dir, perc=0.5):
+    # get gt pose
+    cameras_gt = np.load(data_dir, 'cameras_hoi.npz')
+    hands_gt = np.load(data_dir, 'hands.npz')
+    
+    # get predicted pose
+    cameras_pred = np.load(data_dir, 'cameras_hoi_pred.npz')
+    hands_pred = np.load(data_dir, 'hands_pred.npz')
+
+    # extrapolate error by perc
+    r_a, t_a, s_a = geom_utils.matrix_to_axis_angle_t(cameras_gt['cTw'])
+    r_b, t_b, s_b = geom_utils.matrix_to_axis_angle_t(cameras_pred['cTw'])
+    def _extra(gt, pred, r):
+        out = gt + r * (pred - gt)
+        return out
+
+    r_c = _extra(r_a, r_b, perc)
+    t_c = _extra(t_a, t_b, perc)
+    s_c = _extra(s_a, s_b, perc)
+    cTw_c = geom_utils.axis_angle_t_to_matrix(r_c, t_c, s_c)
+    cameras_error = deepcopy(cameras_pred)
+    cameras_error['cTw'] = cTw_c
+    np.savez_compressed(osp.join(data_dir, 'cameras_hoi_predx{perc:2d}.npz'))
+
 
 
 def get_predicted_poses(data_dir):
@@ -265,7 +292,7 @@ def batch_get_predicted_poses(data_dir):
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Preprocess hand prediction')
-    parser.add_argument('--inp', type=str, default='/home/yufeiy2/scratch/result/HOI4D/')
+    parser.add_argument('--inp', type=str, default='/private/home/yufeiy2/scratch/result/HOI4D/')
     parser.add_argument('--skip', action='store_true')
     parser.add_argument('--batch', action='store_true')
     parser.add_argument('--debug', action='store_true')
@@ -284,5 +311,8 @@ if __name__ == '__main__':
         smooth_hand(args.inp, args)
     if args.overlay:
         batch_overlay(args.inp)
+    if args.extra:
+        extrapolate_pose(args.inp)
+        smooth_hand(args.inp, args)
     # if args.ho3d:
     #     batch_ho3d(args.inp)

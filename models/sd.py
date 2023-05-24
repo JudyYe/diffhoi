@@ -53,6 +53,7 @@ class SDLoss:
 
     def init_model(self, device='cuda'):
         self.model = load_from_checkpoint(self.ckpt_path)
+        self.model.log_dir = osp.join(self.cfg.exp_dir, 'log')
         self.model.eval()
         model_utils.freeze(self.model)
         self.unet = self.model.glide_model
