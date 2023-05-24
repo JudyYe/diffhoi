@@ -8,7 +8,7 @@ from time import time
 from tqdm import tqdm
 from torch.nn.parallel import DistributedDataParallel
 from models.frameworks.volsdf_hoi import VolSDFHoi, Trainer
-from preprocess.smooth_hand import vis_hA, vis_se3
+# from preprocess.smooth_hand import vis_hA, vis_se3
 from utils import io_util, mesh_util
 from utils.dist_util import is_master
 
@@ -303,9 +303,9 @@ def run_hA(dataloader, trainer, save_dir, name):
         # image_list[0].append(gif[0])
         # image_list[1].append(gif[1])
 
-    vis_se3(jTc_list, osp.join(save_dir, name + '_jTc'), 'jTc')
-    vis_se3(jTh_list, osp.join(save_dir, name + '_jTh'), 'jTh')
-    vis_hA(hA_list, osp.join(save_dir, name + '_hA'), 'hA', range(6))
+    # vis_se3(jTc_list, osp.join(save_dir, name + '_jTc'), 'jTc')
+    # vis_se3(jTh_list, osp.join(save_dir, name + '_jTh'), 'jTh')
+    # vis_hA(hA_list, osp.join(save_dir, name + '_hA'), 'hA', range(6))
 
     # for n, img_list in zip(name_list, image_list):
         # image_utils.save_gif(img_list, osp.join(save_dir, name + '_%s' % n))
