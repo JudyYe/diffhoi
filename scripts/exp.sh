@@ -1,4 +1,29 @@
- 
+
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
+    expname=rebuttal/\${data.index}_\${suf}  \
+    suf='_smooth_100_x150_x150,_smooth_100_x50_x50,_smooth_100_x200_x200' \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1  \
+    training.w_rgb=0 \
+    hydra/launcher=slurm hydra.launcher.timeout_min=360 &
+
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
+    expname=rebuttal/\${data.index}_\${suf}  \
+    suf='' \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1  \
+    training.w_rgb=0 \
+    hydra/launcher=slurm hydra.launcher.timeout_min=360 &
+
+
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
+    expname=rebuttal/\${data.index}_\${suf}  \
+    suf='_smooth_100_pred_x200,_smooth_100_x200_pred,_smooth_100_pred_x150,_smooth_100_x150_pred' \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1  \
+    training.w_rgb=0 \
+    hydra/launcher=slurm hydra.launcher.timeout_min=360 &
+
+
 -
 run all fig
 PYTHONPATH=. python -m tools.vis_clips  -m     load_folder=which_prior_w0.01_exp/,pred_no_prior/,ablate_weight/,which_prior_w0.01/
