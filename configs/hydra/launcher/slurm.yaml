@@ -16,4 +16,4 @@ submitit_folder: ${exp_dir}/submitit_train_logs/
 name: ${expname}
 
 
-exclude: grogu-1-9,grogu-1-24,grogu-2-12
+exclude: grogu-1-9,grogu-1-24

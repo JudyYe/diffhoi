@@ -1,3 +1,6 @@
+from scipy.spatial.transform import Rotation as R
+from scipy.spatial.transform import Slerp
+from copy import deepcopy
 import cv2
 import json
 import os
@@ -7,12 +10,14 @@ import argparse
 import imageio
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from tqdm import tqdm
 from glob import glob
 from jutils import image_utils, hand_utils, mesh_utils, geom_utils
 from pytorch3d.renderer import PerspectiveCameras
 import torchvision.transforms.functional as TF
 from .overlay_mocap import overlay_one
+from pytorch3d.transforms.rotation_conversions import quaternion_to_matrix, matrix_to_quaternion, quaternion_to_axis_angle, axis_angle_to_quaternion, axis_angle_to_matrix, matrix_to_axis_angle
 
 
 device = 'cuda:0'
@@ -139,6 +144,10 @@ def post_process(data_dir, img_paths):
 
 def vis_K_pred(camera_dict, hand_dict, img_paths, data_dir, hand_wrapper, suf='pred'):
     for i, img_file in enumerate(tqdm(img_paths)):
+        if isinstance(camera_dict, str):
+            camera_dict = np.load(camera_dict)
+        if isinstance(hand_dict, str):
+            hand_dict = np.load(hand_dict)
         cTw = torch.FloatTensor(camera_dict['cTw'][i])[None].to(device)
         K_pix = torch.FloatTensor(camera_dict['K_pix'][i])[None].to(device)
         hA = torch.FloatTensor(hand_dict['hA'][i])[None].to(device)
@@ -163,9 +172,9 @@ def vis_K_pred(camera_dict, hand_dict, img_paths, data_dir, hand_wrapper, suf='p
                     [imageio.imread(e) for e in sorted(glob(osp.join(data_dir, f'vis/*_{suf}.png')))])
     return 
 
-def smooth_hand(data_dir, args, w_smooth=None):
-    cameras = np.load(osp.join(data_dir, 'cameras_hoi_pred.npz'))
-    hands = np.load(osp.join(data_dir, 'hands_pred.npz'))
+def smooth_hand(data_dir, args, w_smooth=None, cam_suf='pred', hand_suf='pred'):
+    cameras = np.load(osp.join(data_dir, f'cameras_hoi_{cam_suf}.npz'))
+    hands = np.load(osp.join(data_dir, f'hands_{hand_suf}.npz'))
     cTw = torch.FloatTensor(cameras['cTw']).to(device)
     hA = torch.FloatTensor(hands['hA']).to(device)
 
@@ -227,11 +236,12 @@ def smooth_hand(data_dir, args, w_smooth=None):
     new_cameras = {'K_pix': cameras['K_pix'], 'cTw': cTw_end.cpu().detach().numpy()}
     new_hands = {'hA': hA_end.cpu().detach().numpy(), 'beta': hands['beta']}
 
-    vis_K_pred(new_cameras, new_hands, 
-               sorted(glob(osp.join(data_dir, 'image/*.png'))), data_dir, hand_wrapper, suf=f'smooth_{w_smooth}')
+    np.savez_compressed(osp.join(data_dir, f'cameras_hoi_smooth_{w_smooth}_{cam_suf}_{hand_suf}.npz'), **new_cameras)
+    np.savez_compressed(osp.join(data_dir, f'hands_smooth_{w_smooth}_{cam_suf}_{hand_suf}.npz'), **new_hands)
 
-    np.savez_compressed(osp.join(data_dir, f'cameras_hoi_smooth_{w_smooth}.npz'), **new_cameras)
-    np.savez_compressed(osp.join(data_dir, f'hands_smooth_{w_smooth}.npz'), **new_hands)
+    # vis_K_pred(new_cameras, new_hands, 
+    #            sorted(glob(osp.join(data_dir, 'image/*.png'))), data_dir, hand_wrapper, suf=f'smooth_{w_smooth}')
+
 
 def batch_overlay(data_dir):
     data_dirs = sorted(glob(osp.join(data_dir, '*/image')))
@@ -262,6 +272,139 @@ def batch_get_predicted_poses(data_dir):
 
         os.rmdir(lock_file)
 
+def batch_extra(data_dir):
+    data_dirs = sorted(glob(osp.join(data_dir, 'ToyCar_1/image')))
+    hand_wrapper = hand_utils.ManopthWrapper().to(device)
+    for inp_dir in tqdm(data_dirs, desc='batch_get_predicted_poses'):
+        inp_dir = osp.dirname(inp_dir)
+        for perc in [0.5, 1.5, 2]:
+            suf = f'x{int(perc*100):02d}'
+            done = osp.join(inp_dir, f'hands_smooth_{suf}.done')
+            lock_file = done + '.lock'
+            if args.skip and osp.exists(done):
+                print(f'{done} exists, skip')
+                continue
+            try:
+                os.makedirs(lock_file)
+            except FileExistsError:
+                if args.skip:
+                    print(f'lock {lock_file} exists, skip')
+                    continue
+
+            extrapolate_pose(inp_dir, perc)            
+            smooth_hand(inp_dir, args, cam_suf=suf, hand_suf=suf)
+            vis_K_pred(osp.join(inp_dir, f'cameras_hoi_smooth_100_{suf}_{suf}.npz'), 
+                    osp.join(inp_dir, f'hands_smooth_100_{suf}_{suf}.npz'), 
+                    sorted(glob(osp.join(inp_dir, 'image/*.png'))), 
+                    inp_dir, hand_wrapper, f'smooth_100_{suf}_{suf}')
+
+            smooth_hand(inp_dir, args, cam_suf='pred', hand_suf=suf)
+            smooth_hand(inp_dir, args, cam_suf=suf, hand_suf='pred')
+
+            vis_K_pred(osp.join(inp_dir, f'cameras_hoi_smooth_100_pred_{suf}.npz'), 
+                    osp.join(inp_dir, f'hands_smooth_100_pred_{suf}.npz'), 
+                    sorted(glob(osp.join(inp_dir, 'image/*.png'))), 
+                    inp_dir, hand_wrapper, f'smooth_100_pred_{suf}')
+
+            vis_K_pred(osp.join(inp_dir, f'cameras_hoi_smooth_100_{suf}_pred.npz'), 
+                    osp.join(inp_dir, f'hands_smooth_100_{suf}_pred.npz'),
+                    sorted(glob(osp.join(inp_dir, 'image/*.png'))), 
+                    inp_dir, hand_wrapper, f'smooth_100_{suf}_pred')
+
+            # vis_K_pred(osp.join(inp_dir, f'cameras_hoi_{suf}.npz'), 
+            #         osp.join(inp_dir, f'hands_{suf}.npz'), 
+            #         sorted(glob(osp.join(inp_dir, 'image/*.png'))), 
+            #         inp_dir, hand_wrapper, suf)
+
+            os.makedirs(done, exist_ok=True)
+            os.rmdir(lock_file)
+
+
+def extrapolate_rot(gt, pred, r):
+    # extrapolate two rotation matrix in shape of (N, 3, 3)
+    # r: ratio of extrapolation
+    tensor = torch.is_tensor(gt)
+    if not tensor:
+        gt = torch.FloatTensor(gt)
+        pred = torch.FloatTensor(pred)
+    # extrapolate by 
+    gt_mat = axis_angle_to_matrix(gt)
+    pred_mat = axis_angle_to_matrix(pred)
+    
+    out_mat = gt_mat + r * (pred_mat - gt_mat)
+    # project out_mat to SO3 by SVD
+    U, S, V = torch.svd(out_mat)
+    out_mat = torch.matmul(U, V.transpose(-1, -2))
+    out = matrix_to_axis_angle(out_mat)
+
+    return out
+
+
+
+def slerp(gt, pred, r):
+    print(gt.shape)
+    if r > 1:
+        return extrapolate_rot(gt, pred, r)
+    tensor = torch.is_tensor(gt)
+    if tensor:
+        gt = gt.numpy()
+        pred = pred.numpy()
+    out_list = []
+    for n in range(len(gt)):
+        a = R.from_rotvec(np.stack([gt[n], pred[n]], 0))
+        # b = R.from_rotvec(pred[n])
+        key_times = [0, 1]
+        slerp = Slerp(key_times, a)
+        out = slerp(r).as_rotvec()
+        out_list.append(out)
+    
+    out_list = np.array(out_list)
+    if tensor:
+        out_list = torch.FloatTensor(out_list)
+    print('out', out_list.shape)
+    return out_list
+
+
+
+def extrapolate_pose(data_dir, perc=0.5):
+    # get gt pose
+    cameras_gt = np.load(osp.join(data_dir, 'cameras_hoi.npz'))
+    hands_gt = np.load(osp.join(data_dir, 'hands.npz'))
+    
+    # get predicted pose
+    cameras_pred = np.load(osp.join(data_dir, 'cameras_hoi_pred.npz'))
+    hands_pred = np.load(osp.join(data_dir, 'hands_pred.npz'))
+
+    # extrapolate error by perc
+    r_a, t_a, s_a = geom_utils.matrix_to_axis_angle_t(torch.FloatTensor(cameras_gt['cTw']))
+    r_b, t_b, s_b = geom_utils.matrix_to_axis_angle_t(torch.FloatTensor(cameras_pred['cTw']))
+    def _extra(gt, pred, r, rot=False):
+        if rot:
+            return slerp(gt, pred, r)
+            
+        out = gt + r * (pred - gt)
+        return out
+
+    r_c = _extra(r_a, r_b, perc, True)
+    t_c = _extra(t_a, t_b, perc)
+    s_c = _extra(s_a, s_b, perc)
+    cTw_c = geom_utils.axis_angle_t_to_matrix(r_c, t_b, s_b).numpy()
+    cameras_error = deepcopy(dict(cameras_pred))
+    cameras_error['cTw'] = cTw_c
+    np.savez_compressed(osp.join(data_dir, f'cameras_hoi_x{int(perc*100):02d}.npz'), **cameras_error)
+
+    pose_a = hands_gt['hA']
+    pose_b = hands_pred['hA']
+    pose_c = _extra(pose_a.reshape(-1, 3), pose_b.reshape(-1, 3), perc, True)
+    pose_c = pose_c.reshape(-1, 45)
+    hands_error = deepcopy(dict(hands_pred))
+    hands_error['hA'] = pose_c
+    np.savez_compressed(osp.join(data_dir, f'hands_x{int(perc*100):2d}.npz'), **hands_error)
+
+    suf = f'x{int(perc*100):02d}'
+    hand_wrapper = hand_utils.ManopthWrapper().to(device)
+    vis_K_pred(cameras_error, hands_error, sorted(glob(osp.join(data_dir, 'image/*.png'))), data_dir, hand_wrapper, suf)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Preprocess hand prediction')
@@ -270,19 +413,53 @@ def parse_args():
     parser.add_argument('--batch', action='store_true')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--ho3d', action='store_true')
+    parser.add_argument('--extra', action='store_true')
+    parser.add_argument('--extra_vis', action='store_true')
+    parser.add_argument('--extra_smooth', action='store_true')
     parser.add_argument('--overlay', action='store_true')
     parser.add_argument('--w_smooth', type=float, default=100)
+    parser.add_argument('-r', type=float, default=1.5)
     return parser.parse_args()
 
 
 if __name__ == '__main__':
     args = parse_args()        
     if args.batch:
-        batch_get_predicted_poses(args.inp)
+        batch_extra(args.inp)
+        # batch_get_predicted_poses(args.inp)
     if args.debug:
         get_predicted_poses(args.inp)
         smooth_hand(args.inp, args)
     if args.overlay:
         batch_overlay(args.inp)
+    if args.extra:
+        data_dirs = sorted(glob(osp.join(args.inp, '*_1/image')))
+        for inp_dir in tqdm(data_dirs):
+            inp_dir = osp.dirname(inp_dir)
+            print(inp_dir)
+            extrapolate_pose(inp_dir, 0.5)
+            extrapolate_pose(inp_dir, 1.5)
+            extrapolate_pose(inp_dir, 2)
+            # extrapolate_pose(inp_dir, 0)
+    if args.extra_smooth:
+        data_dirs = sorted(glob(osp.join(args.inp, '*_1/image')))
+        for inp_dir in tqdm(data_dirs):
+            inp_dir = osp.dirname(inp_dir)
+            smooth_hand(inp_dir, args, cam_suf='x50', hand_suf='x50')
+            smooth_hand(inp_dir, args, cam_suf='x150', hand_suf='x150')
+            smooth_hand(inp_dir, args, cam_suf='x200', hand_suf='x200')
+    if args.extra_vis:
+        data_dirs = sorted(glob(osp.join(args.inp, '*_1/image')))
+        hand_wrapper = hand_utils.ManopthWrapper().to(device)
+        for inp_dir in tqdm(data_dirs):
+            inp_dir = osp.dirname(inp_dir)
+
+            for suf in ['x150', 'x50', 'x200']:
+                vis_K_pred(osp.join(inp_dir, f'cameras_hoi_smooth_100_{suf}_{suf}.npz'), 
+                        osp.join(inp_dir, f'hands_smooth_100_{suf}_{suf}.npz'), 
+                        sorted(glob(osp.join(inp_dir, 'image/*.png'))), 
+                        inp_dir, hand_wrapper, f'smooth_100_{suf}_{suf}')
+
+
     # if args.ho3d:
     #     batch_ho3d(args.inp)
