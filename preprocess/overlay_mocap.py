@@ -7,7 +7,7 @@ import os.path as osp
 import numpy as np
 import torch
 import pickle
-from jutils import hand_utils, image_utils, geom_utils, mesh_utils
+from jutils import hand_utils, image_utils, geom_utils, mesh_utils, plot_utils
 from pytorch3d.renderer import PerspectiveCameras
 from tqdm import tqdm
 
@@ -142,11 +142,57 @@ def process_mocap_predictions(one_hand, H, W, hand_wrapper=None, hand_side='righ
     return data
 
 
-if __name__ == '__main__':
-    image_file = 'output/release/layout/hoi4d/recon/recon/rendered/0000_00_s0.jpg'
-    fname = 'output/release/layout/hoi4d/recon/mocap/0000_00_s0_prediction_result.pkl'
-    save_dir = 'output/vis_hand/'
-    os.makedirs(save_dir, exist_ok=True)
+def check_joints(fname='/checkpoint/yufeiy2/result/HOI4D/Mug_1/mocap/00041_prediction_result.pkl', H=512, orig_H=256):
+    hand_wrapper = hand_utils.ManopthWrapper().to(device)
+    # get home direcotry 
+    save_dir = osp.join(osp.expanduser("~"), 'scratch/result/vis')
+    a = pickle.load(open(fname, 'rb'))
+    hand = a['pred_output_list'][0]
+    # left_hand only if right_hand is empty
+    hand_type = 'left_hand'
+    # if 'left_hand' in hand and len(hand['left_hand']) > 0:
+    #     hand_type = 'left_hand'
+    if 'right_hand' in hand and len(hand['right_hand']) > 0:
+        hand_type = 'right_hand'    
+    hand_info = hand[hand_type]
+    betas = torch.FloatTensor(hand_info['pred_hand_betas']).to(device)
+    smpl_joints = hand_info['pred_joints_smpl'] # (, x, 3)
+    smpl_joints = torch.FloatTensor([smpl_joints]).to(device)
+    print(smpl_joints.shape)
+    sJoints = plot_utils.pc_to_cubic_meshes(smpl_joints)
+    sJoints.textures = mesh_utils.pad_texture(sJoints, 'red')
 
-    args = parser_args()
-    batch_main(args.dir)
+    pose = torch.FloatTensor(hand_info['pred_hand_pose']).to(device)
+    rot, hA = pose[..., :3], pose[..., 3:]
+
+    mesh, pJoints, _ = hand_wrapper.to_palm(rot, hA, add_pca=True)
+
+    hA = hA + hand_wrapper.hand_mean
+    mesh, pJoints, = hand_wrapper(None, torch.cat([rot, hA], -1), th_betas=betas)
+
+    trans = -pJoints[:, 5]
+    mesh = mesh.update_padded(mesh.verts_padded() + trans.unsqueeze(1))
+    pJoints += trans.unsqueeze(1)
+    
+    pJoints = plot_utils.pc_to_cubic_meshes(pJoints)
+    mesh.textures = mesh_utils.pad_texture(mesh, 'blue')
+    pJoints.textures = mesh_utils.pad_texture(pJoints, 'blue')
+
+    coord = plot_utils.create_coord(device, 1, 0.1)
+    scene = mesh_utils.join_scene([mesh, pJoints, sJoints, coord])
+
+    image_list = mesh_utils.render_geom_rot(scene, scale_geom=True, out_size=H)
+    image_utils.save_gif(image_list, osp.join(save_dir, 'hand'))
+
+
+
+if __name__ == '__main__':
+    # image_file = 'output/release/layout/hoi4d/recon/recon/rendered/0000_00_s0.jpg'
+    # fname = 'output/release/layout/hoi4d/recon/mocap/0000_00_s0_prediction_result.pkl'
+    # save_dir = 'output/vis_hand/'
+    # os.makedirs(save_dir, exist_ok=True)
+
+    # args = parser_args()
+    # batch_main(args.dir)
+
+    check_joints()

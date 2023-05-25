@@ -1,6 +1,15 @@
 
 
 
+
+CUDA_VISIBLE_DEVICES=1 PYTHONPATH=. python -m train -m  \
+    expname=rebuttal_fair_\${suf}/\${data.index}  \
+    suf='_smooth_100_x150_x150,_smooth_100_x200_x200,_smooth_100_pred_x200,_smooth_100_x200_pred' \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=2  \
+    hydra/launcher=learn environment=learn 
+
+
+-
 CUDA_VISIBLE_DEVICES=1 PYTHONPATH=. python -m train -m  \
     expname=rebuttal_fair_\${suf}/\${data.index}  \
     suf='_smooth_100_x150_x150,_smooth_100_x50_x50,_smooth_100_x200_x200' \
@@ -12,7 +21,7 @@ CUDA_VISIBLE_DEVICES=1 PYTHONPATH=. python -m train -m  \
 CUDA_VISIBLE_DEVICES=1 PYTHONPATH=. python -m train -m  \
     expname=rebuttal_fair_\${suf}/\${data.index}  \
     suf='' \
-    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1  \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=2  \
     training.w_rgb=0 \
     hydra/launcher=learn environment=learn 
 

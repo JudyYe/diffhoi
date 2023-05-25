@@ -11,7 +11,7 @@ device = 'cuda:0'
 cat_list = "Mug,Bottle,Kettle,Bowl,Knife,ToyCar".split(',')
 ind_list = [1,2]
 index_list = [f"{cat}_{ind}" for ind in ind_list for cat in cat_list ]
-data_dir = '/home/yufeiy2/scratch/result/HOI4D'
+data_dir = '/private/home/yufeiy2/scratch/result/HOI4D'
 
 
 
@@ -202,13 +202,13 @@ def eval_mesh(exp_dir, index):
         f_list[-1] *= 1e4
         f_mean_list.append(f_list)
     f_list = np.mean(f_mean_list, axis=0)
-    # hoi = mesh_utils.join_scene_w_labels([new_s, targets])
-    # image_list = mesh_utils.render_geom_rot(hoi)
-    # image_utils.save_gif(image_list, osp.join(exp_dir, 'align_mesh', f'aligned'))
+    hoi = mesh_utils.join_scene_w_labels([new_s, targets])
+    image_list = mesh_utils.render_geom_rot(hoi)
+    image_utils.save_gif(image_list, osp.join(exp_dir, 'align_mesh', f'aligned'))
 
-    # hoi = mesh_utils.join_scene_w_labels([sources, targets])
-    # image_list = mesh_utils.render_geom_rot(hoi)
-    # image_utils.save_gif(image_list, osp.join(exp_dir, 'align_mesh', f'raw'))
+    hoi = mesh_utils.join_scene_w_labels([sources, targets])
+    image_list = mesh_utils.render_geom_rot(hoi)
+    image_utils.save_gif(image_list, osp.join(exp_dir, 'align_mesh', f'raw'))
 
     # convert list of list to str for pretty print in one line 
     f_str = ' '.join([f'{f:.3f}' for f in f_list])
