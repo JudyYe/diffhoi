@@ -21,7 +21,8 @@ class SceneDataset(torch.utils.data.Dataset):
                  downscale=1.,   # [H, W]
                  cam_file=None,
                  scale_radius=-1, args=dict()):
-
+        if not os.path.exists(data_dir):
+            data_dir = data_dir.replace('/home', '/private/home')
         assert os.path.exists(data_dir), "Data directory is empty %s" % data_dir
         if osp.exists(osp.join(data_dir, 'oObj.obj')):
             self.oObj = mesh_utils.load_mesh(osp.join(data_dir, 'oObj.obj'))

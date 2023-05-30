@@ -12,6 +12,9 @@ from jutils.model_utils import load_my_state_dict
 
 
 def load_from_checkpoint(ckpt, cfg_file=None):
+    if not os.path.exists(ckpt):
+        ckpt = ckpt.replace('/home', '/private/home')
+
     if cfg_file is None:
         cfg_file = ckpt.split('checkpoints')[0] + '/config.yaml'
     print('use cfg file', cfg_file)

@@ -199,7 +199,31 @@ def vis_K_pred(camera_dict, hand_dict, img_paths, data_dir, hand_wrapper, suf='p
                     [imageio.imread(e) for e in sorted(glob(osp.join(data_dir, f'vis/*_{suf}.png')))])
     return 
 
-def qsmooth_hand(data_dir, args, w_smooth=None, cam_suf='pred', hand_suf='pred'):
+
+def generate_json(data_dir, args, cam_suf='_pred', hand_suf='_pred'):
+    cameras = np.load(osp.join(data_dir, f'cameras_hoi{cam_suf}.npz'))
+    hands = np.load(osp.join(data_dir, f'hands{hand_suf}.npz'))
+    cTw = torch.FloatTensor(cameras['cTw']).to(device)
+    hA = torch.FloatTensor(hands['hA']).to(device)
+    hand_wrapper = hand_utils.ManopthWrapper().to(device)
+    cHand, cJoints = hand_wrapper(cTw, hA, )
+
+    off = cJoints[:, 5:6]
+
+    verts = cHand.verts_padded() - off 
+    cJoints = cJoints - off 
+
+    verts = verts.cpu().detach().numpy().tolist()
+    cJoints = cJoints.cpu().detach().numpy().tolist()
+    out = [cJoints, verts, ]
+
+    with open(osp.join(data_dir, f'hand{cam_suf}{hand_suf}.json'), 'w') as f:
+        json.dump(out, f, indent=2)
+    
+    return 
+
+
+def smooth_hand(data_dir, args, w_smooth=None, cam_suf='pred', hand_suf='pred'):
     cameras = np.load(osp.join(data_dir, f'cameras_hoi_{cam_suf}.npz'))
     hands = np.load(osp.join(data_dir, f'hands_{hand_suf}.npz'))
     cTw = torch.FloatTensor(cameras['cTw']).to(device)
@@ -447,6 +471,7 @@ def parse_args():
     parser.add_argument('--extra', action='store_true')
     parser.add_argument('--extra_vis', action='store_true')
     parser.add_argument('--extra_smooth', action='store_true')
+    parser.add_argument('--eval_hand', action='store_true')
     parser.add_argument('--overlay', action='store_true')
     parser.add_argument('--w_smooth', type=float, default=100)
     parser.add_argument('-r', type=float, default=1.5)
@@ -473,7 +498,7 @@ if __name__ == '__main__':
             extrapolate_pose(inp_dir, 2)
     if args.extra_smooth:
         data_dirs = sorted(glob(osp.join(args.inp, '*_2/image')))
-        for inp_dir in tqdm(data_dirs[4:]):
+        for inp_dir in tqdm(data_dirs):
             inp_dir = osp.dirname(inp_dir)
             # smooth_hand(inp_dir, args, cam_suf='x50', hand_suf='x50')
             smooth_hand(inp_dir, args, cam_suf='x150', hand_suf='x150')
@@ -496,6 +521,10 @@ if __name__ == '__main__':
                         sorted(glob(osp.join(inp_dir, 'image/*.png'))), 
                         inp_dir, hand_wrapper, f'smooth_100_{suf}_{suf}')
 
-
-    # if args.ho3d:
-    #     batch_ho3d(args.inp)
+    if args.eval_hand:
+        data_dirs = sorted(glob(osp.join(args.inp, '*/image')))
+        for inp_dir in tqdm(data_dirs):
+            inp_dir = osp.dirname(inp_dir)
+            # generate_json(inp_dir, args, cam_suf='', hand_suf='')
+            # generate_json(inp_dir, args, cam_suf='_pred', hand_suf='_pred')
+            generate_json(inp_dir, args, cam_suf='_x200', hand_suf='_x200')

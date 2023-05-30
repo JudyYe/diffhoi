@@ -1,3 +1,4 @@
+import json
 import torch
 from tqdm import tqdm
 import numpy as np
@@ -7,6 +8,9 @@ import os.path as osp
 from jutils import web_utils, mesh_utils, model_utils, geom_utils, image_utils, hand_utils
 import tools.icp_recon as icp_tool
 import tools.vis_clips as clip_tool
+import tools.hand_eval as hand_tool
+
+
 device = 'cuda:0'
 cat_list = "Mug,Bottle,Kettle,Bowl,Knife,ToyCar".split(',')
 ind_list = [1,2]
@@ -178,6 +182,59 @@ def eval_mesh_in_hand(exp_dir, index):
     return rtn
 
 @torch.no_grad()
+def eval_hand(exp_dir, index):
+    # get GT hand joints and mesh.json
+    # index = '_'.join(osp.basename(exp_dir).split('_')[0:2])
+    print(index)
+    data_dir = '/private/home/yufeiy2/scratch/result/HOI4D'
+    gt_file = osp.join(data_dir, index, 'hand.json')
+
+    if args.gt:
+        pred_file = osp.join(data_dir, index, 'hand_x200_x200.json')
+        f_list = hand_tool.main(gt_file, pred_file)
+        f_str = ' '.join([f'{f:.3f}' for f in f_list])
+        return f_str
+
+
+    # get predicted hand joints and mesh
+    hand_wrapper = hand_utils.ManopthWrapper().to(device)
+    pred_file = osp.join(exp_dir, 'hand.json')
+    trainer, valloader = clip_tool.load_model_data(osp.join(exp_dir, 'ckpts/latest.pt'))
+    
+    cTw_list, hA_list = [], []
+    for val_ind, val_in, val_gt in valloader:
+        val_ind = val_ind.to(device)
+        val_in = model_utils.to_cuda(val_in, device)
+        val_gt = model_utils.to_cuda(val_gt, device)
+        jTc, jTc_n, jTh, jTh_n = trainer.get_jTc(val_ind, val_in, val_gt)
+        hA = trainer.model.hA_net(val_ind, val_in, None)
+        rot, trans, scale = geom_utils.homo_to_rt(jTc)
+        wTc = geom_utils.rt_to_homo(rot, trans)
+        # print('scale = 1?', scale)
+
+        cTw = geom_utils.inverse_rt(mat=wTc, return_mat=True)
+        cTw_list.append(cTw)
+        hA_list.append(hA)
+
+    print(len(cTw_list), len(hA_list))
+    cTw = torch.cat(cTw_list, 0).to(device)
+    hA = torch.cat(hA_list, 0).to(device)
+    cHand, cJoints = hand_wrapper(cTw, hA)
+    off = cJoints[:, 5:6]
+    verts = cHand.verts_padded() -off
+    cJoints = cJoints - off
+
+    verts = verts.cpu().numpy().tolist()
+    cJoints = cJoints.cpu().numpy().tolist()
+    with open(pred_file, 'w') as fp:
+        json.dump([cJoints, verts], fp, indent=2)
+
+    f_list = hand_tool.main(gt_file, pred_file)
+    f_str = ' '.join([f'{f:.3f}' for f in f_list])
+    rtn = f_str
+    return rtn
+
+@torch.no_grad()
 def eval_mesh(exp_dir, index):
     mesh_file, it = get_pred_meshes(exp_dir)
     if mesh_file is None:
@@ -202,13 +259,13 @@ def eval_mesh(exp_dir, index):
         f_list[-1] *= 1e4
         f_mean_list.append(f_list)
     f_list = np.mean(f_mean_list, axis=0)
-    hoi = mesh_utils.join_scene_w_labels([new_s, targets])
-    image_list = mesh_utils.render_geom_rot(hoi)
-    image_utils.save_gif(image_list, osp.join(exp_dir, 'align_mesh', f'aligned'))
 
-    hoi = mesh_utils.join_scene_w_labels([sources, targets])
-    image_list = mesh_utils.render_geom_rot(hoi)
-    image_utils.save_gif(image_list, osp.join(exp_dir, 'align_mesh', f'raw'))
+    # hoi = mesh_utils.join_scene_w_labels([new_s, targets])
+    # image_list = mesh_utils.render_geom_rot(hoi)
+    # image_utils.save_gif(image_list, osp.join(exp_dir, 'align_mesh', f'aligned'))
+    # hoi = mesh_utils.join_scene_w_labels([sources, targets])
+    # image_list = mesh_utils.render_geom_rot(hoi)
+    # image_utils.save_gif(image_list, osp.join(exp_dir, 'align_mesh', f'raw'))
 
     # convert list of list to str for pretty print in one line 
     f_str = ' '.join([f'{f:.3f}' for f in f_list])
@@ -361,6 +418,8 @@ def main_tab():
     name = f'{args.type}'
     if args.type == 'progress':
         func = get_iter
+    elif args.type == 'eval_hand':
+        func = eval_hand
     elif args.type == 'eval':
         func = eval_mesh
         name += f'_scale{args.scale}'
@@ -402,6 +461,7 @@ def parser():
     parser.add_argument('--all_fig', action='store_true')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--scale', action='store_true')
+    parser.add_argument('--gt', action='store_true')
     return parser
 
 if __name__ == "__main__":
