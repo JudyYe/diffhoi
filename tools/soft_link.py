@@ -26,11 +26,14 @@ exp2hoi4d_fig = {
     'gt': 'gt/{}',
 }
 
-
-data_dir = '/home/yufeiy2/scratch/result/vhoi'
-save_dir = '/home/yufeiy2/scratch/result/org'
-def soft_link():
-    for method, expname in exp2hoi4d_fig.items():
+method_list = ['w_normal', 'w_mask', 'w_depth']
+data_dir = '/private/home/yufeiy2/scratch/result/vhoi'
+save_dir = '/private/home/yufeiy2/scratch/result/org'
+def soft_link(method_list=None):
+    if method_list is None:
+        method_list = exp2hoi4d_fig.keys()
+    for method in method_list:
+        expname = exp2hoi4d_fig[method]
         seq_list = sorted(glob(osp.join(data_dir, expname.format('*'))))
         if len(seq_list) == 0:
             print('0', expname.format('*'))
@@ -55,8 +58,7 @@ def soft_link():
                 cmd = 'ln -s {} {}'.format(seq_dir, dst_exp)
                 print(cmd)
                 os.system(cmd)
-
-soft_link()
+soft_link(method_list)
 
 exp2wild_fig = {
     'wild_ours': 'wild_gray/{}',

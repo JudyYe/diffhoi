@@ -1,5 +1,5 @@
 defaults:
-  - environment: grogu_judy
+  - environment: learn
   - logging: wandb
   - data: hoi4d
   - camera: delta

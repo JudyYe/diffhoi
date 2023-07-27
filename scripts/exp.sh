@@ -1,4 +1,57 @@
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
+    expname=gray_oTh/\${data.index}_suf\${suf}_\${oTh.learn_R}_\${oTh.learn_t} \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=2 \
+    oTh.learn_R=False oTh.learn_t=False \
+    training.w_rgb=0 \
+    hydra/launcher=learn environment=learn 
 
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
+    expname=oridnal_depth/\${data.index}_suf\${suf}_depth\${training.w_depth} \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=2 \
+    training.w_rgb=0 training.w_depth=1 \
+    hydra/launcher=learn environment=learn 
+
+-
+
+CUDA_VISIBLE_DEVICES=1 PYTHONPATH=. python -m train -m \
+    expname=pred_no_prior_gray/\${data.index}_suf\${suf} \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=2 training.w_rgb=0 \
+    training.render_full_frame=False training.w_diffuse=0 \
+    hydra/launcher=learn environment=learn 
+
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m train -m  \
+    expname=which_prior_w\${training.w_diffuse}/\${data.index}_suf\${suf}_\${novel_view.diff_index}  \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=2 \
+    novel_view.diff_index=ObjGeomGlide_cond_all_linear_catTrue_cfgFalse,CondGeomGlide_cond_all_linear_catFalse_cfgFalse \
+    hydra/launcher=learn environment=learn 
+
+
+
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m train -m  \
+    expname=ablate_weight_gray/\${data.index}_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth}  \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=2  \
+    novel_view.loss.w_mask=0 training.w_rgb=0  \
+    novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    hydra/launcher=learn environment=learn 
+
+
+
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m train -m  \
+    expname=ablate_weight_gray/\${data.index}_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth}  \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=2  \
+    novel_view.loss.w_normal=0 training.w_rgb=0  \
+    novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    hydra/launcher=learn environment=learn 
+
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m train -m  \
+    expname=ablate_weight_gray/\${data.index}_m\${novel_view.loss.w_mask}_n\${novel_view.loss.w_normal}_d\${novel_view.loss.w_depth}  \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=2  \
+    novel_view.loss.w_depth=0 training.w_rgb=0  \
+    novel_view.diff_index=CondGeomGlide_cond_all_linear_catTrue_cfgFalse \
+    hydra/launcher=learn environment=learn 
+
+
+--
 
 
 

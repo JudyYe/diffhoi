@@ -1,3 +1,4 @@
+import pickle
 import json
 import torch
 from tqdm import tqdm
@@ -73,7 +74,9 @@ def get_pred_meshes(exp_dir):
         mesh_list = sorted(glob(osp.join(exp_dir, 'meshes', '*_hObj.obj')))
         mesh_file = mesh_list
         it = 10000
-        
+    elif args.method == 'homan':
+        mesh_file = None
+        it = 10000
     return mesh_file, it
     
 
@@ -103,6 +106,10 @@ def get_gt_hTo(index):
         hA_gt = np.load(osp.join(data_dir, index, 'hands.npz'))['hA']
     hTo_list = [torch.FloatTensor(hTo).unsqueeze(0).to(device) for hTo in hTo_list]
     hA_list = [torch.FloatTensor(hA).unsqueeze(0).to(device) for hA in hA_gt]
+    if args.method == 'homan': 
+        print('should not be here', 'hack')
+        hTo_list = hTo_list[::4]
+        hA_list = hA_list[::4]
     return hTo_list, hA_list
 
 def get_pred_hSource(exp_dir):
@@ -125,7 +132,18 @@ def get_pred_hSource(exp_dir):
         for mesh_file in mesh_list:
             hSource = mesh_utils.load_mesh(mesh_file, device=device)
             hSource_list.append(hSource)
-        
+    elif args.method == 'homan': 
+        with open(osp.join(exp_dir, 'param.pkl'), 'rb') as fp:
+            save = pickle.load(fp)
+        oObj = save['oObj']
+        hTo = save['hTo']
+        hObj = mesh_utils.apply_transform(oObj, hTo)
+        # extract by time~
+        mesh_utils.dump_meshes(osp.join(exp_dir, 'hObj_pred', 'mesh'), hObj)
+        hSource_list = sorted(glob(osp.join(exp_dir, 'hObj_pred', '*.obj')))
+        hSource_list = [mesh_utils.load_mesh(m, device=device) for m in hSource_list]
+        print(len(hSource_list))
+                # 'hA': hA, 'beta': beta, 'hTo': hTo, 'oObj': oObj,
     return hSource_list, it
 
 
@@ -282,6 +300,10 @@ def get_exp_list():
     elif args.method == 'ihoi':
         exp_list = sorted(glob(osp.join(args.dir, '*', 'meshes', )))
         exp_list = [osp.dirname(e) for e in exp_list]
+    elif args.method == 'homan':
+        exp_list = sorted(glob(osp.join(args.dir, '*', 'param.pkl', )))
+        exp_list = [osp.dirname(e) for e in exp_list]
+
     return exp_list
 
 def get_index_list(exp_list):

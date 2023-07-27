@@ -509,7 +509,7 @@ def load_model_data(load_pt, H=224, W=224):
     device = 'cuda:0'
     # load config
     config = io_util.load_yaml(osp.join(load_pt.split('/ckpts')[0], 'config.yaml'))
-    print('###### Change it back! latter',  )
+    # print('###### Change it back! latter',  )
 
     # load data    
     dataset, _ = get_data(config, return_val=True, val_downscale=1)
