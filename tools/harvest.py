@@ -149,7 +149,7 @@ def get_pred_hSource(exp_dir):
 
 
 @torch.no_grad()
-def eval_mesh_in_hand(exp_dir, index):
+def eval_mesh_in_hand(exp_dir, index, rtn_value=False):
     oTarget = get_gt_mesh(index)
     hTo_list, hA_gt_list = get_gt_hTo(index)
     
@@ -197,10 +197,12 @@ def eval_mesh_in_hand(exp_dir, index):
     f_str = ' '.join([f'{f:.3f}' for f in f_list])
     rtn = f'iter: {it} ' + f_str
     print(osp.basename(exp_dir), rtn)
+    if rtn_value:
+        return rtn, f_list
     return rtn
 
 @torch.no_grad()
-def eval_hand(exp_dir, index):
+def eval_hand(exp_dir, index, *dummy):
     # get GT hand joints and mesh.json
     # index = '_'.join(osp.basename(exp_dir).split('_')[0:2])
     print(index)
@@ -211,7 +213,7 @@ def eval_hand(exp_dir, index):
         pred_file = osp.join(data_dir, index, 'hand_x200_x200.json')
         f_list = hand_tool.main(gt_file, pred_file)
         f_str = ' '.join([f'{f:.3f}' for f in f_list])
-        return f_str
+        return f_str, f_list
 
 
     # get predicted hand joints and mesh
@@ -250,10 +252,10 @@ def eval_hand(exp_dir, index):
     f_list = hand_tool.main(gt_file, pred_file)
     f_str = ' '.join([f'{f:.3f}' for f in f_list])
     rtn = f_str
-    return rtn
+    return rtn, f_list
 
 @torch.no_grad()
-def eval_mesh(exp_dir, index):
+def eval_mesh(exp_dir, index, rtn_value=False):
     mesh_file, it = get_pred_meshes(exp_dir)
     if mesh_file is None:
         return 'null'
@@ -288,6 +290,9 @@ def eval_mesh(exp_dir, index):
     # convert list of list to str for pretty print in one line 
     f_str = ' '.join([f'{f:.3f}' for f in f_list])
     rtn = f'iter: {it} ' + f_str
+    print('ha?????????', rtn_value)
+    if rtn_value:
+        return rtn, f_list
     return rtn
 
 def get_exp_list():
@@ -449,16 +454,25 @@ def main_tab():
         func = eval_mesh_in_hand
         name += f'_scale{args.scale}'
 
-
+    mean = False
     for i, index in enumerate(tqdm(index_list, desc='instances')):
         # filter exp_list that contains index
         exp_list_i = [e for e in exp_list if index in e]
         if len(exp_list_i) > N:
             print(exp_list_i)
 
+        f_list = []
         for m, exp in enumerate(exp_list_i):
-            rtn = func(exp, index)
-            cell_list[i+1][m+1] = f'{osp.basename(exp):20}: ' + rtn
+            print('evaluating ', exp, func)
+            rtn, f_value = func(exp, index, True)
+            if mean:
+                f_list.append(f_value)
+            else:
+                cell_list[i+1][m+1] = f'{osp.basename(exp):20}: ' + rtn
+        if mean:
+            f_list = np.array(f_list).mean(0)
+            rtn = ' '.join([f'{f:.3f}' for f in f_list])
+            cell_list[i+1][1] = f'{osp.basename(exp):20}: ' + rtn
 
     # pretty print cell_list
     for row in cell_list:

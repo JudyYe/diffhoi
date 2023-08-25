@@ -32,9 +32,9 @@ device = 'cuda:0'
 # image.gif  
 # cameras_hoi.npz  
 # hands.npz  
-data_dir = '/home/yufeiy2/scratch/data/HOI4D/'
+data_dir = '/private/home/yufeiy2/scratch/data/HOI4D/'
 exclude_list = ['rest', 'reachout', 'stop']
-save_dir = '/home/yufeiy2/scratch/result/HOI4D/'
+save_dir = '/private/home/yufeiy2/scratch/result/HOI4D/'
 vis_dir = osp.join(save_dir, 'vis')
 
 mapping = [
@@ -612,6 +612,7 @@ def render_batch():
         os.makedirs(done, exist_ok=True)
         os.system(f'rm -r {lock}')
 
+
 def nontrivial_action():
     df = pandas.read_csv(osp.join(data_dir, 'Sets/all_contact_test_hand.csv'))
     for cat in rigid:
@@ -711,14 +712,14 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
     if args.decode:
-        # decode_video('/home/yufeiy2/scratch/data/HOI4D/HOI4D_release/', 'test_vid_ins.txt')
-        decode_video('/home/yufeiy2/scratch/data/HOI4D/HOI4D_release/', 'train_vid_ins.txt')
+        # decode_video('/private/home/yufeiy2/scratch/data/HOI4D/HOI4D_release/', 'test_vid_ins.txt')
+        decode_video('/private/home/yufeiy2/scratch/data/HOI4D/HOI4D_release/', 'train_vid_ins.txt')
     # index = 'ZY20210800002/H2/C5/N45/S261/s02/T2'
     # clips = continuous_clip(index)
     # for cc in clips:
     #     # vis_obj()
     #     get_one_clip(index, cc[0], cc[1])
-    # save_dir = '/home/yufeiy2/scratch/data/HOI4D/amodal'
+    # save_dir = '/private/home/yufeiy2/scratch/data/HOI4D/amodal'
 
     if args.split:
         create_clip_from_yaml('test_vhoix2.yaml')
@@ -729,8 +730,8 @@ if __name__ == '__main__':
         batch_save_eval_poses('test_vhoix2.csv', args.num)
         # batch_clip(args.num, 'test_vhoi.csv')
     if args.render:
-        # save_dir = '/home/yufeiy2/scratch/data/HOI4D/handup'
-        save_dir = '/home/yufeiy2/scratch/data/HOI4D/amodal'
+        # save_dir = '/private/home/yufeiy2/scratch/data/HOI4D/handup'
+        save_dir = '/private/home/yufeiy2/scratch/data/HOI4D/amodal'
         render_batch()
     if args.debug:
         # debug()

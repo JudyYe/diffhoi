@@ -1,20 +1,20 @@
 
 
-CUDA_VISIBLE_DEVICES=4  PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
-  expname=single_mode2/\${model.model}_\${mode.name}_\${beta_schdl}_cat\${cat_level}_cfg\${uncond_image} \
+CUDA_VISIBLE_DEVICES=1  PYTHONPATH=. python -m ddpm2d.models.glide_base -m --config-name geom_glide  \
+  expname=dev/single_mode3/\${model.model}_\${mode.name}_\${beta_schdl}_cat\${cat_level}_cfg\${uncond_image} \
   mode=cond_all beta_schdl=linear  cat_level=True \
-  model.model=ObjGeomGlide mode.cond=-1 \
-  environment.slurm=True
+  model.model=ObjGeomGlide mode.cond=-1 environment=learn \
+  hydra/launcher=learn
 
 
 
-CUDA_VISIBLE_DEVICES=4  PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
-  expname=single_mode2/\${model.model}_\${mode.name}_\${beta_schdl}_cat\${cat_level}_cfg\${uncond_image} \
+CUDA_VISIBLE_DEVICES=4  PYTHONPATH=. python -m ddpm2d.models.glide_base -m --config-name geom_glide  \
+  expname=dev/single_mode3/\${model.model}_\${mode.name}_\${beta_schdl}_cat\${cat_level}_cfg\${uncond_image} \
   model.model=CondGeomGlide mode=cond_all beta_schdl=linear  cat_level=True,False \
-  environment.slurm=True 
+  environment=learn hydra/launcher=learn
 
 
-
+--
 CUDA_VISIBLE_DEVICES=4  PYTHONPATH=. python -m ddpm2d.engine -m --config-name geom_glide  \
   expname=single_mode2/\${model.model}_\${mode.name}_\${beta_schdl}_cat\${cat_level}_cfg\${uncond_image}_\${zfar}_\${bin} \
   model.model=CondGeomGlide mode=cond_all beta_schdl=linear  cat_level=True \

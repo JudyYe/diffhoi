@@ -57,7 +57,7 @@ def init_env(args, gpu=None, ngpus_per_node=None):
         local_rank = args.device_ids[0]
         world_size = 1
         torch.cuda.set_device(args.device_ids[0])
-    set_seed(42)
+    set_seed(args.seed)
 
 
 def slurm_initialize(backend='nccl', port: Optional[int] = None):

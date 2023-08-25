@@ -1,7 +1,7 @@
 hoi4d:
   target: hoi4d_render
   name: hoi4d_geom_cam
-  data_dir: ${environment.local_str}/data/HOI4D/amodal/
+  data_dir: ${environment.data_dir}/HOI4D/amodal/
   split: 
   resize_ratio: 0.9
   dim: 11 # 3+2+3*2

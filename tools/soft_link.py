@@ -10,6 +10,9 @@ exp2hoi4d_fig = {
     # 'ours_wild': 'wild/{}{}',
     # 'ihoi_wild': '../ihoi/light_mow/hoi4d/{}',
 
+    'homan_avg': '../homan/other_1_1/{}_000',
+    'homan_far': '../homan/worst_1_1/{}_000',
+
     'obj_prior': 'gray_which_prior_w0.01_exp/{}_suf_smooth_100_ObjGeomGlide_cond_all_linear_catTrue_cfgFalse',
     'hand_prior': 'gray_which_prior_w0.01_exp/{}_suf_smooth_100_CondGeomGlide_cond_all_linear_catFalse_cfgFalse',
     'no_prior': 'pred_no_prior_gray/{}_suf_smooth_100',
@@ -26,7 +29,9 @@ exp2hoi4d_fig = {
     'gt': 'gt/{}',
 }
 
-method_list = ['w_normal', 'w_mask', 'w_depth']
+method_list = ['homan_avg', 'homan_far']
+
+# method_list = ['w_normal', 'w_mask', 'w_depth']
 data_dir = '/private/home/yufeiy2/scratch/result/vhoi'
 save_dir = '/private/home/yufeiy2/scratch/result/org'
 def soft_link(method_list=None):

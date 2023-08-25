@@ -1,5 +1,5 @@
 defaults:
-  - environment: grogu
+  - environment: learn
   - hydra: default
   - data@trainsets: hoi4d # ho3d_crop_cam
   - data@testsets: hoi4d # ho3d_crop_cam

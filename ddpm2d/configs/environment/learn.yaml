@@ -1,0 +1,36 @@
+user: condinv-ssl # judyye
+api: 8e99ff14eba9677d715999d7a282c9ff79cfb9bf # 8e99ff14eba9677d715999d7a282c9ff79cfb9bf
+
+wandb:
+  user: condinv-ssl # judyye
+  api: 8e99ff14eba9677d715999d7a282c9ff79cfb9bf # 8e99ff14eba9677d715999d7a282c9ff79cfb9bf
+remote_str: /private/home/yufeiy2/scratch/
+data_dir: ${environment.remote_str}/data/
+output: ${environment.remote_str}/result/vhoi
+slurm_partition: abhinavlong,shubhamlong,all
+
+submitit_dir: ${exp_dir}/submitit_train_logs/
+
+resume: True
+
+world_size: 1
+rank: 0
+dist_url: tcp://localhost:10001
+dist_backend: nccl
+port: 10001
+node: localhost
+
+
+multiprocessing_distributed: False
+distributed: True
+seed:
+gpu:
+ngpu: 1
+workers: 8
+mem_gb: 256
+gpu_mem_gb: '20G'
+
+slurm: False
+slurm_timeout: 120 # 2880  # in min 1440 is one day
+nodelist: ""
+

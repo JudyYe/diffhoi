@@ -326,7 +326,7 @@ def run_gt(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume_
         obj_mask = model_input['obj_mask'].reshape(1, hh, ww, 1).permute(0, 3, 1, 2)
 
         sem_mask = torch.cat([hand_mask, obj_mask, torch.zeros_like(obj_mask)], 1)
-        mask = (hand_mask + obj_mask).clamp(max=1)
+        mask = (hand_mask + obj_mask).float().clamp(max=1)
 
         image_list[0].append(gt)
         image_list[1].append(image_utils.blend_images(sem_mask, gt, mask))  # view 0
@@ -372,7 +372,6 @@ def run_fig(dataloader, trainer, save_dir, name, H, W, offset=None, N=64, volume
     device = trainer.device
     model = trainer.model
     print(save_dir)
-    renderer = partial(trainer.mesh_renderer, soft=False)
 
     mesh_file = osp.join(save_dir, name + '_obj.ply')
     if not osp.exists(mesh_file):
@@ -550,11 +549,11 @@ def main_batch(args):
     for e in model_list:
         args.load_pt = e
         print(args.load_pt)
-        try:
-            main_function(args)
-        except ValueError as er:
-            print(e, er)
-            continue
+        # try:
+        main_function(args)
+        # except ValueError as er:
+        #     print(e, er)
+        #     continue
 
 def main_function(args):
     # slurm_utils.update_pythonpath_relative_hydra()

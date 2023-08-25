@@ -183,7 +183,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
 def main_worker(cfg):
     # handle learning rate 
     print('main worker')
-    torch.backends.cudnn.benchmark = True
+    # torch.backends.cudnn.benchmark = True
     if cfg.ndim is None:
         if cfg.mode.cond == 1: 
             cfg.ndim_cond = cfg.mode.mask + 3 * cfg.mode.normal + cfg.mode.depth + 2 * cfg.mode.uv
@@ -199,10 +199,6 @@ def main_worker(cfg):
     model = model_cls(cfg, )
     model.init_model()
     model.cuda()
-
-    if cfg.environment.overwrite:
-        logging.warn('#### Dangerous, overwrite %s' % cfg.exp_dir)
-        shutil.rmtree(cfg.exp_dir, ignore_errors=True)
 
     # instantiate model
     if cfg.eval:

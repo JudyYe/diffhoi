@@ -16,8 +16,8 @@ cat_list = "Mug,Bottle,Kettle,Bowl,Knife,ToyCar".split(',')
 ind_list = [1,2]
 
 index_list = [f"{cat}_{ind}" for ind in ind_list for cat in cat_list ]
-data_dir = '/home/yufeiy2/scratch/result/HOI4D'
-save_dir = '/home/yufeiy2/scratch/result/vhoi/gt'
+data_dir = '/private/home/yufeiy2/scratch/result/HOI4D'
+save_dir = '/private/home/yufeiy2/scratch/result/vhoi/gt'
 hand_wrapper = hand_utils.ManopthWrapper().to(device)
 
 def get_gt_mesh(index):
@@ -125,7 +125,7 @@ def save_render(save_dir, t, data, out, H=512, W=512):
 
     K_ndc = mesh_utils.get_k_from_fp(cam_f, cam_p)
     # print('out', cam_f, cam_p, cTh)
-    hoi, obj = mesh_utils.render_hoi_obj_overlay(hHand, hObj, cTj=cTh, H=H, K_ndc=K_ndc, bin_size=10)    
+    hoi, obj = mesh_utils.render_hoi_obj_overlay(hHand, hObj, cTj=cTh, H=H, K_ndc=K_ndc)    
     # hoi_rgb, hoi_m = hoi.split([3, 1], 1)
     # hoi = hoi_rgb * hoi_m + gt * (1 - hoi_m)
     # image_list[0].append(gt)
@@ -135,7 +135,7 @@ def save_render(save_dir, t, data, out, H=512, W=512):
     # image_list[1].append(image_utils.blend_images(image1, gt, mask1))  # view 0
 
     for i, az in enumerate(degree_list):
-        img1, img2 = mesh_utils.render_hoi_obj(hHand, hObj, az, cTj=cTh, H=H, W=W, bin_size=10)
+        img1, img2 = mesh_utils.render_hoi_obj(hHand, hObj, az, cTj=cTh, H=H, W=W,)
         image_list[3 + 2*i].append(img1)  
         image_list[3 + 2*i+1].append(img2) 
 
@@ -219,18 +219,20 @@ def main():
         video_dir = osp.join(save_dir, vid, 'vis_video')
         data_list = get_data(vid, data_dir)
         T = len(data_list) - 1
-        render_step = [0, T//2, T-1]
-        render_video(data_list, video_dir, )
-        # for t, data in enumerate(data_list):
-        #     data = model_utils.to_cuda(data, device)
+        render_step = np.linspace(0, T-1, T_num).astype(np.int).tolist() 
+        # render_step = [0, T//2, T-1]
+        # render_video(data_list, video_dir, )
+        for t, data in enumerate(data_list):
+            data = model_utils.to_cuda(data, device)
 
-            # if t in render_step:
-                # save_render(render_dir, t, data, data)
+            if t in render_step:
+                save_render(render_dir, t, data, data)
                 # gt_render(render_dir, t, data, data)
 
 
 
 if __name__ == '__main__':
+    T_num = 10
     main()
 
 

@@ -10,13 +10,17 @@ from jutils import web_utils, image_utils
 
 
 # degree_list = [0, 60, 90, 180, 270, 300]
-data_dir = '/home/yufeiy2/scratch/result/org/'
-# save_dir = '/home/yufeiy2/scratch/result/figs/'
-save_dir = '/home/yufeiy2/scratch/result/figs_row/'
+data_dir = '/private/home/yufeiy2/scratch/result/org/'
+# save_dir = '/private/home/yufeiy2/scratch/result/figs/'
+save_dir = '/private/home/yufeiy2/scratch/result/figs_row/'
 
 method2name = {
     'gt': 'GT',
     'ours': 'Ours',
+    'homan_gt': 'HOMAN-GT',
+    'homan_avg': 'HOMAN-AVG',
+    'homan_far': 'HOMAN-FAR',
+
     'ihoi': 'iHOI',
     'hhor': 'HHOR',
     'obj_prior': 'Category Prior',
@@ -56,6 +60,8 @@ def get_suf_list(suf):
         suf_list = ['gt' , 'overlay_hoi', '90_hoi']
     elif 'vid_t' in suf:
         suf_list = ['render_0', 'render_1'] + ['vHoi', 'vObj_t']
+    elif 'narrow_two' in suf:
+        suf_list = ['overlay_hoi', '60_hoi']
     elif 'vid_obj' in suf:
         suf_list = ['vHoi', 'vObj']
     else:
@@ -228,7 +234,6 @@ def get_one_frame(image_list):
     frame = cv2.resize(frame, (int(frame.shape[1] * 300 / frame.shape[0]), 300))
     
     return frame
-
 
 
 def merge_fig(args):
@@ -575,12 +580,12 @@ if __name__ == '__main__':
 
     # cp_fig()
 
-    # merge_fig(args)
+    merge_fig(args)
     # web_merge(args)
 
     # merge_teaser(args)
     # teaser_web(args)
 
 
-    get_video_grid(args)
+    # get_video_grid(args)
     # make_video_web(args)

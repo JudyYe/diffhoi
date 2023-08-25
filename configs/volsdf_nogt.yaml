@@ -28,6 +28,7 @@ resume_dir:
 device_ids: [0]        # single GPU / DP / DDP; run on all available GPUs; 
 
 test_train: 0
+seed: 42
 
 pixel_sampler:
   name: proportion

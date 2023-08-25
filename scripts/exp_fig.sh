@@ -1,3 +1,11 @@
+python -m tools.make_better_fig --fig wild --method gt,ours,homan --t 0 \
+    --suf triplet  --data wild
+
+
+CUDA_VISIBLE_DEVICES=1 PYTHONPATH=. python -m tools.vis_clips  -m  \
+    load_folder=reproduce/  T_num=5 fig=True gt=True \
+
+
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m tools.vis_clips  -m  \
     load_folder=../org/ours/  video=True   \
     hydra/launcher=slurm

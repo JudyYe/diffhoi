@@ -1,3 +1,14 @@
+
+CUDA_VISIBLE_DEVICES=1 PYTHONPATH=. python -m train -m  \
+    expname=reproduce/\${data.index}  \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1,2  \
+    training.w_rgb=0 \
+    hydra/launcher=learn environment=learn 
+
+
+
+ python -m preprocess.inspect_hoi4d --render --skip
+
 CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m train -m  \
     expname=gray_oTh/\${data.index}_suf\${suf}_\${oTh.learn_R}_\${oTh.learn_t} \
     data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=2 \
@@ -20,9 +31,10 @@ CUDA_VISIBLE_DEVICES=1 PYTHONPATH=. python -m train -m \
     hydra/launcher=learn environment=learn 
 
 CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m train -m  \
-    expname=which_prior_w\${training.w_diffuse}/\${data.index}_suf\${suf}_\${novel_view.diff_index}  \
-    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=2 \
+    expname=which_prior_\${novel_view.diff_index}_w\${training.w_diffuse}/\${data.index}  \
+    data.cat=Mug,Bottle,Kettle,Bowl,Knife,ToyCar data.ind=1,2 \
     novel_view.diff_index=ObjGeomGlide_cond_all_linear_catTrue_cfgFalse,CondGeomGlide_cond_all_linear_catFalse_cfgFalse \
+    novel_view.diff_dir=single_mode3 \
     hydra/launcher=learn environment=learn 
 
 

@@ -1,5 +1,5 @@
 defaults:
-  - environment: grogu_judy
+  - environment: learn
   - hydra: default
 
 

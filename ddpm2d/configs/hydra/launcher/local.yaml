@@ -1,0 +1,6 @@
+defaults:
+  - submitit_local
+
+submitit_folder: ${exp_dir}/submitit_train_logs/
+
+gpus_per_node: 1
