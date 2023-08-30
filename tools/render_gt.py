@@ -221,12 +221,12 @@ def main():
         T = len(data_list) - 1
         render_step = np.linspace(0, T-1, T_num).astype(np.int).tolist() 
         # render_step = [0, T//2, T-1]
-        # render_video(data_list, video_dir, )
-        for t, data in enumerate(data_list):
-            data = model_utils.to_cuda(data, device)
+        render_video(data_list, video_dir, )
+        # for t, data in enumerate(data_list):
+        #     data = model_utils.to_cuda(data, device)
 
-            if t in render_step:
-                save_render(render_dir, t, data, data)
+        #     if t in render_step:
+        #         save_render(render_dir, t, data, data)
                 # gt_render(render_dir, t, data, data)
 
 

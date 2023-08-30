@@ -81,6 +81,7 @@ def get_video_grid(args):
     # cell_list.append(['input', ] + )
     # add header
     header_image = add_header(method_list)
+    os.makedirs(row_dir, exist_ok=True)
     fname = osp.join(row_dir, 'header.png')
     imageio.imwrite(fname, header_image)
     cell_list.append([' ', fname])
@@ -90,7 +91,13 @@ def get_video_grid(args):
         # add input
         suf = 'input'
         method = method_list[0]
-        fig_dir = osp.join(data_dir, method_list[0], index, 'vis_video', '{}', '{}.png')        
+        folder = sorted(glob(osp.join(data_dir, method_list[0], index + '*')))
+        if len(folder) > 1:
+            folder = folder[1]
+        else:
+            folder = folder[0]
+        fig_dir = osp.join(folder, 'vis_video', '{}', '{}.png')        
+        # fig_dir = osp.join(data_dir, method_list[0], index, 'vis_video', '{}', '{}.png')        
         t_num_list = sorted(glob(osp.join(fig_dir.format(suf, '*'))))
         t_num_list = [osp.basename(t).replace('.png', '') for t in t_num_list]
         fname = osp.join(row_dir, f'{index}_input.mp4')        
@@ -580,12 +587,12 @@ if __name__ == '__main__':
 
     # cp_fig()
 
-    merge_fig(args)
+    # merge_fig(args)
     # web_merge(args)
 
     # merge_teaser(args)
     # teaser_web(args)
 
 
-    # get_video_grid(args)
+    get_video_grid(args)
     # make_video_web(args)

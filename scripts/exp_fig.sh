@@ -1,3 +1,16 @@
+CUDA_VISIBLE_DEVICES=6 PYTHONPATH=. python -m tools.vis_clips  -m  \
+    load_folder=../org/ours/  video=True   \
+
+-
+python -m tools.make_better_fig --fig vid_more --method ours  --data hoi4d \
+    --suf vid_t 
+
+
+python -m tools.make_better_fig --fig vid_homan --method gt,ours,homan_gt  --data hoi4d \
+    --suf vid_t 
+
+
+
 python -m tools.make_better_fig --fig wild --method gt,ours,homan --t 0 \
     --suf triplet  --data wild
 

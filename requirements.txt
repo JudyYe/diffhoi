@@ -1,0 +1,21 @@
+omegaconf
+hydra-core 
+submitit
+addict
+imageio
+matplotlib 
+imageio 
+plotly 
+opencv-python
+# pytorch_lightning
+einops
+trimesh
+wandb
+chumpy
+numpy==1.23.1 ## required by chumpy
+setuptools==59.5.0
+git+https://github.com/hassony2/manopth.git
+smplx
+plyfile
+-e git+https://git@github.com/crowsonkb/glide-text2im.git#egg=glide_text2im
+-e git+https://git@github.com/openai/guided-diffusion.git@main#egg=guided_diffusion

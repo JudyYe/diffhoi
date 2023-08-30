@@ -68,7 +68,6 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
     if is_master():
         # backup codes
         io_util.backup(os.path.join(exp_dir, 'backup'))
-
         # save configs
         io_util.save_config(args, os.path.join(exp_dir, 'config.yaml'))
     
@@ -97,6 +96,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
     # Create model
     posenet, focal_net = get_camera(args, datasize=len(dataset)+1, H=dataset.H, W=dataset.W)
     model, trainer, render_kwargs_train, render_kwargs_test, volume_render_fn, flow_render_fn = get_model(args, data_size=len(dataset)+1, cam_norm=dataset.max_cam_norm)
+    
     trainer.train_dataloader = dataloader
     trainer.val_dataloader = valloader
     trainer.init_camera(posenet, focal_net)
@@ -386,8 +386,7 @@ def main_function(gpu=None, ngpus_per_node=None, args=None):
 
                     #-------------------
                     # log grads and learning rate
-                    for k, v in grad_norms.items():
-                        
+                    for k, v in grad_norms.items():                        
                         logger.add('grad', k + f'_{it%2}', v, it)
                     logger.add('learning rates', 'whole', optimizer.param_groups[0]['lr'], it)
 

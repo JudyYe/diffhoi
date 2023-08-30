@@ -1,3 +1,4 @@
+# https://github.com/ventusff/neurecon/blob/972e810ec252cfd16f630b1de6d2802d1b8de59a/utils/rend_util.py
 import cv2
 import numpy as np
 
@@ -5,6 +6,7 @@ import torch
 from torch.nn import functional as F
 
 
+# todo: clean it ? 
 def load_K_Rt_from_P(P):
     """
     modified from IDR https://github.com/lioryariv/idr
