@@ -1,8 +1,6 @@
 CUDA_VISIBLE_DEVICES=1 PYTHONPATH=. python -m train -m  \
-    expname=dev/\${data.index}  \
-    data.cat=Mug data.ind=1  \
-    ckpt=... 
-    data=...
+    expname=dev/hehe_\${data.index}  \
+    data.cat=Mug data.ind=1 data.data_dir=\${environment.output}/../release_HOI4D/HOI4D/\${data.index} \
 
 
 CUDA_VISIBLE_DEVICES=1 PYTHONPATH=. python -m train -m  \
