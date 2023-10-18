@@ -15,7 +15,7 @@ lr:
 w_eikonal: 0.1
 w_mask: 10. 
 w_depth: 0.   # ordinal depth hurts!!
-w_rgb: 1. 
+w_rgb: 0.     # reprojection in RGB hurts... 
 w_flow: 0. 
 w_sdf: 0. 
 w_t_hand: 100. 

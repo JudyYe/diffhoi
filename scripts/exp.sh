@@ -1,3 +1,9 @@
+CUDA_VISIBLE_DEVICES=1 PYTHONPATH=. python -m train -m  \
+    expname=dev/\${data.index}  \
+    data.cat=Mug data.ind=1  \
+    ckpt=... 
+    data=...
+
 
 CUDA_VISIBLE_DEVICES=1 PYTHONPATH=. python -m train -m  \
     expname=reproduce/\${data.index}  \

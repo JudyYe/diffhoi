@@ -17,5 +17,6 @@ setuptools==59.5.0
 git+https://github.com/hassony2/manopth.git
 smplx
 plyfile
--e git+https://git@github.com/crowsonkb/glide-text2im.git#egg=glide_text2im
--e git+https://git@github.com/openai/guided-diffusion.git@main#egg=guided_diffusion
+git+https://git@github.com/crowsonkb/glide-text2im.git#egg=glide_text2im
+git+https://git@github.com/openai/guided-diffusion.git@main#egg=guided_diffusion
+git+https://github.com/JudyYe/nnutils.git@vhoi

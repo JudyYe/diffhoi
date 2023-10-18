@@ -440,6 +440,7 @@ class Trainer(nn.Module):
         if args.training.w_hand_mask > 0:
             obj_mask = model_input['obj_mask'].float()
             N = obj_mask.shape[0]
+            print('whand ', obj_mask.shape, extras['iHand_full']['mask'].shape, model_input['hand_mask'].shape, )
             losses['loss_hand_mask'] = args.training.w_hand_mask * F.l1_loss(
                 obj_mask * extras['iHand_full']['mask'].view(N, -1), obj_mask * model_input['hand_mask'])
             
@@ -797,7 +798,8 @@ class Trainer(nn.Module):
         else:
             rays_o, rays_d, select_inds = rend_util.get_rays(
                 jTc, intrinsics, H, W, N_rays=-1)
-        
+        print('rays', rays_o.shape)
+        # import pdb; pdb.set_trace()
         rgb_obj, depth_v, extras = self.renderer(rays_o, rays_d, detailed_output=True, **render_kwargs_train)
         # rgb: (N, R, 3), mask/depth: (N, R, ), flow: (N, R, 2?)
         iObj = {'rgb': rgb_obj, 'depth': depth_v, 'mask': extras['mask_volume'],}
@@ -834,6 +836,7 @@ class Trainer(nn.Module):
         extras['iHand_full'] = {}
         for k, v in iHand.items():
             extras['iHand_full'][k] = v
+        
         extras['iHand'] = iHand
 
         # 2.3 BLEND!!!

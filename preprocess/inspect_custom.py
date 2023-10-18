@@ -8,11 +8,7 @@ import argparse
 import torch
 from jutils import image_utils, geom_utils, mesh_utils, hand_utils, plot_utils
 from preprocess.clip_pred_hand import post_process, get_predicted_poses, smooth_hand
-cache_dir = '/home/yufeiy2/scratch/result/1st_cache'
-odir = osp.join(cache_dir, 'by_obj')
-pdir = osp.join(cache_dir, 'by_ppl')
-fdir = osp.join(cache_dir, 'by_seq')
-base_dir = '/home/yufeiy2/scratch/result/1st'
+# base_dir = '/private/home/yufeiy2/scratch/result/1st'
 
 # image/  
 #   00000.png
@@ -72,7 +68,7 @@ def convert_from_custom_to_our_no_crop(seqname):
     image_file_list = sorted(glob(osp.join(odir, 'JPEGImages', f'{seqname}_0', '*.*g')))
     obj_file_list = sorted(glob(osp.join(odir, 'VidAnnotations', f'{seqname}_0', '*.*g')))
     hand_file_list = sorted(glob(osp.join(pdir, 'Tracks', f'{seqname}_0', '*.*g')))
-    hand_boxes_list = sorted(glob(osp.join(fdir, 'hand_box', f'{seqname}', '*.json')))
+    # hand_boxes_list = sorted(glob(osp.join(fdir, 'hand_box', f'{seqname}', '*.json')))
 
     image_list = [imageio.imread(f) for f in image_file_list]
     obj_list = [imageio.imread(f) for f in obj_file_list]
@@ -130,8 +126,10 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument('--seq', type=str, default='bowl1,kettle6,knife2,knife3,mug3,mug2,bottle6,kettle4,knife6')
     # parser.add_argument('--seq', type=str, default='bottle_1,mug_1,mug_2,kettle_4,kettl_2,knife_3')
-    parser.add_argument('--seq', type=str, default='bottle_1,bottle_2,mug_3,mug_1,kettle_4,kettl_2,kettle_5,knife_3,bowl_2,bowl_4,bowl_1')
+    # parser.add_argument('--seq', type=str, default='bottle_1,bottle_2,mug_3,mug_1,kettle_4,kettl_2,kettle_5,knife_3,bowl_2,bowl_4,bowl_1')
     
+    parser.add_argument('--out_dir', type=str, default='/private/home/yufeiy2/scratch/result/WILD_CROP')
+    parser.add_argument('--inp_dir', type=str, default='/private/home/yufeiy2/scratch/result/1st_cache')
     # knife1,bowl2,mug1,bottle2
     parser.add_argument('--to_ours', action='store_true')
     parser.add_argument('--smooth', action='store_true')
@@ -144,20 +142,25 @@ def batch_convert(args):
     if args.to_ours:
         convert_from_custom_to_our_no_crop(seq)
     if args.smooth:
-        random_gt_mesh(osp.join(base_dir + '_nocrop', seq))
-        put_text(osp.join(base_dir + '_nocrop', seq))
-        # smooth_hand(osp.join(base_dir + '_nocrop', seq), None, w_smooth=100)
+        random_gt_mesh(osp.join(base_dir, seq))
+        put_text(osp.join(base_dir, seq))
+        # smooth_hand(osp.join(base_dir, seq), None, w_smooth=100)
 
 
 if __name__ == '__main__':
     # batch_convert()
     args = parse_args()
+    base_dir = args.out_dir
+    cache_dir = args.inp_dir
+    odir = osp.join(cache_dir, 'by_obj')
+    pdir = osp.join(cache_dir, 'by_ppl')
+    fdir = osp.join(cache_dir, 'by_seq')
 
     for seq in args.seq.split(','):
         seqname = seq
-        save_dir = osp.join(base_dir + '_nocrop', seqname)
-        done_file = osp.join(save_dir + '_nocrop', 'done', seqname)
-        lock_file = osp.join(save_dir + '_nocrop', 'lock', seqname)  
+        save_dir = osp.join(base_dir, seqname)
+        done_file = osp.join(base_dir, 'done', seqname)
+        lock_file = osp.join(base_dir, 'lock', seqname)  
         if args.skip and osp.exists(done_file):
             continue
         if args.skip and osp.exists(lock_file):      
@@ -177,6 +180,6 @@ if __name__ == '__main__':
     # for seq in args.seq.split(','):
     #     convert_from_custom_to_our_no_crop(seq)
     # if args.smooth:
-    #     random_gt_mesh(osp.join(base_dir + '_nocrop', seq))
-    #     put_text(osp.join(base_dir + '_nocrop', seq))
-    #     # smooth_hand(osp.join(base_dir + '_nocrop', seq), None, w_smooth=100)
+    #     random_gt_mesh(osp.join(base_dir, seq))
+    #     put_text(osp.join(base_dir, seq))
+    #     # smooth_hand(osp.join(base_dir, seq), None, w_smooth=100)
