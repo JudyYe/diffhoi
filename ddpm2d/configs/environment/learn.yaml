@@ -1,9 +1,9 @@
-user: condinv-ssl # judyye
-api: 8e99ff14eba9677d715999d7a282c9ff79cfb9bf # 8e99ff14eba9677d715999d7a282c9ff79cfb9bf
+user: 
+api: 
 
 wandb:
-  user: condinv-ssl # judyye
-  api: 8e99ff14eba9677d715999d7a282c9ff79cfb9bf # 8e99ff14eba9677d715999d7a282c9ff79cfb9bf
+  user: 
+  api: 
 remote_str: /private/home/yufeiy2/scratch/
 data_dir: ${environment.remote_str}/data/
 output: ${environment.remote_str}/result/vhoi

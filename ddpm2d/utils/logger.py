@@ -158,7 +158,7 @@ def build_logger(cfg):
     elif cfg.logging == 'wandb':
         os.makedirs(cfg.exp_dir + '/wandb', exist_ok=True)
         import wandb
-        wandb.login(key='8e99ff14eba9677d715999d7a282c9ff79cfb9bf')
+        wandb.login(key='your-key')
         runid = None
         if os.path.exists(f"{cfg.exp_dir}/runid.txt"):
             runid = open(f"{cfg.exp_dir}/runid.txt").read()
