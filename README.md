@@ -1,5 +1,5 @@
 # Diffusion-Guided Reconstruction of Everyday Hand-Object Interaction Clips, ICCV23
-This is a barely cleaned version of DiffHOI. It is intended to quickly reproduce the result in our ICCV paper (given a fast approaching conference recently).  Better version will be released at [here](https://github.com/JudyYe/diffhoi).  Thanks for your patience!
+This is a barely cleaned version of DiffHOI. 
 
 [[Project]](https://judyye.github.io/diffhoi-www/)
 
